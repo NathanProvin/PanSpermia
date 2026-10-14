@@ -58,7 +58,7 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
 ## Phases
 ### Milestone A — Tier 1 vertical slice (full quality)
 - [x] P0 Foundations: git init, monorepo (Vite client, Colyseus server, shared constants), dev scripts, first /graphify run. (2026-10-14)
-- [ ] P1 Core sim: server-authoritative movement, nutrient pickup, mass->speed curve, metabolism, health/death, client interpolation, 50-player room. Use Colyseus 0.18 built-ins: `setFixedTimestep` + `defineInput` (server), `Predict`/`Reconciler` (client prediction), `Rewind` (lag compensation).
+- [x] P1 Core sim (2026-10-14): 20 Hz fixed-timestep authoritative sim, shared deterministic `move`/`clampSteer`, client prediction (`Reconciler`) + lerp for remotes, nutrients placeholder, mass->radius/speed, metabolism, starvation death -> respawn, 50-player rooms. Lag compensation (`Rewind`) deferred to P3 combat.
 - [ ] P2 Render bar: depth layers + parallax, DOF blur, bloom, membrane shader (wobble/translucency), caustics, plankton particles, current flow field.
 - [ ] P3 Tier-1 gameplay: run-and-tumble movement, nutrient plumes + debris feeding, lysis combat (toxin clouds, T6SS, defenses, endospore), transformation + plasmid unlocks, fission, phages, bot ecology (tier-1 part + bot catalog), headless sim tool for tuning, meteor intro.
 - [ ] P4 Lineage loop: DNA meter, mate call (vulnerable), freeform editor, children-vs-parts trade-off, lives reserve, game over + killer screen.

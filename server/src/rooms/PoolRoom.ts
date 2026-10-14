@@ -1,15 +1,29 @@
 import { Room, type Client } from '@colyseus/core';
-import { MAX_PLAYERS, Player, PoolState, WORLD_RADIUS } from '@panspermia/shared';
+import { Input, MAX_PLAYERS, PoolState, TICK_RATE, clampSteer, move } from '@panspermia/shared';
+import { spawnPlayer, stepWorld, topUpNutrients } from '../world.ts';
 
-export class PoolRoom extends Room<{ state: PoolState }> {
+export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   override maxClients = MAX_PLAYERS;
   override state = new PoolState();
+  // Never trust the wire. Not a per-axis range clamp: that would bend the heading of
+  // any |dir| > 1 input away from what the client predicted.
+  override inputs = this.defineInput(Input, { sanitize: clampSteer });
+
+  override onCreate() {
+    topUpNutrients(this.state);
+    this.setFixedTimestep((ctx) => {
+      // One step per buffered input, the same step the client predicts and replays.
+      for (const [id, p] of this.state.players) {
+        for (const cmd of this.inputs.get(id)) move(p, p.mass, cmd.dirX, cmd.dirY, ctx.dt);
+      }
+      for (const id of stepWorld(this.state, ctx.dt)) {
+        this.clients.getById(id)?.send('died', { cause: 'starvation' });
+      }
+    }, TICK_RATE);
+  }
 
   override onJoin(client: Client) {
-    // Uniform point in the spawn disc.
-    const angle = Math.random() * 2 * Math.PI;
-    const r = WORLD_RADIUS * Math.sqrt(Math.random());
-    this.state.players.set(client.sessionId, new Player({ x: r * Math.cos(angle), y: r * Math.sin(angle) }));
+    this.state.players.set(client.sessionId, spawnPlayer());
   }
 
   override onLeave(client: Client) {
