@@ -1,44 +1,40 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
-import {
-  Input, NUTRIENT_COUNT, PoolState, ROOM_NAME, SERVER_PORT, WORLD_RADIUS, clampSteer, move, radiusOf,
-} from '@panspermia/shared';
+import { Input, PoolState, ROOM_NAME, SERVER_PORT, clampSteer, move, radiusOf } from '@panspermia/shared';
 import * as THREE from 'three';
+import { createCells } from './scene/cells.ts';
+import { createNutrients } from './scene/nutrients.ts';
+import { createPlankton } from './scene/plankton.ts';
+import { createPool } from './scene/pool.ts';
+import { createPost } from './scene/post.ts';
 
 const hud = document.getElementById('hud')!;
 const endpoint = import.meta.env.VITE_SERVER_URL ?? `${location.protocol}//${location.hostname}:${SERVER_PORT}`;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: false }); // MSAA lives on the composer's HDR target
 document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x02121a);
-// Perspective top-down camera: depth layers (parallax, DOF) come in P2.
-const camera = new THREE.PerspectiveCamera(50, 1, 1, 10000);
+// Top-down perspective camera over the gameplay plane z = 0, which is also the focal plane.
+const camera = new THREE.PerspectiveCamera(50, 1, 10, 6000);
 camera.position.z = 700;
 
+const post = createPost(renderer, scene, camera);
 const resize = () => {
+  const pixelRatio = Math.min(devicePixelRatio, 2);
+  renderer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
+  post.setSize(innerWidth, innerHeight, pixelRatio);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
 };
 addEventListener('resize', resize);
 resize();
 
-// Placeholder visuals; P2 replaces them with shaders.
-scene.add(new THREE.Mesh(
-  new THREE.RingGeometry(WORLD_RADIUS, WORLD_RADIUS + 8, 256),
-  new THREE.MeshBasicMaterial({ color: 0x1d4f5c }),
-));
-const nutrientPositions = new Float32Array(NUTRIENT_COUNT * 3);
-const nutrientGeometry = new THREE.BufferGeometry();
-nutrientGeometry.setAttribute('position', new THREE.BufferAttribute(nutrientPositions, 3));
-scene.add(new THREE.Points(nutrientGeometry, new THREE.PointsMaterial({ color: 0xc8f07a, size: 5 })));
-
-const cellGeometry = new THREE.CircleGeometry(1, 48);
-const selfMaterial = new THREE.MeshBasicMaterial({ color: 0x7dffb0 });
-const otherMaterial = new THREE.MeshBasicMaterial({ color: 0x4fa8c7 });
-const cells = new Map<string, THREE.Mesh>();
+const pool = createPool();
+const plankton = createPlankton(camera);
+const nutrientLayer = createNutrients();
+const cells = createCells(scene);
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects);
 
 // Steering: pointer offset from the screen centre (where your cell is drawn).
 // Full throttle at a quarter of the short screen side; `clampSteer` caps anything beyond.
@@ -50,6 +46,7 @@ addEventListener('pointermove', (e) => {
 const throttleScale = () => Math.min(innerWidth, innerHeight) / 4;
 
 let notice = '';
+let fps = 0; // dev readout, exponential moving average
 let noticeUntil = 0;
 
 try {
@@ -79,6 +76,7 @@ try {
     });
   });
 
+  let last = performance.now();
   renderer.setAnimationLoop((now) => {
     // Send the due inputs before reading any predicted value (see Predict.tick).
     for (let due = predict.tick(now); due > 0; due--) {
@@ -88,42 +86,29 @@ try {
       input.send();
     }
 
+    const time = now / 1000;
+    const dt = Math.min((now - last) / 1000, 0.1); // clamp after tab switches
+    last = now;
+    if (dt > 0) fps += (1 / dt - fps) * 0.05;
     const { players, nutrients } = room.state;
-    // ponytail: full diff every frame, fine for ~100 cells; switch to state callbacks if it shows in profiles.
-    for (const [id, p] of players) {
-      let mesh = cells.get(id);
-      if (!mesh) {
-        mesh = new THREE.Mesh(cellGeometry, id === room.sessionId ? selfMaterial : otherMaterial);
-        scene.add(mesh);
-        cells.set(id, mesh);
-      }
-      mesh.position.set(predict.value(p, 'x'), predict.value(p, 'y'), 1);
-      mesh.scale.setScalar(radiusOf(p.mass));
-    }
-    for (const [id, mesh] of cells) {
-      if (!players.has(id)) { scene.remove(mesh); cells.delete(id); }
-    }
 
-    let i = 0;
-    for (const n of nutrients.values()) {
-      if (i >= nutrientPositions.length) break;
-      nutrientPositions[i++] = n.x;
-      nutrientPositions[i++] = n.y;
-      nutrientPositions[i++] = 0;
-    }
-    nutrientGeometry.setDrawRange(0, i / 3);
-    nutrientGeometry.attributes.position!.needsUpdate = true;
-
+    cells.update(players, room.sessionId, time, (p) => [predict.value(p, 'x'), predict.value(p, 'y')]);
     const self = players.get(room.sessionId);
     const selfMesh = cells.get(room.sessionId);
     if (self && selfMesh) {
-      // Zoom out as the cell grows.
-      const targetZ = 500 + 15 * radiusOf(self.mass);
+      // Follow the cell; zoom out as it grows.
+      const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
       hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)} · ${players.size} cell${players.size === 1 ? '' : 's'}`
+        + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
     }
-    renderer.render(scene, camera);
+
+    const focus = camera.position.z; // distance to the gameplay plane
+    pool.update(time);
+    plankton.update(time, dt, focus);
+    nutrientLayer.update(nutrients, time, focus);
+    post.render();
   });
 } catch (err) {
   hud.textContent = `Cannot reach server at ${endpoint}`;
