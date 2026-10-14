@@ -60,7 +60,15 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
 - [x] P0 Foundations: git init, monorepo (Vite client, Colyseus server, shared constants), dev scripts, first /graphify run. (2026-10-14)
 - [x] P1 Core sim (2026-10-14): 20 Hz fixed-timestep authoritative sim, shared deterministic `move`/`clampSteer`, client prediction (`Reconciler`) + lerp for remotes, nutrients placeholder, mass->radius/speed, metabolism, starvation death -> respawn, 50-player rooms. Lag compensation (`Rewind`) deferred to P3 combat.
 - [x] P2 Render bar (2026-10-14): depth layers + parallax (perspective camera, floor at z -1400, plankton -1100..-60 and foreground 40..160), per-layer baked DOF, HDR bloom + ACES, membrane shader (wobble, translucent cytoplasm, nucleoid, glint), warped-Worley caustics, rocky pool rim, plankton drifting on the shared current field. Open: art polish (eat/death FX, parts visuals come with P3), FPS: 45 on dev machine (user report), below 60 target — profile before P6 (suspects: full-res floor shader, bloom, sprite overdraw).
-- [ ] P3 Tier-1 gameplay: run-and-tumble movement, nutrient plumes + debris feeding, lysis combat (toxin clouds, T6SS, defenses, endospore), transformation + plasmid unlocks, fission, phages, bot ecology (tier-1 part + bot catalog), headless sim tool for tuning, meteor intro.
+- [ ] P3 Tier-1 gameplay, sliced (2026-10-14):
+  - [x] P3a Gene catalog (`shared/src/genes.ts`, bitmask genome, upkeep) + currents move cells + run-and-tumble (flagellum/pili/chemoreceptor), gene visuals, dev gene cheats (`--dev` only)
+  - [x] P3b Feeding: 7 wandering seeps emit plumes of food packets drifting on the currents (+ thin background, 60 s lifetime); debris (red) from dead cells (50% of mass); transporters ×1.5 dissolved, siderophores ×1.6 reach, exoenzymes ×2 debris; 80-unit spatial grid; packet paths rebuilt client-side (spawn-only sync); integer tick clock
+  - [ ] P3c Combat: health, toxin clouds (bacteriocin, pore-former), T6SS, capsule/wall/efflux, endospore; lysis -> debris + DNA; Input gains action bits (click toxin, Shift/right-click endospore)
+  - [ ] P3d Unlocks: transformation from DNA fragments, drifting plasmids (auto-express until P4)
+  - [ ] P3e Phages
+  - [ ] P3f Bot species (genome + archetype) + headless balancing sim
+  - [ ] P3g Meteor intro
+  - Original scope: run-and-tumble movement, nutrient plumes + debris feeding, lysis combat (toxin clouds, T6SS, defenses, endospore), transformation + plasmid unlocks, fission, phages, bot ecology (tier-1 part + bot catalog), headless sim tool for tuning, meteor intro.
 - [ ] P4 Lineage loop: DNA meter, mate call (vulnerable), freeform editor, children-vs-parts trade-off, lives reserve, game over + killer screen.
 - [ ] P5 Virality: species name on cell, live leaderboard, shareable species card (render + link), slice ends at "evolved to eukaryote" moment.
 - [ ] P6 Ship: VPS deploy, bot-driven 50-player load test, basic analytics (session length, restarts, shares), first public playtest.

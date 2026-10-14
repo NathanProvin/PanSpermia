@@ -1,5 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
-import { Input, PoolState, ROOM_NAME, SERVER_PORT, clampSteer, move, radiusOf } from '@panspermia/shared';
+import {
+  GENES, GENE_NAMES, Input, PoolState, ROOM_NAME, SERVER_PORT, TICK_DT, clampSteer, hasGene, radiusOf, stepCell,
+} from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCells } from './scene/cells.ts';
 import { createNutrients } from './scene/nutrients.ts';
@@ -60,23 +62,39 @@ try {
   const input = room.input({ type: Input, mode: 'reliable' });
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
   predict.attachAll('players', { x: 'lerp', y: 'lerp' });
+  predict.attachAll('players', { heading: { mode: 'lerp', angle: true } }); // angles lerp the short way round
 
   // Own cell: predicted locally, reconciled against the server. Death replaces the
   // Player instance, so rebind whenever our entry is (re)added.
+  const callbacks = Callbacks.get<PoolState>(room);
+  callbacks.onAdd('nutrients', (n, id) => nutrientLayer.add(id, n));
+  callbacks.onRemove('nutrients', (_, id) => nutrientLayer.remove(id));
+
   let me: Reconciler | undefined;
-  Callbacks.get<PoolState>(room).onAdd('players', (player, id) => {
+  callbacks.onAdd('players', (player, id) => {
     if (id !== room.sessionId) return;
     me?.dispose();
     me = predict.reconciler(player, {
       input,
-      fields: ['x', 'y'],
-      // Mass is server-driven (eating, metabolism); replay reads its latest value, smoothing absorbs the drift.
-      step: (ctx, state, cmd) => move(state, player.mass, cmd.dirX, cmd.dirY, ctx.dt),
+      fields: ['x', 'y', 'heading', 'tumble', 'rng'],
+      // Mass, genome and the sim clock are server-driven; replay reads their latest values and
+      // smoothing absorbs the tiny resulting drift (currents change slowly).
+      step: (ctx, state, cmd) => stepCell(state, player.mass, player.genome, cmd.dirX, cmd.dirY, ctx.dt, room.state.tick * TICK_DT),
       warnOnDivergence: import.meta.env.DEV ? 1 : undefined, // console warning if client and server sims drift apart
     });
   });
 
+  if (import.meta.env.DEV) {
+    // Dev cheat (server must run with --dev, else it kicks us): number keys toggle genes.
+    addEventListener('keydown', (e) => {
+      const gene = GENE_NAMES[Number(e.key) - 1];
+      if (gene) room.send('dev:toggleGene', gene);
+    });
+  }
+
   let last = performance.now();
+  let lastTick = -1;
+  let tickArrivedAt = 0;
   renderer.setAnimationLoop((now) => {
     // Send the due inputs before reading any predicted value (see Predict.tick).
     for (let due = predict.tick(now); due > 0; due--) {
@@ -90,16 +108,23 @@ try {
     const dt = Math.min((now - last) / 1000, 0.1); // clamp after tab switches
     last = now;
     if (dt > 0) fps += (1 / dt - fps) * 0.05;
-    const { players, nutrients } = room.state;
+    const { players, seeps, tick } = room.state;
+    if (tick !== lastTick) {
+      lastTick = tick;
+      tickArrivedAt = now;
+    }
 
-    cells.update(players, room.sessionId, time, (p) => [predict.value(p, 'x'), predict.value(p, 'y')]);
+    cells.update(players, room.sessionId, time, dt, (p) => ({
+      x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'), tumble: predict.value(p, 'tumble'),
+    }));
     const self = players.get(room.sessionId);
     const selfMesh = cells.get(room.sessionId);
     if (self && selfMesh) {
       // Follow the cell; zoom out as it grows.
       const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
-      hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)} · ${players.size} cell${players.size === 1 ? '' : 's'}`
+      const genes = GENE_NAMES.filter((g) => hasGene(self.genome, g)).map((g) => GENES[g].label).join(', ') || 'no genes';
+      hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)} · ${genes} · ${players.size} cell${players.size === 1 ? '' : 's'}`
         + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
     }
@@ -107,7 +132,7 @@ try {
     const focus = camera.position.z; // distance to the gameplay plane
     pool.update(time);
     plankton.update(time, dt, focus);
-    nutrientLayer.update(nutrients, time, focus);
+    nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus);
     post.render();
   });
 } catch (err) {

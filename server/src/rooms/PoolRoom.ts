@@ -1,6 +1,13 @@
 import { Room, type Client } from '@colyseus/core';
-import { Input, MAX_PLAYERS, PoolState, TICK_RATE, clampSteer, move } from '@panspermia/shared';
-import { spawnPlayer, stepWorld, topUpNutrients } from '../world.ts';
+import {
+  GENES, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, clampSteer, stepCell,
+} from '@panspermia/shared';
+import { initPool, spawnPlayer, stepWorld } from '../world.ts';
+
+export interface PoolOptions {
+  /** Enables cheat messages for manual testing. Only `--dev` turns it on; never in production. */
+  dev?: boolean;
+}
 
 export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   override maxClients = MAX_PLAYERS;
@@ -8,18 +15,37 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   // Never trust the wire. Not a per-axis range clamp: that would bend the heading of
   // any |dir| > 1 input away from what the client predicted.
   override inputs = this.defineInput(Input, { sanitize: clampSteer });
+  /** Consecutive ticks without input per session (server-only bookkeeping). */
+  private idleTicks = new Map<string, number>();
 
-  override onCreate() {
-    topUpNutrients(this.state);
+  override onCreate(options: PoolOptions = {}) {
+    initPool(this.state);
     this.setFixedTimestep((ctx) => {
+      const time = this.state.tick * TICK_DT;
       // One step per buffered input, the same step the client predicts and replays.
       for (const [id, p] of this.state.players) {
-        for (const cmd of this.inputs.get(id)) move(p, p.mass, cmd.dirX, cmd.dirY, ctx.dt);
+        let steps = 0;
+        for (const cmd of this.inputs.get(id)) {
+          stepCell(p, p.mass, p.genome, cmd.dirX, cmd.dirY, ctx.dt, time);
+          steps++;
+        }
+        // A silent client (backgrounded tab) still drifts with the current after a grace period;
+        // the grace absorbs network jitter so bursty-but-live clients never get unpredicted steps.
+        const idle = steps ? 0 : (this.idleTicks.get(id) ?? 0) + 1;
+        this.idleTicks.set(id, idle);
+        if (idle > IDLE_GRACE_TICKS) stepCell(p, p.mass, p.genome, 0, 0, ctx.dt, time);
       }
-      for (const id of stepWorld(this.state, ctx.dt)) {
+      for (const id of stepWorld(this.state)) {
         this.clients.getById(id)?.send('died', { cause: 'starvation' });
       }
     }, TICK_RATE);
+
+    if (options.dev) {
+      this.onMessage('dev:toggleGene', (client, gene: unknown) => {
+        const p = this.state.players.get(client.sessionId);
+        if (p && typeof gene === 'string' && Object.hasOwn(GENES, gene)) p.genome ^= GENES[gene as Gene].bit;
+      });
+    }
   }
 
   override onJoin(client: Client) {
@@ -28,5 +54,6 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
 
   override onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
+    this.idleTicks.delete(client.sessionId);
   }
 }

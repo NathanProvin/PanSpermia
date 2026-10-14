@@ -113,3 +113,29 @@ Decision: all GLSL written from scratch (caustics = domain-warped animated Worle
 
 ## 2026-10-14 — Camera framing
 Decision: camera z = 140 + 12·radius (≈290 at spawn, ≈620 at cap); cell is the hero (~60-75 px at spawn on 800 px tall view). Foreground layer must stay below the lowest camera (z ≈ 247).
+
+## 2026-10-14 — P3 design forks (user-chosen)
+Decision: genes auto-express when acquired during P3 (P4 adds placement/DNA costs/choice); run-and-tumble = tumble to turn (pointer > 45° off heading -> 0.3 s stop -> re-aim with ±60° error, ±15° with chemoreceptor; slow 0.7 rad/s steering within the cone); fission = tier-1 reproduction (P4), no agar attack split; controls = pointer steer, left click toxin, Shift/right-click endospore.
+
+## 2026-10-14 — Genome = bitmask + upkeep
+Decision: `Player.genome` uint32 bitmask over `GENES` (shared data catalog); each expressed gene adds upkeep (mass/s) to metabolism. Starter genome: pili (precise, slow, resists currents). Genes are added to the catalog only when their mechanic lands.
+
+## 2026-10-14 — Deterministic randomness + shared clock for prediction
+Decision: tumble randomness = xorshift32 state synced on `Player.rng` and stepped identically on both sides; `PoolState.time` (default 0) drives currents. Client replay uses the latest synced time (currents change slowly: sub-unit error, test-asserted drift < 0.3).
+
+## 2026-10-14 — Silent clients drift after a grace period
+Decision: if a client sends no input for IDLE_GRACE_TICKS (10 = 0.5 s) the server steps its cell with zero input so currents keep carrying it. The grace absorbs jitter so live clients never get unpredicted steps. A backgrounded tab is corrected when it resumes (expected; this is what the automation browser tab triggers).
+
+## 2026-10-14 — Room options must be explicit (security)
+Decision: `createServer` passes every room option explicitly (`dev: options.dev === true`). Why: Colyseus merges client create-options under handler options, so an unset key let a client `create('pool', { dev: true })` and enable cheats; regression-tested. Dev cheats only with `node src/index.ts --dev` (the `npm run dev` script); unknown messages get the client kicked (4002).
+
+## 2026-10-14 — P3b food = drifting packets, spawn-only sync
+Decision: food is packets (dissolved 1 mass, debris 2) emitted by 7 seeps that relocate every 90-240 s (plumes/streams) plus a thin background (6/s), drifting on the shared current, dissolving after 60 s or at the rock, capped at 2000. Only spawn point (float32, server pre-rounds with Math.fround), spawn tick and kind are synced; every client rebuilds the path with the shared fixed-tick `drift`. Rooms prewarm one lifetime (223 ms) so plumes exist at first join; a joining client catches up in ~67 ms.
+Why: syncing ~1000 moving positions at 20 Hz ≈ 240 KB/s per client; spawn/remove events cost ~0.5 KB/s. Path identity is test-asserted (server vs rebuild, over the wire, bit-exact).
+Rejected: synced scalar concentration grid (bandwidth), analytic field without depletion (no competition over plumes).
+
+## 2026-10-14 — Sim clock = integer tick
+Decision: `PoolState.tick` (uint32) replaces the float `time`; time = tick · TICK_DT. Why: exact and identical on every side forever (uint32 at 20 Hz lasts 6.8 years); float32 time would lose tick precision after ~1 day.
+
+## 2026-10-14 — Feeding genes and Spore colour code
+Decision: transporters ×1.5 dissolved yield, siderophores ×1.6 absorption reach (dotted ring shows it), exoenzymes ×2 debris yield (warm halo). Dissolved food is green, debris is red: Spore's plant/meat colour code, a nostalgia cue. Dead cells release 50% of their mass as debris.
