@@ -1,0 +1,20 @@
+{
+  "name": "panspermia",
+  "private": true,
+  "type": "module",
+  "workspaces": ["shared", "server", "client"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "concurrently": "^10.0.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  }
+}

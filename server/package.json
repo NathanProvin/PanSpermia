@@ -1,0 +1,19 @@
+{
+  "name": "@panspermia/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.18.18",
+    "@colyseus/schema": "^5.0.40",
+    "@colyseus/ws-transport": "^0.18.4",
+    "@panspermia/shared": "*"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.18.5"
+  }
+}
