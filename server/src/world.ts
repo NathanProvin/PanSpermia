@@ -596,10 +596,10 @@ export function stepWorld(state: PoolState): Death[] {
     if (!hooks) continue;
     const rp = radiusOf(par.mass);
     for (const host of state.players.values()) {
-      if (host.tier !== 2 || dormant(host) || tick < host.graceUntil) continue;
+      if (host.tier < 2 || dormant(host) || tick < host.graceUntil) continue; // eukaryotes and animals
       const touch = radiusOf(host.mass) + rp;
       if (!((host.x - par.x) ** 2 + (host.y - par.y) ** 2 < touch * touch)) continue;
-      const drained = Math.min(ADHESIN_DRAIN * stack(hooks) * TICK_DT, host.mass - minMassOf(2));
+      const drained = Math.min(ADHESIN_DRAIN * stack(hooks) * TICK_DT, host.mass - minMassOf(host.tier));
       if (drained <= 0) continue;
       host.mass -= drained;
       par.mass = Math.min(MASS_CAP, par.mass + drained * ADHESIN_SHARE);

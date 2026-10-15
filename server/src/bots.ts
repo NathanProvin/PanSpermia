@@ -3,11 +3,11 @@
 // Pure functions over PoolState + a brain map: the room and the headless balancing sim both drive them.
 // Bots exist at every tier: a species says which, and its genes are names in that tier's catalog.
 import {
-  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, ENGULF_RATIO, NutrientKind, type Nutrient, type Player, type PoolState,
-  type Species, T2_HEALTH_MAX, T2_SPAWN_MASS, TICK_DT, TIER2, WORLD_RADIUS, catalogFor, hasGene, healthMaxOf, massCapOf,
+  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, NutrientKind, type Nutrient, type Player, type PoolState,
+  type Species, T2_HEALTH_MAX, T2_SPAWN_MASS, T3_HEALTH_MAX, T3_SPAWN_MASS, TICK_DT, TIER2, TIER3, WORLD_RADIUS, catalogFor, hasGene, healthMaxOf, massCapOf,
   radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
-import { type Death, secrete, spawnPlayer, swallows, yield2Of, yieldOf } from './world.ts';
+import { type Death, secrete, spawnPlayer, swallows, yield2Of, yield3Of, yieldOf } from './world.ts';
 
 export interface Brain {
   species: number; // index into BOT_SPECIES
@@ -24,7 +24,9 @@ export interface Brain {
 }
 export type Bots = Map<string, Brain>;
 
-const SIGHT = [0, 350, 650]; // per tier: a eukaryote's senses span its bigger world
+const SIGHT = [0, 350, 650, 1100]; // per tier: bigger bodies sense a bigger world
+/** Fear and firing distances grow with the body, per tier. */
+const SCALE = [0, 1, 2, 3.5];
 const THINK_TICKS = 4; // 5 Hz reactions, and 4× cheaper perception
 const PHAGE_DODGE = 90; // keep this far beyond the membrane
 const GENE_VALUE = 3; // how much a missing gene is worth, in food terms
@@ -36,14 +38,16 @@ const COWARD_FEAR = 250; // cowards keep this gap from any foreigner (×tier)
 const HUNT_UNTIL = 0.7;
 /** Phagocytosis takes time: a eukaryote hunter rests this long after each swallow (caps its kill rate). */
 const DIGEST_TICKS = 6 * 20;
+/** An animal hunter rests longer after a meal: a few predators must not empty the pool. */
+const DIGEST_TICKS_T3 = 30 * 20;
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */
 const SPAWN_WEIGHT = { grazer: 3, coward: 2, swarm: 2, hunter: 1, parasite: 2 } as const;
-const SPAWN_CYCLE = BOT_SPECIES.flatMap((s, i) => Array<number>(s.tier === 2 ? 1 : SPAWN_WEIGHT[s.archetype]).fill(i));
+const SPAWN_CYCLE = BOT_SPECIES.flatMap((s, i) => Array<number>(s.tier >= 2 ? 1 : SPAWN_WEIGHT[s.archetype]).fill(i));
 
 /** Carries a weapon of its tier (what grazers keep away from). */
-const armed = (o: Player) => o.tier === 2
+const armed = (o: Player) => o.tier === 3 ? TIER3.hasGene(o.genome3, 'mandible') : o.tier === 2
   ? TIER2.hasGene(o.genome2, 'spike') || TIER2.hasGene(o.genome2, 'electric') || TIER2.hasGene(o.genome2, 'poison')
   : hasGene(o.genome, 'bacteriocin') || hasGene(o.genome, 'poreFormer') || hasGene(o.genome, 't6ss');
 
@@ -56,7 +60,8 @@ const brain = (species: number, tick: number): Brain => ({
 function incarnate(tick: number, s: Species, at?: { x: number; y: number; heading: number }) {
   const p = spawnPlayer(tick);
   const genome = catalogFor(s.tier).genomeOf(s.genes);
-  if (s.tier === 2) Object.assign(p, { tier: 2, genome: 0, genome2: genome, mass: T2_SPAWN_MASS, health: T2_HEALTH_MAX });
+  if (s.tier === 3) Object.assign(p, { tier: 3, genome: 0, genome3: genome, mass: T3_SPAWN_MASS, health: T3_HEALTH_MAX });
+  else if (s.tier === 2) Object.assign(p, { tier: 2, genome: 0, genome2: genome, mass: T2_SPAWN_MASS, health: T2_HEALTH_MAX });
   else p.genome = genome;
   Object.assign(p, { name: s.name, shape: s.shape }, at);
   return p;
@@ -125,9 +130,9 @@ function foodGrid(state: PoolState) {
 /** Decide where to swim and what to fire, from what the bot can see. */
 function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: string, p: Player, b: Brain) {
   const { archetype } = BOT_SPECIES[b.species]!;
-  const t2 = p.tier === 2;
+  const t2 = p.tier >= 2; // eukaryotes and animals: eat by mouth, swallow prey, no bacterial toxins
   const sight = SIGHT[p.tier]!;
-  const scale = t2 ? 2 : 1; // fear and firing distances grow with the body
+  const scale = SCALE[p.tier]!;
   const r = radiusOf(p.mass);
   let sx = 0;
   let sy = 0;
@@ -149,8 +154,8 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
         if (d2 > sight * sight) continue;
         const d = Math.sqrt(d2) || 1;
         if (n.kind === NutrientKind.phage || n.kind === NutrientKind.virus) {
-          // Dodge the viruses of its own tier: phages for bacteria, giant viruses for eukaryotes.
-          if ((n.kind === NutrientKind.virus) !== t2) continue;
+          // Dodge the viruses of its own tier: phages for bacteria, giant viruses for eukaryotes (animals ignore both).
+          if (p.tier === 3 || (n.kind === NutrientKind.virus) !== t2) continue;
           const near = r + PHAGE_DODGE * (t2 ? 2 : 1);
           if (d < near) {
             sx -= (dx / d) * 3 * (1 - d / near);
@@ -158,7 +163,7 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
           }
           continue;
         }
-        const value = t2 ? yield2Of(n.kind, p.genome2)
+        const value = p.tier === 3 ? yield3Of(n.kind, p.genome3) : t2 ? yield2Of(n.kind, p.genome2)
           : n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid ? (p.genome & n.gene ? 0 : GENE_VALUE)
           : yieldOf(n.kind, p.genome);
         const score = value / (d + 30);
@@ -181,10 +186,12 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
   let kin = 0;
   // Hunters that can also graze stop hunting when well fed; a pure carnivore (a jaw, no filter) can only
   // reach its division size by hunting, so it hunts on, resting to digest after each swallow.
-  if (t2 && p.mass > b.lastMass * 1.04 && b.lastMass > 0) b.fedUntil = state.tick + DIGEST_TICKS;
+  if (t2 && p.mass > b.lastMass * 1.04 && b.lastMass > 0) b.fedUntil = state.tick + (p.tier === 3 ? DIGEST_TICKS_T3 : DIGEST_TICKS);
   b.lastMass = p.mass;
-  const grazes = !t2 || TIER2.hasGene(p.genome2, 'filter');
-  const hungry = grazes ? p.mass < massCapOf(p.tier) * HUNT_UNTIL : state.tick >= b.fedUntil;
+  const grazes = p.tier === 3 ? TIER3.hasGene(p.genome3, 'filterComb') : !t2 || TIER2.hasGene(p.genome2, 'filter');
+  const fed = state.tick < b.fedUntil;
+  // Animals always digest after a meal; grazing eukaryotes and bacteria hunt until well fed.
+  const hungry = p.tier === 3 ? !fed && p.mass < massCapOf(p.tier) * HUNT_UNTIL : grazes ? p.mass < massCapOf(p.tier) * HUNT_UNTIL : !fed;
   let swallowerClose = false;
   let host: { d: number; dx: number; dy: number; r: number } | undefined; // a parasite's target
   let clingers = 0; // parasites hanging on to this eukaryote
@@ -201,12 +208,13 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
       continue;
     }
     const gap = d - r - radiusOf(o.mass);
-    if (archetype === 'parasite' && o.tier === 2 && o.spore === 0 && o.cyst === 0 && d < (host?.d ?? Infinity)) {
+    if (archetype === 'parasite' && o.tier >= 2 && !oid.startsWith('~') && o.spore === 0 && o.cyst === 0 && d < (host?.d ?? Infinity)) {
       host = { d, dx, dy, r: radiusOf(o.mass) };
     }
     if (t2 && o.tier === 1 && hasGene(o.genome, 'adhesin') && gap < 0) clingers++;
-    // Eukaryote hunters chase what their jaw can swallow; bacterial hunters what's clearly smaller.
-    const catchable = t2 ? TIER2.hasGene(p.genome2, 'jaw') && o.mass <= p.mass * ENGULF_RATIO : o.mass < p.mass * PREY_RATIO;
+    // Eukaryote and animal hunters chase what their mouth can swallow; bacterial hunters what's clearly smaller.
+    // Animals only chase eukaryotes and smaller animals: bacteria are swept up in passing, not hunted.
+    const catchable = t2 ? swallows(p, o) && (p.tier < 3 || o.tier >= 2) : o.mass < p.mass * PREY_RATIO;
     const isPrey = archetype === 'hunter' && hungry && catchable && o.spore === 0 && o.cyst === 0 && state.tick >= o.graceUntil;
     if (isPrey && d < (prey?.d ?? Infinity)) prey = { d, x: dx / d, y: dy / d };
     // Everyone flees a jawed eukaryote or an animal big enough to swallow them.
@@ -251,7 +259,7 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
     sy -= (p.y / fromCentre) * 1.5;
   }
 
-  if (t2) {
+  if (p.tier === 2) {
     // A fleeing eukaryote leaves poison behind it; the jet gets it out of trouble or onto close prey.
     if (fleeing) actions |= ACTION_TOXIN;
     if (fleeing || clingers > 0 || (prey && prey.d < r * 3)) actions |= ACTION_SPORE; // the jet shakes parasites off

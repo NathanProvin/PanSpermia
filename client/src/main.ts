@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TOXINS, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TOXINS, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -170,7 +170,9 @@ try {
     const cat = catalogFor(p.tier);
     // The species design, unless this individual differs (dev cheats) or has no lineage (bots).
     const parts = l && l.tier === p.tier && l.genome === genome ? partsOf(l) : cat.defaultParts(genome);
-    const segments = l && l.tier === 3 && p.tier === 3 && l.radii.length ? segmentsOf(l.plan, [...l.radii]) : undefined;
+    const bot = !l && p.tier === 3 ? BOT_SPECIES.find((s) => s.tier === 3 && s.name === p.name) : undefined; // bots: their species' body
+    const segments = l && l.tier === 3 && p.tier === 3 && l.radii.length ? segmentsOf(l.plan, [...l.radii])
+      : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : undefined;
     return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: p.shape, segments };
   };
 

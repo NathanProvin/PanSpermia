@@ -1,4 +1,4 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, catalogFor } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, catalogFor, ownGenome } from '@panspermia/shared';
 
 const genomeOf = (s: (typeof BOT_SPECIES)[number]) => catalogFor(s.tier).genomeOf(s.genes);
 import { expect, test } from 'vitest';
@@ -32,7 +32,7 @@ test('bots top up and trim to the target, every species represented', () => {
   for (const [id, b] of bots) {
     const p = state.players.get(id)!;
     expect(p.tier).toBe(BOT_SPECIES[b.species]!.tier);
-    expect(p.tier === 2 ? p.genome2 : p.genome).toBe(genomeOf(BOT_SPECIES[b.species]!));
+    expect(ownGenome(p)).toBe(genomeOf(BOT_SPECIES[b.species]!));
   }
   fillBots(state, bots, 3);
   expect(bots.size).toBe(3);

@@ -9,10 +9,14 @@
 export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm' | 'parasite';
 
 /**
- * tier: 1 bacterium, 2 eukaryote. genes: the design, names in that tier's catalog; a gene listed twice is two
- * copies (stacking, like a player's editor design). shape: SHAPES index.
+ * tier: 1 bacterium, 2 eukaryote, 3 animal. genes: the design, names in that tier's catalog; a gene listed twice
+ * is two copies (stacking, like a player's editor design). shape: SHAPES index. Animals: body plan and segment
+ * sizes (segmentsOf); clients find a bot's body here by its species name.
  */
-export interface Species { name: string; tier: number; archetype: Archetype; genes: readonly string[]; shape: number }
+export interface Species {
+  name: string; tier: number; archetype: Archetype; genes: readonly string[]; shape: number;
+  plan?: number; radii?: readonly number[];
+}
 
 export const BOT_SPECIES: readonly Species[] = [
   { name: 'Nudus errans', tier: 1, archetype: 'grazer', genes: [], shape: 0 }, // geneless drifter: everyone's first meal
@@ -38,4 +42,8 @@ export const BOT_SPECIES: readonly Species[] = [
   { name: 'Amoebina vorax', tier: 2, archetype: 'hunter', genes: ['jaw', 'filter', 'cilia', 'cilia', 'mitochondrion'], shape: 0 }, // eats anything
   { name: 'Didinia ferox', tier: 2, archetype: 'hunter', genes: ['jaw', 'spike', 'spike', 'flagellum', 'cilia', 'mitochondrion'], shape: 0 },
   { name: 'Fulgur timidus', tier: 2, archetype: 'coward', genes: ['filter', 'cilia', 'cilia', 'jet', 'electric', 'eye'], shape: 1 },
+  // P9d — animals: a water flea sieving the water, a long rotifer hunting with mandibles, a radial predator.
+  { name: 'Daphnia errans', tier: 3, archetype: 'grazer', genes: ['paddle', 'paddle', 'filterComb', 'filterComb', 'eye', 'carapace'], shape: 0, plan: 0, radii: [0.5, 0.85, 0.45] },
+  { name: 'Rotifera rapax', tier: 3, archetype: 'hunter', genes: ['mandible', 'filterComb', 'tail', 'eye'], shape: 1, plan: 0, radii: [0.55, 0.6, 0.5, 0.4, 0.3] },
+  { name: 'Hydrina stellata', tier: 3, archetype: 'hunter', genes: ['mandible', 'paddle', 'paddle', 'paddle'], shape: 0, plan: 1, radii: [0.6, 0.4, 0.4, 0.4, 0.4, 0.4] },
 ];
