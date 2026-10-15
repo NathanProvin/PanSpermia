@@ -5,7 +5,8 @@
  * grazer: feeds, dodges armed cells. hunter: chases smaller cells, attacks in range.
  * coward: feeds, flees anything foreign, sporulates when hurt. swarm: feeds in a pack, attacks intruders.
  */
-export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm';
+/** parasite: seeks a eukaryote and clings to it (adhesins drain the host's energy). */
+export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm' | 'parasite';
 
 /**
  * tier: 1 bacterium, 2 eukaryote. genes: the design, names in that tier's catalog; a gene listed twice is two
@@ -28,6 +29,8 @@ export const BOT_SPECIES: readonly Species[] = [
   { name: 'Cyanella viridis', tier: 1, archetype: 'grazer', genes: ['pili', 'thylakoid', 'thylakoid'], shape: 0 },
   { name: 'Lumibacter virens', tier: 1, archetype: 'grazer', genes: ['flagellum', 'thylakoid', 'thylakoid', 'capsule'], shape: 1 },
   { name: 'Chlorovibrio lentus', tier: 1, archetype: 'coward', genes: ['flagellum', 'thylakoid', 'thylakoid', 'thylakoid'], shape: 2 },
+  // P8f — a parasite: a fast, hooked bacterium that rides eukaryotes and drains them.
+  { name: 'Chytridium parasita', tier: 1, archetype: 'parasite', genes: ['flagellum', 'flagellum', 'chemoreceptor', 'adhesin', 'adhesin'], shape: 2 },
   // P8e — eukaryotes, Spore's cell-stage neighbours: grazing ciliates and euglenas, amoeboid and spiked
   // hunters that swallow bacteria and small cells, and a jumpy electric coward.
   { name: 'Ciliata lenta', tier: 2, archetype: 'grazer', genes: ['filter', 'cilia', 'cilia', 'cilia', 'eye'], shape: 1 },

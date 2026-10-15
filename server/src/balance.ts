@@ -5,7 +5,7 @@
 // phages should matter without wiping the pool; no species should dominate or starve out.
 import { BOT_SPECIES, PoolState, TICK_RATE } from '@panspermia/shared';
 import { type Bots, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
-import { PHAGE_KILLER, initPool, stepWorld } from './world.ts';
+import { PHAGE_KILLER, VIRUS_KILLER, initPool, stepWorld } from './world.ts';
 
 const minutes = Number(process.argv[2] ?? 20);
 const count = Number(process.argv[3] ?? 30);
@@ -16,7 +16,7 @@ const bots: Bots = new Map();
 fillBots(state, bots, count);
 
 const rows = BOT_SPECIES.map((s) => ({
-  species: s.name, archetype: s.archetype, lives: 0, kills: 0, lysed: 0, phage: 0, starved: 0,
+  species: s.name, archetype: s.archetype, lives: 0, kills: 0, lysed: 0, virus: 0, starved: 0,
   gens: 0, genMin: 0, livesPerGen: 0, lifeMin: 0, massNow: 0, topKiller: '',
 }));
 const killedBy = BOT_SPECIES.map(() => BOT_SPECIES.map(() => 0)); // [victim][killer]
@@ -36,7 +36,7 @@ for (let t = 0; t < ticks; t++) {
   for (const { id, by } of deaths) {
     const s = speciesOf(id);
     const row = rows[s]!;
-    if (by === PHAGE_KILLER) row.phage++;
+    if (by === PHAGE_KILLER || by === VIRUS_KILLER) row.virus++;
     else if (by) {
       row.lysed++;
       if (bots.has(by)) {
@@ -66,7 +66,7 @@ for (const [s, row] of rows.entries()) {
   });
   row.lifeMin = mean([...(lifeMin.get(s) ?? []), ...running]);
   row.massNow /= running.length || 1;
-  row.livesPerGen = (row.lysed + row.phage + row.starved) / (row.gens || 1);
+  row.livesPerGen = (row.lysed + row.virus + row.starved) / (row.gens || 1);
   const k = killedBy[s]!;
   const top = k.indexOf(Math.max(...k));
   if (k[top]) row.topKiller = `${BOT_SPECIES[top]!.name} (${Math.round((100 * k[top]) / row.lysed)}%)`;
@@ -76,7 +76,7 @@ console.table(rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) 
 
 const wall = (performance.now() - started) / 1000;
 const kills = rows.reduce((a, r) => a + r.kills, 0);
-const deaths = rows.reduce((a, r) => a + r.lysed + r.phage + r.starved, 0);
+const deaths = rows.reduce((a, r) => a + r.lysed + r.virus + r.starved, 0);
 const kinds = [...state.nutrients.values()].reduce((a, n) => ((a[n.kind] = (a[n.kind] ?? 0) + 1), a), [] as number[]);
 console.log([
   `${minutes} min, ${count} bots, ${round((minutes * 60) / wall)}× real time`,

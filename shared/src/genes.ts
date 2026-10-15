@@ -21,6 +21,8 @@ const CATALOG = {
   endospore: { upkeep: 0.006, price: 20, maxCopies: 1, slot: 'internal', at: [0, 0], label: 'Endospore' },
   // P8d — cyanobacterial thylakoid membranes: photosynthesis, mass from light (PHOTO_RATE × stack).
   thylakoid: { upkeep: 0.004, price: 15, maxCopies: 3, slot: 'internal', at: [-0.1, -0.35], label: 'Photosynthesis' },
+  // P8f — adhesins: hooks that let a bacterium cling to a eukaryote and drain its energy (parasitism).
+  adhesin: { upkeep: 0.004, price: 14, maxCopies: 2, slot: 'membrane', at: 0.2, label: 'Adhesins' },
 } as const;
 export type Gene = keyof typeof CATALOG;
 

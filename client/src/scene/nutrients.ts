@@ -6,7 +6,7 @@ import { createSprites } from './sprites.ts';
 // DNA (the rare prize); phages: pale icosahedral heads on a tail with splayed fibres (the hazard);
 // algae: little green cells packed with chloroplasts (tier-2 plant food); meat chunks: big ragged red
 // pieces of a dead eukaryote; seeps: soft glows just below the plane where plumes rise. Bright cores bloom.
-// meteor shards: glinting crystals (tier-2 part unlocks). Kind rides in the integer part of aSeed (8 = seep), the per-sprite random seed in the fraction.
+// meteor shards: glinting crystals (tier-2 part unlocks). Kind rides in the integer part of aSeed giant viruses: furred violet capsids (eukaryote hazard). (9 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
 varying vec2 vUv;
@@ -76,6 +76,15 @@ void main() {
     float glint = pow(max(0.0, sin(uTime * 3.0 + seed * 20.0)), 8.0);
     color = mix(vec3(1.0, 0.75, 0.4), vec3(0.75, 0.9, 1.0), smoothstep(-0.4, 0.4, q.x)) * shard * (1.0 + glint)
       + vec3(1.0, 0.9, 0.7) * exp(-r2 * 6.0) * 0.4 * pulse;
+  } else if (kind < 8.5) {
+    // A giant virus: a big icosahedral capsid furred with fibres (like mimivirus), slowly turning.
+    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.2);
+    float hex = max(abs(q.y) * 0.866 + abs(q.x) * 0.5, abs(q.x));
+    float capsid = 1.0 - smoothstep(0.42, 0.46, hex);
+    float shell = capsid * smoothstep(0.3, 0.44, hex);
+    float a = atan(q.y, q.x);
+    float fur = (1.0 - capsid) * (1.0 - smoothstep(0.46, 0.66, hex)) * smoothstep(0.5, 0.9, sin(a * 40.0 + seed * 9.0));
+    color = vec3(0.75, 0.6, 1.0) * (shell * 1.3 + capsid * 0.25 + fur * 0.7) + vec3(0.6, 0.45, 0.9) * exp(-r2 * 3.0) * 0.12;
   } else {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.35, 0.9, 0.55) * exp(-r2 * 3.5) * 0.22 * breathe;
@@ -85,7 +94,7 @@ void main() {
 `;
 const SIZE: Record<number, number> = {
   [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 20, [NutrientKind.plasmid]: 30,
-  [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42, [NutrientKind.shard]: 36,
+  [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42, [NutrientKind.shard]: 36, [NutrientKind.virus]: 44,
 };
 const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
@@ -129,7 +138,7 @@ export function createNutrients() {
         sprites.offsets[i * 3 + 1] = seep.y;
         sprites.offsets[i * 3 + 2] = SEEP_DEPTH;
         sprites.sizes[i] = SEEP_SIZE;
-        sprites.seeds[i] = 8 + (s++ * 0.37) % 1;
+        sprites.seeds[i] = 9 + (s++ * 0.37) % 1;
         i++;
       }
       sprites.commit(i);

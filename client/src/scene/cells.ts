@@ -258,6 +258,16 @@ void main() {
     float outline = sclera * smoothstep(0.7, 0.82, rr);
     a = sclera;
     col = mix(vec3(0.95), vec3(0.05, 0.05, 0.08), max(pupil, outline * 0.8)) + glint * 0.9;
+  } else if (k == ${GENES.adhesin.index}) { // adhesins: a fringe of barbed hooks for clinging to a host
+    for (int i = -2; i <= 2; i++) {
+      float y = float(i) * 0.3;
+      vec2 base = vec2(-0.8, y);
+      vec2 tip = base + vec2(1.2, 0.0);
+      float stalk = segment(p, base, tip);
+      float barb = segment(p, tip, tip + vec2(-0.3, 0.25));
+      a = max(a, 1.0 - smoothstep(0.03, 0.07, min(stalk, barb)));
+    }
+    col = vec3(0.95, 0.75, 0.55);
   } else if (k == ${GENES.thylakoid.index}) { // stacked photosynthetic membranes, glowing green
     float stacks = 0.0;
     for (int i = -1; i <= 1; i++) {
@@ -300,6 +310,7 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.jet.index]: { size: 0.6, out: 0.35 },
   [KIND2 + TIER2.GENES.eye.index]: { size: 0.32, out: 0 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
+  [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
   [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },
   [KIND2 + TIER2.GENES.chloroplast.index]: { size: 0.4, out: 0 },
   [GENES.pili.index]: { size: 0.6, out: 0.35 },

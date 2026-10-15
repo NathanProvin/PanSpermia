@@ -718,3 +718,38 @@ test('a design body shape is validated and worn by the next individual', () => {
   expect(submitDesign(state, 'p', { ...design, shape: 2 })).toBeUndefined();
   expect([lineage.shape, state.players.get('p')!.shape]).toEqual([2, 2]);
 });
+
+// --- Hazards of eukaryotes (P8f) -----------------------------------------------------------------
+
+test('giant viruses infect eukaryotes only, and burst out of the dead', () => {
+  const { state, e } = eukaryote();
+  foodAt(state, 0, 0, NutrientKind.virus);
+  stepWorld(state);
+  expect(e.infection).toBeGreaterThan(5);
+  e.health = 0.1;
+  run(state, 0.5);
+  expect(ofKind(state, NutrientKind.virus).length).toBeGreaterThanOrEqual(6);
+
+  const bug = worldWith();
+  const v = foodAt(bug.state, bug.player.x, bug.player.y, NutrientKind.virus);
+  stepWorld(bug.state);
+  expect(bug.state.nutrients.has(v)).toBe(true); // bacteria are immune to eukaryote viruses
+  expect(bug.player.infection).toBe(0);
+});
+
+test('a bacterium with adhesins drains the eukaryote it clings to', () => {
+  const { state, e } = eukaryote(TIER2.GENES.cilia.bit, 400);
+  const par = spawnPlayer();
+  Object.assign(par, { x: radiusOf(400) + 2, y: 0, mass: 20, genome: GENES.adhesin.bit * 2 });
+  state.players.set('par', par);
+  const host0 = e.mass;
+  const par0 = par.mass;
+  run(state, 2);
+  expect(host0 - e.mass).toBeGreaterThan(2 * 2 * 1.5 * 0.9); // drained beyond its own metabolism
+  expect(par.mass).toBeGreaterThan(par0);
+  // Out of reach, nothing happens.
+  par.x = 2000;
+  const host1 = e.mass;
+  run(state, 1);
+  expect(host1 - e.mass).toBeLessThan(1);
+});

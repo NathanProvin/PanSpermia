@@ -141,3 +141,13 @@ export const CHLOROPLAST_RATE = 0.35; // mass/s for a eukaryote, × stack(chloro
 export const MITO_METABOLISM = 0.15; // metabolism burns less by this share × stack(mitochondria)
 export const MITO_SPEED = 0.08; // and swims faster by this share × stack
 export const ENDOSYMBIOSIS_CHANCE = 0.25; // per qualifying bacterium swallowed
+
+// Hazards of eukaryotes (P8f). Giant viruses (like mimivirus in amoebae) are the eukaryote's phages:
+// they drift, infect on contact and burst out of the dead; bacteria are immune to them, as eukaryotes are
+// to phages. Parasitic bacteria with adhesins drain the energy of any eukaryote they cling to.
+export const VIRUS_RATE = 0.3; // wild giant viruses/s
+export const VIRUS_LATENT = 6; // s of damage per infecting virus
+export const VIRUS_DPS = 20;
+export const VIRUS_BURST = 6;
+export const ADHESIN_DRAIN = 2; // energy/s taken from a eukaryote host, × stack(adhesins)
+export const ADHESIN_SHARE = 0.8; // of the drained energy, to the parasite

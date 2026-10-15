@@ -131,7 +131,8 @@ try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
   room.onLeave(() => { hud.textContent = 'Disconnected'; });
   room.onMessage('died', ({ cause, killer, extinct }: { cause: string; killer?: string; extinct: boolean }) => {
-    const how = { starvation: 'You starved', phage: 'Phages burst you open' }[cause] ?? `Lysed by ${killer}`;
+    const how = { starvation: 'You starved', phage: 'Phages burst you open', virus: 'A giant virus burst you open' }[cause]
+      ?? `Lysed by ${killer}`;
     if (!extinct) return say(`${how}. Your next child takes over…`);
     extinctScreen.querySelector('p')!.textContent = `${how}. No children were left: your species is extinct.`;
     extinctScreen.hidden = false;

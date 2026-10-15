@@ -1,6 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
+  ADHESIN_DRAIN, ADHESIN_SHARE, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
@@ -249,8 +250,9 @@ function hurt(p: Player, amount: number, by: string, tick: number) {
   p.lastHitTick = tick;
 }
 
-/** Attacker id for phage damage; session ids never contain '~'. */
+/** Attacker ids for virus damage (phages: bacteria, giant viruses: eukaryotes); session ids never contain '~'. */
 export const PHAGE_KILLER = '~phage';
+export const VIRUS_KILLER = '~virus';
 export interface Death {
   id: string;
   /** killer's id, PHAGE_KILLER, or '' when it starved */
@@ -332,13 +334,13 @@ export function stepWorld(state: PoolState): Death[] {
     const at = randomInDisc(WORLD_RADIUS);
     spawnShard(state, at.x, at.y);
   }
-  if (Math.random() < PHAGE_RATE * TICK_DT) {
-    // ponytail: a crowded pool skips the spawn instead of searching for room; phages still burst from the infected.
+  // Wild viruses: phages (bacteria) and giant viruses (eukaryotes), never right on top of a cell.
+  // ponytail: a crowded pool skips the spawn instead of searching for room; viruses still burst from the infected.
+  for (const [kind, rate] of [[NutrientKind.phage, PHAGE_RATE], [NutrientKind.virus, VIRUS_RATE]] as const) {
+    if (Math.random() >= rate * TICK_DT) continue;
     const at = randomInDisc(WORLD_RADIUS);
     const clear = PHAGE_CLEARANCE ** 2;
-    if ([...state.players.values()].every((p) => (p.x - at.x) ** 2 + (p.y - at.y) ** 2 > clear)) {
-      spawnNutrient(state, at.x, at.y, NutrientKind.phage);
-    }
+    if ([...state.players.values()].every((p) => (p.x - at.x) ** 2 + (p.y - at.y) ** 2 > clear)) spawnNutrient(state, at.x, at.y, kind);
   }
 
   // Drift food; it dissolves with age or against the rock.
@@ -382,7 +384,10 @@ export function stepWorld(state: PoolState): Death[] {
           if (t2) {
             if (d2 >= reach * reach) continue;
             const l = state.lineages.get(id);
-            if (n.kind === NutrientKind.shard) { // any eukaryote touching a meteor shard takes its part
+            if (n.kind === NutrientKind.virus) { // a giant virus binds the cell itself (not the mouth's reach)
+              if (d2 >= r * r || tick < p.graceUntil) continue;
+              p.infection += VIRUS_LATENT;
+            } else if (n.kind === NutrientKind.shard) { // any eukaryote touching a meteor shard takes its part
               earn(state, id, PACKET_DNA);
               if (l?.tier === 2) l.library |= n.gene;
             } else {
@@ -394,7 +399,7 @@ export function stepWorld(state: PoolState): Death[] {
               // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
               if (l?.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
             }
-          } else if (n.kind === NutrientKind.algae || n.kind === NutrientKind.shard) {
+          } else if (n.kind === NutrientKind.algae || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
             continue; // too big for a bacterium to take in; not its kind of DNA
           } else if (n.kind === NutrientKind.phage) {
             // Phages bind the cell itself (siderophores don't reach them); a capsule may mask the receptor.
@@ -441,6 +446,23 @@ export function stepWorld(state: PoolState): Death[] {
     }
   }
 
+  // Parasitism: a bacterium with adhesins drains the energy of every eukaryote it clings to.
+  for (const [pid, par] of state.players) {
+    const hooks = par.tier === 1 && !dormant(par) ? copiesOf(par.genome, 'adhesin') : 0;
+    if (!hooks) continue;
+    const rp = radiusOf(par.mass);
+    for (const host of state.players.values()) {
+      if (host.tier !== 2 || dormant(host) || tick < host.graceUntil) continue;
+      const touch = radiusOf(host.mass) + rp;
+      if (!((host.x - par.x) ** 2 + (host.y - par.y) ** 2 < touch * touch)) continue;
+      const drained = Math.min(ADHESIN_DRAIN * stack(hooks) * TICK_DT, host.mass - minMassOf(2));
+      if (drained <= 0) continue;
+      host.mass -= drained;
+      par.mass = Math.min(MASS_CAP, par.mass + drained * ADHESIN_SHARE);
+      earn(state, pid, drained * ADHESIN_SHARE * DNA_PER_MASS);
+    }
+  }
+
   // Where each spiked eukaryote's spikes point (body frame); spikes only stab in those directions.
   const spikes = new Map<string, number[]>();
   for (const [id, p] of state.players) {
@@ -454,7 +476,7 @@ export function stepWorld(state: PoolState): Death[] {
     if (dormant(p) || tick < p.graceUntil) continue; // dormant: the infection waits too
     const r = radiusOf(p.mass);
     if (p.infection > 0) {
-      hurt(p, PHAGE_DPS * TICK_DT, PHAGE_KILLER, tick);
+      hurt(p, (p.tier === 2 ? VIRUS_DPS : PHAGE_DPS) * TICK_DT, p.tier === 2 ? VIRUS_KILLER : PHAGE_KILLER, tick);
       p.infection = Math.max(0, p.infection - TICK_DT - 1e-9);
     }
     for (const c of state.clouds.values()) {
@@ -530,7 +552,10 @@ export function stepWorld(state: PoolState): Death[] {
       for (let k = Math.floor((p.mass * DEBRIS_SHARE) / size); k > 0; k--) spill(kind);
       for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
       for (const g of TIER2.NAMES) if (TIER2.hasGene(p.genome2, g)) spill(NutrientKind.chunk, TIER2.GENES[g].bit);
-      if (p.infection > 0) for (let k = 0; k < PHAGE_BURST; k++) spill(NutrientKind.phage);
+      if (p.infection > 0) {
+        const [virus, burst] = p.tier === 2 ? [NutrientKind.virus, VIRUS_BURST] : [NutrientKind.phage, PHAGE_BURST];
+        for (let k = 0; k < burst; k++) spill(virus);
+      }
     }
     if (death.by) {
       earn(state, death.by, p.mass * KILL_DNA_SHARE);

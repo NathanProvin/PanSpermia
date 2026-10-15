@@ -39,7 +39,7 @@ const DIGEST_TICKS = 6 * 20;
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */
-const SPAWN_WEIGHT = { grazer: 3, coward: 2, swarm: 2, hunter: 1 } as const;
+const SPAWN_WEIGHT = { grazer: 3, coward: 2, swarm: 2, hunter: 1, parasite: 2 } as const;
 const SPAWN_CYCLE = BOT_SPECIES.flatMap((s, i) => Array<number>(s.tier === 2 ? 1 : SPAWN_WEIGHT[s.archetype]).fill(i));
 
 /** Carries a weapon of its tier (what grazers keep away from). */
@@ -148,9 +148,10 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
         const d2 = dx * dx + dy * dy;
         if (d2 > sight * sight) continue;
         const d = Math.sqrt(d2) || 1;
-        if (n.kind === NutrientKind.phage) {
-          if (t2) continue; // bacteria-only viruses
-          const near = r + PHAGE_DODGE;
+        if (n.kind === NutrientKind.phage || n.kind === NutrientKind.virus) {
+          // Dodge the viruses of its own tier: phages for bacteria, giant viruses for eukaryotes.
+          if ((n.kind === NutrientKind.virus) !== t2) continue;
+          const near = r + PHAGE_DODGE * (t2 ? 2 : 1);
           if (d < near) {
             sx -= (dx / d) * 3 * (1 - d / near);
             sy -= (dy / d) * 3 * (1 - d / near);
@@ -185,6 +186,8 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
   const grazes = !t2 || TIER2.hasGene(p.genome2, 'filter');
   const hungry = grazes ? p.mass < massCapOf(p.tier) * HUNT_UNTIL : state.tick >= b.fedUntil;
   let swallowerClose = false;
+  let host: { d: number; dx: number; dy: number; r: number } | undefined; // a parasite's target
+  let clingers = 0; // parasites hanging on to this eukaryote
   for (const [oid, o] of state.players) {
     if (oid === id) continue;
     const dx = o.x - p.x;
@@ -198,6 +201,10 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
       continue;
     }
     const gap = d - r - radiusOf(o.mass);
+    if (archetype === 'parasite' && o.tier === 2 && o.spore === 0 && o.cyst === 0 && d < (host?.d ?? Infinity)) {
+      host = { d, dx, dy, r: radiusOf(o.mass) };
+    }
+    if (t2 && o.tier === 1 && hasGene(o.genome, 'adhesin') && gap < 0) clingers++;
     // Eukaryote hunters chase what their jaw can swallow; bacterial hunters what's clearly smaller.
     const catchable = t2 ? TIER2.hasGene(p.genome2, 'jaw') && o.mass <= p.mass * ENGULF_RATIO : o.mass < p.mass * PREY_RATIO;
     const isPrey = archetype === 'hunter' && hungry && catchable && o.spore === 0 && o.cyst === 0 && state.tick >= o.graceUntil;
@@ -205,7 +212,8 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
     // Everyone flees a jawed eukaryote big enough to swallow them.
     const swallower = o.tier === 2 && TIER2.hasGene(o.genome2, 'jaw') && p.mass <= o.mass * ENGULF_RATIO;
     // A eukaryote coward fears other eukaryotes, not the bacteria it towers over.
-    const fear = ((archetype === 'coward' && (!t2 || o.tier === 2)) || swallower ? COWARD_FEAR
+    // A parasite is reckless: it rides the very cells that could swallow it.
+    const fear = archetype === 'parasite' ? 0 : ((archetype === 'coward' && (!t2 || o.tier === 2)) || swallower ? COWARD_FEAR
       : archetype === 'grazer' && armed(o) && o.mass > p.mass * 0.5 ? GRAZER_FEAR : 0) * scale;
     if (fear > 0 && gap < fear) { // fear 0 would divide by zero when overlapping: NaN steering
       const w = 2 * (1 - gap / fear);
@@ -223,6 +231,13 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
     sx += prey.x * 2.5;
     sy += prey.y * 2.5;
   }
+  if (host) {
+    // Hold station on the host's rim: touching it (to drain), outside its jaw's reach (centre).
+    const want = host.r + r * 0.4;
+    const k = (host.d - want) / host.d; // > 0: close in, < 0: back off
+    sx += host.dx * k * 0.05;
+    sy += host.dy * k * 0.05;
+  }
   if (kin && Math.hypot(kinX / kin, kinY / kin) > 60 * scale) {
     const k = Math.hypot(kinX, kinY);
     sx += (kinX / k) * 0.4;
@@ -239,7 +254,7 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
   if (t2) {
     // A fleeing eukaryote leaves poison behind it; the jet gets it out of trouble or onto close prey.
     if (fleeing) actions |= ACTION_TOXIN;
-    if (fleeing || (prey && prey.d < r * 3)) actions |= ACTION_SPORE;
+    if (fleeing || clingers > 0 || (prey && prey.d < r * 3)) actions |= ACTION_SPORE; // the jet shakes parasites off
   } else if (hasGene(p.genome, 'endospore')
     && (swallowerClose || (p.health < healthMaxOf(p.genome) * 0.4 && state.tick - p.lastHitTick < 20))) {
     // A spore can't be digested: the bacterial answer to a jaw closing in, or to losing a fight.
