@@ -60,10 +60,14 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       }
     }, TICK_RATE);
 
-    // The editor's submission from a dividing cell (validated in submitDesign).
+    // The editor's design from a dividing cell (validated in submitDesign): final, or a draft kept
+    // for when the cyst times out.
     this.onMessage('design', (client, design: unknown) => {
       const refused = submitDesign(this.state, client.sessionId, design);
       if (refused) client.send('designRefused', refused);
+    });
+    this.onMessage('draft', (client, design: unknown) => {
+      submitDesign(this.state, client.sessionId, design, false);
     });
     this.onMessage('newSpecies', (client) => {
       if (this.state.lineages.get(client.sessionId)?.extinct) foundSpecies(this.state, client.sessionId);
@@ -89,6 +93,10 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       this.onMessage('dev:grow', (client) => {
         const p = this.state.players.get(client.sessionId);
         if (p) p.mass = MASS_CAP;
+      });
+      this.onMessage('dev:dna', (client) => {
+        const l = this.state.lineages.get(client.sessionId);
+        if (l) l.dna += 100;
       });
       this.onMessage('dev:die', (client) => {
         const p = this.state.players.get(client.sessionId);

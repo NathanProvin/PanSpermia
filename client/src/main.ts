@@ -1,10 +1,11 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, ACTION_TOXIN, CHILD_PRICE, GENES, GENE_NAMES, type Lineage, MAX_CHILDREN, type Player, copiesOf, Input, PoolState, ROOM_NAME, SERVER_PORT, TICK_DT, TOXINS, hasGene,
-  healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  ACTION_SPORE, ACTION_TOXIN, GENES, GENE_NAMES, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
+  TICK_DT, TOXINS, copiesOf, defaultParts, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
-import { createCells } from './scene/cells.ts';
+import { createEditor } from './editor.ts';
+import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
 import { createMeteor } from './scene/meteor.ts';
 import { createNutrients } from './scene/nutrients.ts';
@@ -40,6 +41,7 @@ const pool = createPool();
 const plankton = createPlankton(camera);
 const nutrientLayer = createNutrients();
 const cells = createCells(scene);
+const editor = createEditor(renderer, document.getElementById('editor')!);
 const cloudLayer = createClouds();
 const meteor = createMeteor();
 scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects);
@@ -90,7 +92,7 @@ const say = (text: string) => {
 /** Library last seen on our lineage, to announce parts unlocked by gene transfer. */
 let knownLibrary = -1;
 let knownLineage: Lineage | undefined;
-/** The dividing individual we already answered (one design per cyst). */
+/** The dividing individual the editor was opened for (one design per cyst). */
 let designedFor: Player | undefined;
 
 try {
@@ -107,7 +109,17 @@ try {
     extinctScreen.hidden = true;
     room.send('newSpecies');
   });
-  room.onMessage('designRefused', (reason: string) => say(`Design refused: ${reason}`));
+  room.onMessage('designRefused', (reason: string) => (editor.isOpen ? editor.refused(reason) : say(`Design refused: ${reason}`)));
+
+  /** A player's cell wears its species design (unless dev cheats changed its genes); bots get the default layout. */
+  const lookOf = (id: string, p: Player): Look => {
+    const l = room.state.lineages.get(id);
+    if (!l) return { genome: p.genome, parts: defaultParts(p.genome), hue: hashId(id) };
+    const parts = p.genome === l.genome
+      ? [...l.parts].map((part) => ({ ...part.toJSON(), gene: GENE_NAMES[part.gene]! }))
+      : defaultParts(p.genome);
+    return { genome: p.genome, parts, hue: l.hue };
+  };
 
   const input = room.input({ type: Input, mode: 'reliable' });
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
@@ -144,7 +156,7 @@ try {
 
   if (import.meta.env.DEV) {
     // Dev cheats (server must run with --dev, else it kicks us): these keys toggle genes in catalog
-    // order; P drops a plasmid, V a phage, onto the cell; G grows to the cap, K kills the cell.
+    // order; P drops a plasmid, V a phage, onto the cell; G grows to the cap, K kills the cell, N grants DNA.
     const DEV_KEYS = '1234567890-=[';
     addEventListener('keydown', (e) => {
       const gene = GENE_NAMES[DEV_KEYS.indexOf(e.key)];
@@ -153,6 +165,7 @@ try {
       if (e.key === 'v') room.send('dev:spawn', 'phage');
       if (e.key === 'g') room.send('dev:grow');
       if (e.key === 'k') room.send('dev:die');
+      if (e.key === 'n') room.send('dev:dna');
     });
   }
 
@@ -181,12 +194,13 @@ try {
       tickArrivedAt = now;
     }
 
-    cells.update(players, room.sessionId, time, dt, (p) => ({
+    cells.update(players, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
-      tumble: predict.value(p, 'tumble'), spore: Math.max(predict.value(p, 'spore'), p.cyst), // cyst: husk until P4c
-    }));
+      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst,
+    }), lookOf);
     const self = players.get(room.sessionId);
-    const selfMesh = cells.get(room.sessionId);
+    const selfView = cells.get(room.sessionId);
+    const selfMesh = selfView?.body;
     if (self && selfMesh) {
       // Follow the cell; zoom out as it grows.
       const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
@@ -195,7 +209,7 @@ try {
     // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
     const impact = selfMesh?.position ?? camera.position;
     const { hatch, shake } = meteor.update(dt, time, camera.position.z, impact.x, impact.y);
-    selfMesh?.scale.multiplyScalar(hatch);
+    selfView?.grow(hatch);
     camera.position.x += (Math.random() - 0.5) * shake;
     camera.position.y += (Math.random() - 0.5) * shake;
     if (self && selfMesh) {
@@ -207,11 +221,8 @@ try {
       }
       knownLibrary = lineage.library;
       if (self.cyst > 0 && designedFor !== self) {
-        // ponytail: stub until the P4b editor — keep the design, spend spare DNA on children.
         designedFor = self;
-        const parts = [...lineage.parts].map((p) => ({ gene: GENE_NAMES[p.gene], x: p.x, y: p.y, angle: p.angle, scale: p.scale }));
-        const children = Math.min(MAX_CHILDREN - lineage.children, Math.floor(lineage.dna / CHILD_PRICE));
-        room.send('design', { parts, hue: lineage.hue, children });
+        editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
       }
       const genes = GENE_NAMES.filter((g) => hasGene(self.genome, g))
         .map((g) => GENES[g].label + (copiesOf(self.genome, g) > 1 ? ` ×${copiesOf(self.genome, g)}` : '')).join(', ') || 'no genes';
@@ -234,7 +245,12 @@ try {
     plankton.update(time, dt, focus);
     nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus);
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
-    post.render();
+    // The editor stays up for exactly one division: until this individual hatches (or dies).
+    if (editor.isOpen && (!self || self !== designedFor || self.cyst === 0)) editor.close();
+    if (editor.isOpen) {
+      const view = editor.frame(time, dt, self!.cyst, innerWidth / innerHeight);
+      post.render(view.scene, view.camera);
+    } else post.render();
   });
 } catch (err) {
   hud.textContent = `Cannot reach server at ${endpoint}`;

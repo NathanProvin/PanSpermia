@@ -11,7 +11,8 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
   const composer = new EffectComposer(renderer, target);
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.5, 0.7);
-  composer.addPass(new RenderPass(scene, camera));
+  const view = new RenderPass(scene, camera);
+  composer.addPass(view);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   return {
@@ -19,6 +20,11 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
       composer.setPixelRatio(pixelRatio);
       composer.setSize(width, height);
     },
-    render: () => composer.render(),
+    /** Render this scene through the same pipeline (the editor swaps its own in and back). */
+    render(sceneNow: THREE.Scene = scene, cameraNow: THREE.Camera = camera) {
+      view.scene = sceneNow;
+      view.camera = cameraNow;
+      composer.render();
+    },
   };
 }

@@ -2,7 +2,7 @@
 // so the headless balancing sim (P3f) can drive them directly.
 import {
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
-  STARTER_CHILDREN, STARTER_LIBRARY, copiesOf, priceOf, stack, withCopies,
+  STARTER_CHILDREN, STARTER_LIBRARY, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
   PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
@@ -50,11 +50,11 @@ function earn(state: PoolState, id: string, dna: number) {
   l.lifetimeDna += dna;
 }
 
-/** A player founds a new species: starter design (pili at the rear), library and reserve, first individual. */
+/** A player founds a new species: starter design, library and reserve, first individual. */
 export function foundSpecies(state: PoolState, id: string) {
   state.lineages.set(id, new Lineage({
     genome: STARTER_GENOME,
-    parts: [new Part({ gene: GENES.pili.index, x: -1, y: 0, angle: Math.PI, scale: 1 })],
+    parts: defaultParts(STARTER_GENOME).map((p) => new Part({ ...p, gene: GENES[p.gene].index })),
     hue: Math.random(),
     library: STARTER_LIBRARY,
     dna: 0,
@@ -69,21 +69,22 @@ export function hatch(state: PoolState, id: string) {
   const parent = state.players.get(id);
   const l = state.lineages.get(id);
   if (!parent || !l) return;
+  drafts.delete(l);
   l.generation++;
   const child = spawnPlayer(state.tick);
   Object.assign(child, { x: parent.x, y: parent.y, heading: parent.heading, genome: l.genome });
   state.players.set(id, child);
 }
 
+interface Design { genome: number; placed: Part[]; hue: number; children: number; cost: number }
+/** The latest valid draft per lineage, applied if the cyst times out (server-only, never synced). */
+const drafts = new WeakMap<Lineage, Design>();
+
 /**
- * Apply an editor submission from a dividing cell, then hatch. Untrusted input: every field is
- * checked. Price = new copies − old copies (removing parts refunds them, as in Spore) + children.
- * Returns why it was refused, or undefined when applied.
+ * Check an untrusted editor design against the lineage: every field is validated. Price = new
+ * copies − old copies (removing parts refunds them, as in Spore) + children. Returns why it's refused.
  */
-export function submitDesign(state: PoolState, id: string, design: unknown): string | undefined {
-  const p = state.players.get(id);
-  const l = state.lineages.get(id);
-  if (!p || !l || p.cyst <= 0) return 'not dividing';
+function parseDesign(l: Lineage, design: unknown): Design | string {
   if (typeof design !== 'object' || design === null) return 'bad design';
   const { parts, hue, children } = design as Record<string, unknown>;
   if (!Array.isArray(parts) || parts.length > MAX_PARTS) return 'bad parts';
@@ -94,29 +95,51 @@ export function submitDesign(state: PoolState, id: string, design: unknown): str
   let genome = 0;
   const placed: Part[] = [];
   for (const part of parts as unknown[]) {
-    const { gene, x, y, angle, scale } = (part ?? {}) as Record<string, unknown>;
+    const { gene, x, y, angle, scale, group } = (part ?? {}) as Record<string, unknown>;
     if (typeof gene !== 'string' || !Object.hasOwn(GENES, gene)) return 'unknown part';
     const g = gene as Gene;
     if (!(l.library & GENES[g].bit)) return 'part not unlocked';
     if (typeof x !== 'number' || typeof y !== 'number' || typeof angle !== 'number' || typeof scale !== 'number'
-      || !Number.isFinite(angle) || !(Math.hypot(x, y) <= 1.5) || !(scale >= 0.5 && scale <= 2)) {
+      || !Number.isFinite(angle) || !(Math.hypot(x, y) <= 1.5) || !(scale >= 0.5 && scale <= 2)
+      || typeof group !== 'number' || !Number.isInteger(group) || group < 0 || group > 255) {
       return 'bad placement';
     }
     const n = copiesOf(genome, g) + 1;
     if (n > GENES[g].maxCopies) return 'too many copies';
     genome = withCopies(genome, g, n);
-    placed.push(new Part({ gene: GENES[g].index, x, y, angle, scale }));
+    placed.push(new Part({ gene: GENES[g].index, x, y, angle, scale, group }));
   }
   const cost = priceOf(genome) - priceOf(l.genome) + children * CHILD_PRICE;
   if (cost > l.dna) return 'not enough DNA';
-  l.dna -= cost;
-  l.genome = genome;
-  l.parts.clear();
-  l.parts.push(...placed);
-  l.hue = hue;
-  l.children += children;
+  return { genome, placed, hue, children, cost };
+}
+
+/**
+ * An editor design from a dividing cell. Final: apply it and hatch. Draft: remember it, so a timed-out
+ * cyst hatches with the player's latest edits rather than the old design. Returns why it was refused.
+ */
+export function submitDesign(state: PoolState, id: string, design: unknown, final = true): string | undefined {
+  const p = state.players.get(id);
+  const l = state.lineages.get(id);
+  if (!p || !l || p.cyst <= 0) return 'not dividing';
+  const d = parseDesign(l, design);
+  if (typeof d === 'string') return d;
+  if (!final) {
+    drafts.set(l, d);
+    return undefined;
+  }
+  apply(l, d);
   hatch(state, id);
   return undefined;
+}
+
+function apply(l: Lineage, d: Design) {
+  l.dna -= d.cost;
+  l.genome = d.genome;
+  l.parts.clear();
+  l.parts.push(...d.placed);
+  l.hue = d.hue;
+  l.children += d.children;
 }
 
 /** A plasmid carrying one random gene of the catalog. */
@@ -317,7 +340,7 @@ export function stepWorld(state: PoolState): Death[] {
   for (const [id, p] of state.players) {
     if (p.cyst > 0) {
       p.cyst = Math.max(0, p.cyst - TICK_DT - 1e-9);
-      if (p.cyst === 0) hatching.push(id); // editor timed out: hatch with the old design
+      if (p.cyst === 0) hatching.push(id); // editor timed out: hatch with the latest draft, or the old design
       continue;
     }
     if (p.spore > 0) continue;
@@ -331,7 +354,12 @@ export function stepWorld(state: PoolState): Death[] {
       p.cyst = CYST_TIME; // binary fission: shielded while the player edits the next generation
     }
   }
-  for (const id of hatching) hatch(state, id);
+  for (const id of hatching) {
+    const l = state.lineages.get(id);
+    const draft = l && drafts.get(l);
+    if (draft && draft.cost <= l.dna) apply(l, draft); // dormant cells don't earn or spend, but stay safe
+    hatch(state, id);
+  }
 
   // The dead burst where they fell into debris, one DNA fragment per gene, and the phages that
   // lysed them if infected; the killer earns DNA; then the next child takes over, or the species ends.

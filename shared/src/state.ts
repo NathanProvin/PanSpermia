@@ -81,6 +81,8 @@ export const Part = schema({
   y: t.float32(),
   angle: t.float32(),
   scale: t.float32(),
+  /** Parts placed together by one symmetric placement share a group (the editor regroups by it). */
+  group: t.uint8(),
 }, 'Part');
 export type Part = SchemaType<typeof Part>;
 

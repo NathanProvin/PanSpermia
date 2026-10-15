@@ -1,7 +1,7 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
-  STARTER_LIBRARY, copiesOf, stack, NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
+  STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
@@ -417,7 +417,7 @@ test('reaching the cap starts a shielded division cyst; timing out hatches the o
 
 test('a design submission is validated, priced, refunds removed parts and hatches', () => {
   const { state, player, lineage } = species();
-  const part = (gene: string, x = 1) => ({ gene, x, y: 0, angle: 0, scale: 1 });
+  const part = (gene: string, x = 1) => ({ gene, x, y: 0, angle: 0, scale: 1, group: 0 });
   const design = (parts: unknown[], children = 0, hue = 0.5) => ({ parts, hue, children });
   expect(submitDesign(state, 'p', design([]))).toBe('not dividing');
   player.cyst = CYST_TIME;
@@ -427,6 +427,7 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   expect(submitDesign(state, 'p', design([part('nope')]))).toBe('unknown part');
   expect(submitDesign(state, 'p', design([part('pili', 9)]))).toBe('bad placement');
   expect(submitDesign(state, 'p', design([{ ...part('pili'), scale: Number.NaN }]))).toBe('bad placement');
+  expect(submitDesign(state, 'p', design([{ ...part('pili'), group: 256 }]))).toBe('bad placement');
   expect(submitDesign(state, 'p', design(Array(4).fill(part('pili'))))).toBe('too many copies');
   expect(submitDesign(state, 'p', design([], MAX_CHILDREN))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0.5))).toBe('bad children');
@@ -446,4 +447,27 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   lineage.dna = CHILD_PRICE;
   expect(submitDesign(state, 'p', design(twoFlagella, 1))).toBeUndefined();
   expect([lineage.dna, lineage.children]).toEqual([0, STARTER_CHILDREN + 1]);
+});
+
+test('default layouts place exactly the genome\'s copies', () => {
+  const genome = GENES.flagellum.bit * 3 | GENES.pili.bit | GENES.capsule.bit | GENES.exoenzymes.bit * 2;
+  const parts = defaultParts(genome);
+  for (const g of Object.keys(GENES) as (keyof typeof GENES)[]) {
+    expect(parts.filter((p) => p.gene === g).length).toBe(copiesOf(genome, g));
+  }
+  for (const p of parts) expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(1.5);
+});
+
+test('a timed-out cyst hatches with the latest valid draft', () => {
+  const { state, player, lineage } = species();
+  player.cyst = CYST_TIME;
+  lineage.dna = 100;
+  const draft = { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.2, children: 1 };
+  expect(submitDesign(state, 'p', draft, false)).toBeUndefined();
+  expect(submitDesign(state, 'p', { ...draft, children: 99 }, false)).toBe('bad children'); // keeps the valid one
+  expect(state.players.get('p')).toBe(player); // a draft doesn't hatch
+  run(state, CYST_TIME + 0.1);
+  expect([lineage.genome, lineage.hue, lineage.children, lineage.generation])
+    .toEqual([GENES.flagellum.bit, 0.2, STARTER_CHILDREN + 1, 2]);
+  expect(lineage.dna).toBe(100 - (GENES.flagellum.price - GENES.pili.price) - CHILD_PRICE);
 });

@@ -3,20 +3,22 @@
 // returns (see `stack`); every copy costs upkeep (mass/s on top of metabolism): bigger genomes must
 // eat more, which is real biology and free balancing. `price` is the DNA cost of one copy in the editor.
 // Genes are added here as their mechanics land; append only (the index is the wire format).
+// slot: where the editor places it — on the membrane (snaps to the rim), inside the cytoplasm, or a
+// coat over the whole body (no placement). `at`: default membrane angle (rad, 0 = front) or interior spot.
 const CATALOG = {
-  pili: { upkeep: 0.006, price: 8, maxCopies: 3, label: 'Type IV pili' },
-  flagellum: { upkeep: 0.015, price: 20, maxCopies: 3, label: 'Flagellum' },
-  chemoreceptor: { upkeep: 0.004, price: 12, maxCopies: 2, label: 'Chemoreceptor' },
-  transporters: { upkeep: 0.008, price: 10, maxCopies: 3, label: 'Transporters' },
-  siderophores: { upkeep: 0.01, price: 12, maxCopies: 2, label: 'Siderophores' },
-  exoenzymes: { upkeep: 0.008, price: 10, maxCopies: 3, label: 'Exoenzymes' },
-  bacteriocin: { upkeep: 0.01, price: 18, maxCopies: 3, label: 'Bacteriocin' },
-  poreFormer: { upkeep: 0.012, price: 22, maxCopies: 3, label: 'Pore-forming toxin' },
-  t6ss: { upkeep: 0.012, price: 20, maxCopies: 3, label: 'Type VI secretion' },
-  capsule: { upkeep: 0.008, price: 15, maxCopies: 1, label: 'Capsule' },
-  thickWall: { upkeep: 0.01, price: 18, maxCopies: 1, label: 'Thick wall' },
-  effluxPump: { upkeep: 0.006, price: 12, maxCopies: 1, label: 'Efflux pump' },
-  endospore: { upkeep: 0.006, price: 20, maxCopies: 1, label: 'Endospore' },
+  pili: { upkeep: 0.006, price: 8, maxCopies: 3, slot: 'membrane', at: 2.2, label: 'Type IV pili' },
+  flagellum: { upkeep: 0.015, price: 20, maxCopies: 3, slot: 'membrane', at: Math.PI, label: 'Flagellum' },
+  chemoreceptor: { upkeep: 0.004, price: 12, maxCopies: 2, slot: 'membrane', at: 0, label: 'Chemoreceptor' },
+  transporters: { upkeep: 0.008, price: 10, maxCopies: 3, slot: 'membrane', at: 1.4, label: 'Transporters' },
+  siderophores: { upkeep: 0.01, price: 12, maxCopies: 2, slot: 'internal', at: [-0.3, 0.3], label: 'Siderophores' },
+  exoenzymes: { upkeep: 0.008, price: 10, maxCopies: 3, slot: 'internal', at: [0.3, -0.25], label: 'Exoenzymes' },
+  bacteriocin: { upkeep: 0.01, price: 18, maxCopies: 3, slot: 'membrane', at: 0.8, label: 'Bacteriocin' },
+  poreFormer: { upkeep: 0.012, price: 22, maxCopies: 3, slot: 'membrane', at: -0.8, label: 'Pore-forming toxin' },
+  t6ss: { upkeep: 0.012, price: 20, maxCopies: 3, slot: 'membrane', at: 0.35, label: 'Type VI secretion' },
+  capsule: { upkeep: 0.008, price: 15, maxCopies: 1, slot: 'coat', at: 0, label: 'Capsule' },
+  thickWall: { upkeep: 0.01, price: 18, maxCopies: 1, slot: 'coat', at: 0, label: 'Thick wall' },
+  effluxPump: { upkeep: 0.006, price: 12, maxCopies: 1, slot: 'membrane', at: -2.0, label: 'Efflux pump' },
+  endospore: { upkeep: 0.006, price: 20, maxCopies: 1, slot: 'internal', at: [0, 0], label: 'Endospore' },
 } as const;
 export type Gene = keyof typeof CATALOG;
 export const GENE_NAMES = Object.keys(CATALOG) as Gene[];
@@ -46,3 +48,29 @@ export const priceOf = (genome: number) =>
   GENE_NAMES.reduce((sum, g) => sum + copiesOf(genome, g) * GENES[g].price, 0);
 /** Parts a new species can already buy; the rest arrive by gene transfer (fragments, plasmids). */
 export const STARTER_LIBRARY = GENES.pili.bit | GENES.flagellum.bit | GENES.transporters.bit;
+
+/** A placed part, as on the wire (Part) and in the editor; x forward, y left, in cell radii. */
+export interface Placement { gene: Gene; x: number; y: number; angle: number; scale: number; group: number }
+
+/**
+ * A plausible layout for a genome that has no designed one (bots, dev-toggled cells, a new species):
+ * every copy at its gene's default spot, extra copies fanned out around it. One group per gene.
+ */
+export function defaultParts(genome: number): Placement[] {
+  const parts: Placement[] = [];
+  for (const [group, gene] of GENE_NAMES.entries()) {
+    const { slot, at } = GENES[gene];
+    const n = copiesOf(genome, gene);
+    for (let k = 0; k < n; k++) {
+      const fan = (k - (n - 1) / 2) * 0.5;
+      if (slot === 'membrane') {
+        const a = (at as number) + fan;
+        parts.push({ gene, x: Math.cos(a), y: Math.sin(a), angle: a, scale: 1, group });
+      } else {
+        const [x, y] = slot === 'internal' ? (at as readonly [number, number]) : [0, 0];
+        parts.push({ gene, x: x + fan * 0.4, y, angle: 0, scale: 1, group });
+      }
+    }
+  }
+  return parts;
+}

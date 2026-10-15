@@ -1,7 +1,7 @@
 import { matchMaker } from '@colyseus/core';
 import { Callbacks, Client, Predict, type Room } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, GENES, HEALTH_MAX, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
+  ACTION_SPORE, GENES, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
   SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, drift, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
@@ -209,4 +209,21 @@ test('room caps at MAX_PLAYERS, overflow opens a second room', async () => {
   const rooms = await Promise.all(Array.from({ length: MAX_PLAYERS + 1 }, join));
   expect(new Set(rooms.map((r) => r.roomId)).size).toBe(2);
   await Promise.all(rooms.map((r) => r.leave()));
+});
+
+test('a draft sent over the wire is what a timed-out division hatches with', async () => {
+  const room = await join();
+  await joinedPlayer(room);
+  const authority = serverRoom(room).state;
+  const lineage = authority.lineages.get(room.sessionId)!;
+  lineage.dna = 100;
+  authority.players.get(room.sessionId)!.mass = MASS_CAP; // the next tick starts the division cyst
+  await vi.waitFor(() => expect(authority.players.get(room.sessionId)!.cyst).toBeGreaterThan(0));
+
+  room.send('draft', { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.3, children: 1 });
+  await sleep(150);
+  authority.players.get(room.sessionId)!.cyst = 0.1; // fast-forward to the editor timing out
+  await vi.waitFor(() => expect(lineage.generation).toBe(2));
+  expect([lineage.genome, lineage.children]).toEqual([GENES.flagellum.bit, STARTER_CHILDREN + 1]);
+  await room.leave();
 });
