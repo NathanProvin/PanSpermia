@@ -20,10 +20,11 @@ float fbm(vec2 p) {
 }
 `;
 
-// A pond bottom far below the gameplay plane, seen through a lot of water. Everything here is low
-// frequency (it is far out of focus): large slow fields pick each region's bottom — sand with soft
-// ripples and pebbles, dark silt, mossy patches, weed clumps — and its water tint (clear blue, teal,
-// green). Sunlight arrives as broad, heavily blurred patches, not crisp caustic lines.
+// A rock pool on a salty shore, far below the gameplay plane and seen through a lot of water.
+// Everything is low frequency (it is far out of focus). Large slow fields pick each region's bottom —
+// bright clear sand flats with soft ripples, dark rock outcrops, green-to-olive seaweed meadows, silt —
+// and its depth: shallow water is turquoise or sea green and shows the bottom, deep holes are blue to
+// navy and swallow it. Sunlight arrives as broad, heavily blurred patches.
 const FLOOR_DEPTH = -1400;
 const FLOOR_FRAGMENT = /* glsl */ `
 uniform float uTime;
@@ -33,34 +34,36 @@ ${NOISE}
 ${FBM}
 void main() {
   vec2 w = vWorld;
-  float region = fbm(w / 2600.0); // silt ↔ sand
-  float green = fbm(w / 1700.0 + 31.7); // mossy patches
-  float tint = fbm(w / 3400.0 + 77.0); // which water colour lies over it
+  float sandF = fbm(w / 2600.0);
+  float rockF = fbm(w / 1800.0 + 5.3);
+  float weedF = fbm(w / 1500.0 + 31.7);
+  float deepF = fbm(w / 3200.0 + 61.0);
+  float tint = fbm(w / 3600.0 + 77.0);
 
   float ripples = 0.5 + 0.5 * sin(dot(w, vec2(0.011, 0.005)) + fbm(w / 420.0) * 5.0);
-  vec3 sand = mix(vec3(0.075, 0.066, 0.044), vec3(0.105, 0.092, 0.062), ripples * 0.5 + 0.3 * fbm(w / 190.0));
-  // (No pebbles: detail that fine is lost this far out of focus, and any grid of stones reads as a pattern.)
-  vec3 silt = mix(vec3(0.018, 0.026, 0.022), vec3(0.034, 0.042, 0.03), fbm(w / 300.0));
-  vec3 moss = mix(vec3(0.016, 0.05, 0.026), vec3(0.04, 0.085, 0.034), fbm(w / 230.0 + 3.0));
-  float weeds = smoothstep(0.56, 0.74, fbm(w / 540.0 + 11.0));
-  vec3 bottom = mix(silt, sand, smoothstep(0.35, 0.65, region));
-  bottom = mix(bottom, moss, smoothstep(0.5, 0.72, green) * (1.0 - 0.5 * smoothstep(0.5, 0.7, region)));
-  bottom = mix(bottom, vec3(0.01, 0.03, 0.016), weeds * 0.7);
+  vec3 sand = mix(vec3(0.12, 0.11, 0.08), vec3(0.19, 0.17, 0.12), ripples * 0.5 + 0.3 * fbm(w / 190.0));
+  vec3 silt = mix(vec3(0.02, 0.028, 0.026), vec3(0.04, 0.046, 0.036), fbm(w / 300.0));
+  vec3 rock = mix(vec3(0.008, 0.011, 0.014), vec3(0.03, 0.033, 0.036), fbm(w / 150.0 + 9.0));
+  vec3 weed = mix(vec3(0.014, 0.055, 0.03), vec3(0.05, 0.05, 0.018), fbm(w / 260.0 + 3.0)); // green to olive-brown
+  vec3 bottom = mix(silt, sand, smoothstep(0.35, 0.6, sandF));
+  bottom = mix(bottom, weed, smoothstep(0.56, 0.72, weedF));
+  bottom = mix(bottom, rock, smoothstep(0.58, 0.67, rockF)); // outcrops: firmer edges than the soft sand
 
-  vec3 blue = vec3(0.012, 0.042, 0.074);
-  vec3 teal = vec3(0.01, 0.05, 0.055);
-  vec3 pondGreen = vec3(0.022, 0.058, 0.036);
-  vec3 water = mix(mix(blue, teal, smoothstep(0.3, 0.52, tint)), pondGreen, smoothstep(0.55, 0.78, tint));
+  vec3 turquoise = vec3(0.02, 0.1, 0.105);
+  vec3 seaGreen = vec3(0.025, 0.082, 0.05);
+  vec3 blue = vec3(0.012, 0.048, 0.085);
+  vec3 navy = vec3(0.006, 0.022, 0.055);
+  float depth = smoothstep(0.35, 0.7, deepF); // 0 shallow, 1 a deep hole
+  vec3 water = mix(mix(turquoise, seaGreen, smoothstep(0.4, 0.7, tint)), mix(blue, navy, smoothstep(0.4, 0.7, tint)), depth);
+  float clarity = 0.7 - 0.45 * depth; // shallow water shows the bottom
 
-  // Sun patches: very soft, slowly wandering pools of light.
   vec2 cp = w / 950.0 + 0.6 * vec2(sin(w.y / 1400.0 + uTime * 0.05), cos(w.x / 1300.0 - uTime * 0.04));
   float glow = smoothstep(0.45, 0.0, cellEdge(cp, uTime * 0.1));
   float sun = 0.5 + 0.5 * fbm(w / 2100.0 - uTime * 0.006);
-  // The pond gets darker and deeper toward and beyond its banks.
   float lit = 1.0 - smoothstep(0.2, 1.0, length(w) / (uRadius * 1.7));
 
-  vec3 color = mix(water, bottom * (0.7 + 0.6 * sun), 0.55) * (0.4 + 0.75 * lit)
-    + vec3(0.045, 0.065, 0.045) * glow * 0.3 * lit * sun;
+  vec3 color = mix(water, bottom * (0.75 + 0.6 * sun), clarity) * (0.4 + 0.75 * lit)
+    + vec3(0.05, 0.07, 0.055) * glow * 0.3 * lit * sun * (1.0 - depth * 0.6);
   gl_FragColor = vec4(color, 1.0);
 }
 `;

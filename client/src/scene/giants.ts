@@ -79,20 +79,27 @@ void main() {
 }
 `;
 
-/** Kinds: 0 water flea, 1 rotifer, 2 nematode, 3 copepod, 4 tadpole. Length in world units, depth z. */
+/**
+ * Kinds: 0 water flea, 1 rotifer, 2 nematode, 3 copepod, 4 tadpole. Length in world units, depth z.
+ * Few on purpose: one or two in view at a time reads as a living depth, more reads as clutter.
+ */
 const CAST = [
-  { kind: 0, length: 1900, z: -1150, speed: 60 },
-  { kind: 0, length: 1500, z: -500, speed: 70 },
+  { kind: 0, length: 1600, z: -520, speed: 60 }, // above the haze: the nearest, clearest giant
   { kind: 1, length: 1300, z: -950, speed: 35 },
-  { kind: 1, length: 1000, z: -420, speed: 40 },
   { kind: 2, length: 2600, z: -1250, speed: 45 },
-  { kind: 2, length: 1800, z: -800, speed: 50 },
-  { kind: 3, length: 1500, z: -1050, speed: 55 },
-  { kind: 3, length: 1100, z: -560, speed: 65 },
-  { kind: 4, length: 3600, z: -1320, speed: 80 },
+  { kind: 4, length: 3600, z: -1320, speed: 70 },
 ] as const;
-/** A giant this far from the camera reappears just out of view, on a path across it: regular sightings. */
+/** A giant this far from the camera re-enters on a course across the camera's area: regular sightings. */
 const RECYCLE = 3200;
+/** Seconds between course changes ("legs"), and the steering rate toward a new course. */
+const LEG = 28;
+const TURN_RATE = 0.12; // rad/s
+
+/** Deterministic pseudo-random in [0, 1) from two numbers: same giant, same leg → same turn. */
+const hash = (a: number, b: number) => {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
 
 export function createGiants() {
   const geometry = new THREE.PlaneGeometry(1, 1);
@@ -107,30 +114,41 @@ export function createGiants() {
     mesh.scale.set(g.length, g.length * (g.kind === 2 ? 0.5 : 0.75), 1);
     mesh.renderOrder = 0; // among the far layers, sorted by depth (the haze veils the deepest ones)
     const angle = (i / CAST.length) * 2 * Math.PI;
-    const at = RECYCLE * (0.2 + 0.6 * ((i * 0.618) % 1));
-    return { ...g, mesh, material, x: Math.cos(angle) * at, y: Math.sin(angle) * at, heading: angle + 2, turn: 0 };
+    const at = RECYCLE * 0.5;
+    // Course = where it is heading this leg; heading = course plus a gentle swimming weave.
+    return { ...g, i, mesh, material, x: Math.cos(angle) * at, y: Math.sin(angle) * at, course: angle + Math.PI * 0.8, target: angle + Math.PI * 0.8, leg: -1 };
   });
 
   return {
     objects: giants.map((g) => g.mesh),
-    /** Swim on, wander, and soften by distance from the focal plane (the camera's height above z = 0). */
+    /**
+     * Cruise by fixed rules: straight legs with a gentle weave; at each leg's end, a turn from the giant's
+     * own deterministic sequence (never a random spin); out of range, re-enter across the camera's area.
+     */
     update(time: number, dt: number, camera: { x: number; y: number; z: number }) {
       const cameraZ = camera.z;
       for (const g of giants) {
+        const leg = Math.floor((time + g.i * 7) / LEG);
+        if (leg !== g.leg) {
+          g.leg = leg;
+          const r = hash(g.i, leg);
+          g.target = g.course + (r < 0.5 ? -1 : 1) * (0.35 + 0.5 * hash(leg, g.i)); // 20–50° to one side
+        }
         if (Math.hypot(g.x - camera.x, g.y - camera.y) > RECYCLE) {
-          const from = Math.random() * 2 * Math.PI;
+          const from = 2 * Math.PI * hash(g.i, leg + 0.5);
           g.x = camera.x + Math.cos(from) * RECYCLE * 0.8;
           g.y = camera.y + Math.sin(from) * RECYCLE * 0.8;
-          g.heading = from + Math.PI + (Math.random() - 0.5) * 0.8; // swims back across the view
+          g.course = g.target = from + Math.PI + (hash(leg, g.i + 0.5) - 0.5) * 0.6; // across the view
         }
-        // A slow wander; a water flea hops (bursts of speed), the others glide.
-        g.turn += (Math.sin(time * 0.05 + g.length) * 0.002 - g.turn * 0.01);
-        g.heading += g.turn * dt * 10;
-        const hop = g.kind === 0 ? 0.4 + 1.6 * Math.max(0, Math.sin(time * 1.3 + g.length)) ** 4 : 1;
-        g.x += Math.cos(g.heading) * g.speed * hop * dt;
-        g.y += Math.sin(g.heading) * g.speed * hop * dt;
+        const diff = Math.atan2(Math.sin(g.target - g.course), Math.cos(g.target - g.course));
+        g.course += Math.sign(diff) * Math.min(Math.abs(diff), TURN_RATE * dt);
+        const heading = g.course + 0.15 * Math.sin(time * 0.35 + g.i * 2.1);
+        // A water flea hops (rhythmic bursts of speed); the others glide.
+        const hop = g.kind === 0 ? 0.4 + 1.6 * Math.max(0, Math.sin(time * 1.3 + g.i)) ** 4 : 1;
+        g.x += Math.cos(heading) * g.speed * hop * dt;
+        g.y += Math.sin(heading) * g.speed * hop * dt;
         g.mesh.position.set(g.x, g.y, g.z);
-        g.mesh.rotation.z = g.heading;
+        g.mesh.rotation.z = heading;
         // Further from focus (deeper below the camera's focal plane) = blurrier and fainter.
         const defocus = (Math.abs(g.z) + 0.3 * cameraZ) / 1400;
         g.material.uniforms.uSoft!.value = 0.04 + 0.09 * defocus;

@@ -118,7 +118,7 @@ void main() {
   // Premultiplied alpha.
   vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.55 + haloCol * halo * 0.6
     + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.8 * inside
-    + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(0.86, 0.8, 1.0) * virions * 1.2;
+    + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(1.0, 0.3, 0.25) * virions * 1.2;
   float alpha = clamp(cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
 }
@@ -185,7 +185,7 @@ void main() {
     float blob = length(q * vec2(1.0, 0.8));
     float pulse = 0.8 + 0.2 * sin(t * 2.5);
     a = (1.0 - smoothstep(0.5, 0.62, blob)) * (0.5 + 0.5 * smoothstep(0.2, 0.55, blob)) * pulse;
-    col = k == ${GENES.bacteriocin.index} ? vec3(0.65, 0.35, 1.0) * 1.5 : vec3(0.85, 1.0, 0.15) * 1.4;
+    col = k == ${GENES.bacteriocin.index} ? vec3(1.0, 0.22, 0.25) * 1.4 : vec3(1.0, 0.45, 0.15) * 1.4; // danger: red
   } else if (k == ${GENES.t6ss.index}) { // a tapered molecular syringe
     float s = (p.x + 0.9) / 1.8; // 0 at the base, 1 at the tip
     float w = 0.28 * (1.0 - s);
@@ -234,7 +234,7 @@ void main() {
     float blob = length(q * vec2(0.9, 1.0));
     float bubbles = smoothstep(0.7, 0.9, valueNoise(q * 6.0 + vec2(0.0, -t * 1.5)));
     a = (1.0 - smoothstep(0.48, 0.58, blob)) * (0.55 + 0.45 * bubbles);
-    col = vec3(0.4, 1.0, 0.3) * (1.1 + 0.3 * sin(t * 3.0));
+    col = vec3(0.9, 0.12, 0.1) * (1.2 + 0.3 * sin(t * 3.0)); // danger: red
   } else if (k == ${KIND2 + TIER2.GENES.electric.index}) { // an electric organ crackling with arcs
     float lens = 1.0 - smoothstep(0.55, 0.65, length(p * vec2(1.0, 1.4)));
     float arcs = 1.0 - smoothstep(0.0, 0.06, abs(valueNoise(p * 4.0 + floor(t * 12.0) * 1.7) - 0.5));
