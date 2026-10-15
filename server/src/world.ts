@@ -4,16 +4,18 @@ import {
   ADHESIN_DRAIN, ADHESIN_SHARE, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
+  CARAPACE_ARMOUR, MANDIBLE_ARC, MANDIBLE_DPS, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_HEALTH_MAX, T3_METABOLISM_BASE,
+  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, evolveDnaOf,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
-  EVOLVE_DNA, STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
+  STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
   PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
-  SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
 } from '@panspermia/shared';
 
 /** Uniform random point in a disc of radius `r` centred on the origin. */
@@ -58,7 +60,8 @@ function earn(state: PoolState, id: string, dna: number) {
 /** The lineage's next individual: its tier, design and name — where the parent divided, or anywhere. */
 function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: number }) {
   const p = spawnPlayer(tick);
-  if (l.tier === 2) Object.assign(p, { tier: 2, genome: 0, genome2: l.genome, mass: T2_SPAWN_MASS, health: T2_HEALTH_MAX });
+  if (l.tier === 3) Object.assign(p, { tier: 3, genome: 0, genome3: l.genome, mass: T3_SPAWN_MASS, health: T3_HEALTH_MAX });
+  else if (l.tier === 2) Object.assign(p, { tier: 2, genome: 0, genome2: l.genome, mass: T2_SPAWN_MASS, health: T2_HEALTH_MAX });
   else p.genome = l.genome;
   p.name = l.name;
   p.shape = l.shape;
@@ -109,7 +112,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   if (!name) return 'bad name';
   if (typeof evolve !== 'boolean') return 'bad evolve';
   if (evolve && l.tier >= MAX_TIER) return 'cannot evolve further yet';
-  if (evolve && l.lifetimeDna < EVOLVE_DNA) return 'not ready to evolve';
+  if (evolve && l.lifetimeDna < evolveDnaOf(l.tier)) return 'not ready to evolve';
   if (!Array.isArray(parts) || parts.length > MAX_PARTS) return 'bad parts';
   if (typeof hue !== 'number' || !(hue >= 0 && hue < 1)) return 'bad hue';
   if (typeof children !== 'number' || !Number.isInteger(children) || children < 0 || l.children + children > MAX_CHILDREN) {
@@ -158,13 +161,15 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
   return undefined;
 }
 
-/** Spore's "Grow legs?": from the next generation on, the species is a tier-2 starter eukaryote. */
+/** Spore's "Grow legs?": from the next generation on, the species is the next tier's starter. */
 function evolve(l: Lineage) {
-  l.tier = 2;
-  l.genome = STARTER_GENOME2;
+  const [genome, library] = l.tier === 1 ? [STARTER_GENOME2, STARTER_LIBRARY2] : [STARTER_GENOME3, STARTER_LIBRARY3];
+  l.tier++;
+  const cat = catalogFor(l.tier);
+  l.genome = genome;
   l.parts.clear();
-  l.parts.push(...TIER2.defaultParts(STARTER_GENOME2).map((p) => new Part({ ...p, gene: TIER2.GENES[p.gene].index })));
-  l.library = STARTER_LIBRARY2; // tier-1 parts mean nothing to a eukaryote
+  l.parts.push(...cat.defaultParts(genome).map((p) => new Part({ ...p, gene: cat.GENES[p.gene]!.index })));
+  l.library = library; // the old tier's parts mean nothing to the new body plan
 }
 
 function apply(l: Lineage, d: Design) {
@@ -178,7 +183,7 @@ function apply(l: Lineage, d: Design) {
   l.children += d.children;
 }
 
-/** A meteor shard carrying one random tier-2 part (Spore's meteor bits). */
+/** A meteor shard carrying one random tier-2 part (Spore's meteor bits); an animal draws a tier-3 part instead. */
 export function spawnShard(state: PoolState, x: number, y: number) {
   const gene = TIER2.NAMES[Math.floor(Math.random() * TIER2.NAMES.length)]!;
   spawnNutrient(state, x, y, NutrientKind.shard, TIER2.GENES[gene].bit);
@@ -209,17 +214,21 @@ export function initPool(state: PoolState) {
 }
 
 /** Burn mass (metabolism + part upkeep, per tier) down to the floor; starve there, else regenerate if allowed. */
-export function metabolize(p: { mass: number; health: number; genome: number; genome2?: number; tier?: number }, dt: number, regen = true) {
-  const t2 = p.tier === 2;
+export function metabolize(
+  p: { mass: number; health: number; genome: number; genome2?: number; genome3?: number; tier?: number }, dt: number, regen = true,
+) {
+  const tier = p.tier ?? 1;
   const genome2 = p.genome2 ?? 0;
-  const floor = t2 ? T2_MIN_MASS : MIN_MASS;
+  const floor = minMassOf(tier);
   // Mitochondria make metabolism cheaper; thylakoids / chloroplasts make mass from light.
-  const burn = t2
-    ? (T2_METABOLISM_BASE + T2_METABOLISM_RATE * p.mass) * (1 - MITO_METABOLISM * stack(TIER2.copiesOf(genome2, 'mitochondrion')))
-      + TIER2.upkeepOf(genome2)
-    : METABOLISM_BASE + METABOLISM_RATE * p.mass + upkeepOf(p.genome);
-  const light = t2 ? CHLOROPLAST_RATE * stack(TIER2.copiesOf(genome2, 'chloroplast')) : PHOTO_RATE * stack(copiesOf(p.genome, 'thylakoid'));
-  p.mass = Math.max(floor, Math.min(massCapOf(t2 ? 2 : 1), p.mass + (light - burn) * dt));
+  const burn = tier === 3 ? T3_METABOLISM_BASE + T3_METABOLISM_RATE * p.mass + TIER3.upkeepOf(p.genome3 ?? 0)
+    : tier === 2
+      ? (T2_METABOLISM_BASE + T2_METABOLISM_RATE * p.mass) * (1 - MITO_METABOLISM * stack(TIER2.copiesOf(genome2, 'mitochondrion')))
+        + TIER2.upkeepOf(genome2)
+      : METABOLISM_BASE + METABOLISM_RATE * p.mass + upkeepOf(p.genome);
+  const light = tier === 3 ? 0 : tier === 2 ? CHLOROPLAST_RATE * stack(TIER2.copiesOf(genome2, 'chloroplast'))
+    : PHOTO_RATE * stack(copiesOf(p.genome, 'thylakoid'));
+  p.mass = Math.max(floor, Math.min(massCapOf(tier), p.mass + (light - burn) * dt));
   if (p.mass <= floor) p.health -= STARVE_DPS * dt;
   else if (regen) p.health = Math.min(healthMaxOf(p.genome, p.tier), p.health + HEALTH_REGEN * dt);
 }
@@ -231,7 +240,7 @@ export function secrete(state: PoolState, id: string) {
   if (!p || dormant(p) || p.toxinCooldown > 0) return;
   for (const [kind, toxin] of TOXINS.entries()) {
     if (toxin.tier !== p.tier) continue;
-    const genome = p.tier === 2 ? p.genome2 : p.genome;
+    const genome = ownGenome(p);
     const power = stack(catalogFor(p.tier).copiesOf(genome, toxin.gene)); // more copies: stronger cloud, dearer
     if (!power || p.mass - toxin.cost * power < minMassOf(p.tier)) continue;
     p.mass -= toxin.cost * power;
@@ -274,6 +283,31 @@ export function yieldOf(kind: number, genome: number) {
 
 export const reachOf = (mass: number, genome: number) =>
   radiusOf(mass) * boost(SIDEROPHORE_REACH, copiesOf(genome, 'siderophores'));
+
+/** What one packet is worth to an animal: filter combs sweep up plant food, mandibles take meat. */
+export function yield3Of(kind: number, genome3: number) {
+  if (TIER3.hasGene(genome3, 'filterComb')) {
+    if (kind === NutrientKind.algae) return ALGAE_MASS;
+    if (kind === NutrientKind.dissolved) return NUTRIENT_MASS;
+  }
+  if (TIER3.hasGene(genome3, 'mandible')) {
+    if (kind === NutrientKind.chunk) return CHUNK_MASS;
+    if (kind === NutrientKind.debris) return DEBRIS_MASS;
+  }
+  return 0;
+}
+
+/**
+ * Whether `e` can swallow `v` whole (by mass; contact is checked by the caller): a eukaryote's jaw or an
+ * animal's mandibles take any smaller-tier or rival cell up to ENGULF_RATIO of the eater; filter combs only
+ * sweep up bacteria.
+ */
+export function swallows(e: Player, v: Player) {
+  if (v.mass > e.mass * ENGULF_RATIO) return false;
+  if (e.tier === 2) return TIER2.hasGene(e.genome2, 'jaw');
+  if (e.tier === 3) return TIER3.hasGene(e.genome3, 'mandible') || (v.tier === 1 && TIER3.hasGene(e.genome3, 'filterComb'));
+  return false;
+}
 
 /**
  * What one packet is worth to a eukaryote, by mouth: a filter takes plant food (dissolved, algae), a jaw
@@ -370,7 +404,7 @@ export function stepWorld(state: PoolState): Death[] {
   for (const [id, p] of state.players) {
     if (dormant(p)) continue;
     const r = radiusOf(p.mass);
-    const t2 = p.tier === 2;
+    const t2 = p.tier >= 2; // eukaryotes and animals eat by mouth
     const reach = t2 ? r * 1.05 : reachOf(p.mass, p.genome);
     const span = Math.ceil(reach / GRID);
     const ix = Math.floor(p.x / GRID);
@@ -385,19 +419,21 @@ export function stepWorld(state: PoolState): Death[] {
             if (d2 >= reach * reach) continue;
             const l = state.lineages.get(id);
             if (n.kind === NutrientKind.virus) { // a giant virus binds the cell itself (not the mouth's reach)
+              if (p.tier !== 2) continue; // ponytail: animals ignore giant viruses until tier-3 hazards (P9d)
               if (d2 >= r * r || tick < p.graceUntil) continue;
               p.infection += VIRUS_LATENT;
-            } else if (n.kind === NutrientKind.shard) { // any eukaryote touching a meteor shard takes its part
+            } else if (n.kind === NutrientKind.shard) { // touching a meteor shard takes its part
               earn(state, id, PACKET_DNA);
               if (l?.tier === 2) l.library |= n.gene;
+              if (l?.tier === 3) l.library |= TIER3.GENES[TIER3.NAMES[Math.floor(Math.random() * TIER3.NAMES.length)]!].bit;
             } else {
-              // Eukaryotes eat by mouth; phages (bacteria-only viruses) and bacterial DNA drift past.
-              const food = yield2Of(n.kind, p.genome2);
+              // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) and bacterial DNA drift past.
+              const food = p.tier === 3 ? yield3Of(n.kind, p.genome3) : yield2Of(n.kind, p.genome2);
               if (!food) continue;
-              p.mass = Math.min(massCapOf(2), p.mass + food);
+              p.mass = Math.min(massCapOf(p.tier), p.mass + food);
               earn(state, id, food * DNA_PER_MASS);
               // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
-              if (l?.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
+              if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
             }
           } else if (n.kind === NutrientKind.algae || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
             continue; // too big for a bacterium to take in; not its kind of DNA
@@ -422,19 +458,20 @@ export function stepWorld(state: PoolState): Death[] {
     }
   }
 
-  // Phagocytosis: a jaw swallows any cell at most ENGULF_RATIO of the eater's mass whose centre it
-  // covers — bacteria are snacks. Endospores resist digestion; cysts and newborns are shielded.
+  // Phagocytosis: a jaw (or mandibles, or filter combs for bacteria) swallows any cell at most ENGULF_RATIO
+  // of the eater's mass whose centre it covers — bacteria are snacks. Endospores resist digestion; cysts and
+  // newborns are shielded.
   // ponytail: O(players²), fine at 50; use a grid when tier-2 bots raise counts.
   for (const [eid, e] of state.players) {
-    if (e.tier !== 2 || dormant(e) || e.engulfedBy || !TIER2.hasGene(e.genome2, 'jaw')) continue;
+    if (e.tier < 2 || dormant(e) || e.engulfedBy) continue;
     const mouth = radiusOf(e.mass) * 0.9;
     for (const [vid, v] of state.players) {
-      if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || v.mass > e.mass * ENGULF_RATIO) continue;
+      if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || !swallows(e, v)) continue;
       if (!((v.x - e.x) ** 2 + (v.y - e.y) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
       v.engulfedBy = eid;
       hurt(v, v.health + 1, eid, tick);
       const food = v.mass * ENGULF_SHARE;
-      e.mass = Math.min(massCapOf(2), e.mass + food);
+      e.mass = Math.min(massCapOf(e.tier), e.mass + food);
       earn(state, eid, food * DNA_PER_MASS);
       // Endosymbiosis: a swallowed bacterium may live on inside as an organelle (unlocked for the editor).
       const l = state.lineages.get(eid);
@@ -496,6 +533,14 @@ export function stepWorld(state: PoolState): Death[] {
       if (hasGene(a.genome, 't6ss') && d < ra + r) {
         hurt(p, T6SS_DPS * stack(copiesOf(a.genome, 't6ss')) * contactFactor(p.genome) * TICK_DT, aid, tick);
       }
+      if (a.tier === 3) {
+        // Mandibles bite a rival animal in front; a carapace turns part of the bite.
+        if (p.tier === 3 && TIER3.hasGene(a.genome3, 'mandible') && d < ra * 1.1 + r
+          && Math.abs(wrapAngle(Math.atan2(dy, dx) - a.heading)) < MANDIBLE_ARC) {
+          hurt(p, MANDIBLE_DPS * (TIER3.hasGene(p.genome3, 'carapace') ? CARAPACE_ARMOUR : 1) * TICK_DT, aid, tick);
+        }
+        continue;
+      }
       if (a.tier !== 2) continue;
       // Electric organ: shocks everything inside its field, all around.
       const organs = TIER2.copiesOf(a.genome2, 'electric');
@@ -548,8 +593,8 @@ export function stepWorld(state: PoolState): Death[] {
       spawnNutrient(state, p.x + at.x, p.y + at.y, kind, gene);
     };
     if (!p.engulfedBy) {
-      const [kind, size] = p.tier === 2 ? [NutrientKind.chunk, CHUNK_MASS] : [NutrientKind.debris, DEBRIS_MASS];
-      for (let k = Math.floor((p.mass * DEBRIS_SHARE) / size); k > 0; k--) spill(kind);
+      const [kind, size] = p.tier >= 2 ? [NutrientKind.chunk, CHUNK_MASS] : [NutrientKind.debris, DEBRIS_MASS];
+      for (let k = Math.min(SPILL_MAX, Math.floor((p.mass * DEBRIS_SHARE) / size)); k > 0; k--) spill(kind);
       for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
       for (const g of TIER2.NAMES) if (TIER2.hasGene(p.genome2, g)) spill(NutrientKind.chunk, TIER2.GENES[g].bit);
       if (p.infection > 0) {

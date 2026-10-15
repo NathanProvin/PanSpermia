@@ -40,7 +40,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
           if (!p) continue;
           // A division cyst can't swim or act: its inputs step as no-ops (honest clients send zeros).
           const live = p.cyst > 0 ? 0 : 1;
-          stepCell(p, p.mass, p.genome, cmd.dirX * live, cmd.dirY * live, cmd.actions * live, ctx.dt, time, p.tier, p.genome2);
+          stepCell(p, p.mass, p.genome, cmd.dirX * live, cmd.dirY * live, cmd.actions * live, ctx.dt, time, p.tier, p.genome2, p.genome3);
           if (cmd.actions & ACTION_TOXIN) secrete(this.state, id);
           steps++;
         }
@@ -49,7 +49,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         // the grace absorbs network jitter so bursty-but-live clients never get unpredicted steps.
         const idle = steps ? 0 : (this.idleTicks.get(id) ?? 0) + 1;
         this.idleTicks.set(id, idle);
-        if (idle > IDLE_GRACE_TICKS) stepCell(p, p.mass, p.genome, 0, 0, 0, ctx.dt, time, p.tier, p.genome2);
+        if (idle > IDLE_GRACE_TICKS) stepCell(p, p.mass, p.genome, 0, 0, 0, ctx.dt, time, p.tier, p.genome2, p.genome3);
       }
       stepBots(this.state, this.bots);
       const deaths = stepWorld(this.state);
@@ -84,7 +84,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         const cat = catalogFor(p?.tier ?? 1);
         const gene = cat.NAMES[index as number];
         if (!p || !l || !Number.isInteger(index) || !gene) return;
-        const field = p.tier === 2 ? 'genome2' : 'genome';
+        const field = p.tier === 3 ? 'genome3' : p.tier === 2 ? 'genome2' : 'genome';
         p[field] = cat.withCopies(p[field], gene, (cat.copiesOf(p[field], gene) + 1) % (cat.GENES[gene]!.maxCopies + 1));
         if (l.tier === p.tier) l.library |= cat.GENES[gene]!.bit;
       });

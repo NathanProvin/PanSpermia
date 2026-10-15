@@ -7,7 +7,7 @@ import {
   type Species, T2_HEALTH_MAX, T2_SPAWN_MASS, TICK_DT, TIER2, WORLD_RADIUS, catalogFor, hasGene, healthMaxOf, massCapOf,
   radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
-import { type Death, secrete, spawnPlayer, yield2Of, yieldOf } from './world.ts';
+import { type Death, secrete, spawnPlayer, swallows, yield2Of, yieldOf } from './world.ts';
 
 export interface Brain {
   species: number; // index into BOT_SPECIES
@@ -209,11 +209,11 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
     const catchable = t2 ? TIER2.hasGene(p.genome2, 'jaw') && o.mass <= p.mass * ENGULF_RATIO : o.mass < p.mass * PREY_RATIO;
     const isPrey = archetype === 'hunter' && hungry && catchable && o.spore === 0 && o.cyst === 0 && state.tick >= o.graceUntil;
     if (isPrey && d < (prey?.d ?? Infinity)) prey = { d, x: dx / d, y: dy / d };
-    // Everyone flees a jawed eukaryote big enough to swallow them.
-    const swallower = o.tier === 2 && TIER2.hasGene(o.genome2, 'jaw') && p.mass <= o.mass * ENGULF_RATIO;
+    // Everyone flees a jawed eukaryote or an animal big enough to swallow them.
+    const swallower = swallows(o, p);
     // A eukaryote coward fears other eukaryotes, not the bacteria it towers over.
     // A parasite is reckless: it rides the very cells that could swallow it.
-    const fear = archetype === 'parasite' ? 0 : ((archetype === 'coward' && (!t2 || o.tier === 2)) || swallower ? COWARD_FEAR
+    const fear = archetype === 'parasite' ? 0 : ((archetype === 'coward' && (!t2 || o.tier >= 2)) || swallower ? COWARD_FEAR
       : archetype === 'grazer' && armed(o) && o.mass > p.mass * 0.5 ? GRAZER_FEAR : 0) * scale;
     if (fear > 0 && gap < fear) { // fear 0 would divide by zero when overlapping: NaN steering
       const w = 2 * (1 - gap / fear);
@@ -284,7 +284,7 @@ export function stepBots(state: PoolState, bots: Bots) {
       think(state, bots, (grid ??= foodGrid(state)), id, p, b);
       sanitizeInput(b); // the same contract as human input: a non-finite steer is no steer
     }
-    stepCell(p, p.mass, p.genome, b.dirX, b.dirY, b.actions, TICK_DT, time, p.tier, p.genome2);
+    stepCell(p, p.mass, p.genome, b.dirX, b.dirY, b.actions, TICK_DT, time, p.tier, p.genome2, p.genome3);
     if (b.actions & ACTION_TOXIN) secrete(state, id);
   }
 }

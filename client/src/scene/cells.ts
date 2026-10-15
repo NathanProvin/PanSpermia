@@ -1,5 +1,6 @@
 import {
-  GENES, type Placement, type Player, SIDEROPHORE_REACH, TIER2, catalogFor, deform, hasGene, radiusOf, shapeUniform,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
+  deform, hasGene, radiusOf, shapeUniform,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
@@ -14,6 +15,8 @@ const QUAD_HALF = 1.9;
 // A phage infection darkens the cytoplasm and fills it with new virions; a division cyst pinches the
 // cell across its axis around two separating nucleoids; an endospore is a hard pale husk.
 // Eukaryotes (uTier = 1) carry a true nucleus (envelope + nucleolus) and a few vacuoles instead of a nucleoid.
+// Animals (uTier = 2) are a smooth union of body segments (uSeg: x, y, r), tissue made of many small cells,
+// grooves where segments meet, a gut along the spine; a carapace is a glossy shell over the body.
 const VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -37,6 +40,9 @@ uniform float uCyst;
 uniform float uTier;
 uniform vec3 uShape; // stretch x, stretch y, bend (shared/shapes.ts)
 uniform float uCentre;
+uniform vec3 uSeg[8];
+uniform int uSegN;
+uniform float uCarapace;
 varying vec2 vUv;
 ${NOISE}
 void main() {
@@ -53,6 +59,26 @@ void main() {
   float side = cos(a);
   rim -= uCyst * (0.16 + 0.03 * sin(t * 2.0)) * exp(-side * side * 10.0);
   float d = r - rim; // signed distance in radii, < 0 inside
+  float animal = step(1.5, uTier);
+  float euk = step(0.5, uTier) - animal;
+  float bact = 1.0 - step(0.5, uTier);
+  // Animal: segments blended into one body; remember the nearest two (grooves) and the nearest (normal).
+  vec2 segC = vec2(0.0);
+  float segR = 1.0;
+  float groove = 0.0;
+  if (animal > 0.5) {
+    float sd = 1e3, d1 = 1e3, d2 = 1e3;
+    for (int i = 0; i < 8; i++) {
+      if (i >= uSegN) break;
+      vec3 s = uSeg[i];
+      float di = length(p - s.xy) - s.z * (1.0 + 0.3 * (rim - 1.0));
+      float h = clamp(0.5 + 0.5 * (di - sd) / ${SEGMENT_BLEND.toFixed(3)}, 0.0, 1.0);
+      sd = i == 0 ? di : mix(di, sd, h) - ${SEGMENT_BLEND.toFixed(3)} * h * (1.0 - h);
+      if (di < d1) { d2 = d1; d1 = di; segC = s.xy; segR = s.z; } else if (di < d2) d2 = di;
+    }
+    d = sd;
+    groove = exp(-pow((d2 - d1) / 0.035, 2.0));
+  }
   float aa = fwidth(d) * 1.5;
   float inside = 1.0 - smoothstep(-aa, aa, d);
 
@@ -63,19 +89,25 @@ void main() {
   // Two daughter nucleoids drifting apart along the axis while dividing.
   float twins = max(1.0 - smoothstep(0.0, 0.35, length(p - fwd * 0.42)), 1.0 - smoothstep(0.0, 0.35, length(p + fwd * 0.42)));
   nucleoid = mix(nucleoid, twins, uCyst);
-  vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid * (1.0 - uTier));
+  vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid * bact);
+  // Animal tissue: many small cells, a gut along the spine with a slow peristaltic wave.
+  float tissue = animal * (1.0 - smoothstep(0.0, 0.1, cellEdge(p * 9.0 + uSeed * 20.0, t * 0.05)));
+  float gut = animal * exp(-pow(p.y / 0.07, 2.0)) * (1.0 - smoothstep(0.75, 0.95, abs(p.x + 0.05)))
+    * (0.6 + 0.4 * sin(p.x * 12.0 + t * 2.0));
+  cyto = cyto * (1.0 - 0.25 * tissue - 0.45 * groove * animal) + (uColor * 0.3 + 0.1) * tissue * 0.25;
+  cyto = mix(cyto, uColor * 0.25 + vec3(0.12, 0.09, 0.04), gut * 0.6);
   // Eukaryote: a nucleus behind the middle (envelope, darker nucleoplasm, bright nucleolus) and vacuoles.
   vec2 nucleusAt = -fwd * 0.18 + 0.05 * vec2(sin(t * 0.2), cos(t * 0.23));
   float nd = length(p - nucleusAt) - 0.34;
-  float nucleus = uTier * (1.0 - smoothstep(0.0, 0.02, nd));
-  float envelope = uTier * (1.0 - smoothstep(0.0, 0.025, abs(nd + 0.015)));
-  float nucleolus = uTier * exp(-dot(p - nucleusAt - vec2(0.08, 0.06), p - nucleusAt - vec2(0.08, 0.06)) * 120.0);
+  float nucleus = euk * (1.0 - smoothstep(0.0, 0.02, nd));
+  float envelope = euk * (1.0 - smoothstep(0.0, 0.025, abs(nd + 0.015)));
+  float nucleolus = euk * exp(-dot(p - nucleusAt - vec2(0.08, 0.06), p - nucleusAt - vec2(0.08, 0.06)) * 120.0);
   float vacuoles = 0.0;
   for (int i = 0; i < 3; i++) {
     vec2 at = 0.5 * vec2(cos(float(i) * 2.1 + uSeed * 9.0 + t * 0.05), sin(float(i) * 2.1 + uSeed * 9.0 + t * 0.05));
     vacuoles += 1.0 - smoothstep(0.1, 0.13, length(p - at));
   }
-  vacuoles *= uTier;
+  vacuoles *= euk;
   cyto = mix(cyto, uColor * 0.35 + 0.05, nucleus * 0.7);
   cyto += (uColor * 0.4 + 0.25) * vacuoles * 0.35;
   float furrow = uCyst * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside;
@@ -85,6 +117,7 @@ void main() {
   float wall = 0.025 + 0.04 * max(uWall, uSpore);
   float membrane = 1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005));
   vec3 membraneCol = mix(uColor * 0.85 + 0.04, uColor * 0.45 + vec3(0.09, 0.07, 0.04), uWall);
+  membraneCol *= 1.0 - 0.45 * animal; // tissue, not a single glowing membrane
   membraneCol += uCyst * (0.25 + 0.15 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a living glow
 
   // Siderophores: a faint dotted ring where they reach, slowly rotating.
@@ -102,9 +135,18 @@ void main() {
 
   // Wet glint from a light above-left of the screen (turned into the body frame), using the sphere normal.
   vec3 n = vec3(p / max(rim, 1e-3), sqrt(max(0.0, 1.0 - dot(p, p) / (rim * rim))));
+  if (animal > 0.5) { // each segment bulges like its own sphere
+    vec2 q = (p - segC) / segR;
+    n = vec3(q, sqrt(max(0.0, 1.0 - dot(q, q))));
+  }
   float ch = cos(uHeading), sh = sin(uHeading);
   vec2 lightXY = vec2(ch * -0.45 + sh * 0.55, -sh * -0.45 + ch * 0.55);
-  float glint = pow(max(0.0, dot(n, normalize(vec3(lightXY, 0.7)))), 28.0) * inside;
+  float glint = pow(max(0.0, dot(n, normalize(vec3(lightXY, 0.7)))), 28.0 - 18.0 * uCarapace) * inside * (1.0 + 0.8 * uCarapace);
+  // Carapace: a hard translucent shell, a pale thick rim and a sheen over the back.
+  membraneCol = mix(membraneCol, vec3(0.85, 0.8, 0.65), uCarapace * 0.6);
+  wall = mix(wall, 0.07, uCarapace);
+  membrane = max(membrane, uCarapace * (1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005))));
+  cyto += uCarapace * vec3(0.06, 0.055, 0.04) * smoothstep(-0.6, 0.0, d) * inside;
 
   float halo = exp(-max(d, 0.0) * (12.0 - 6.0 * uExo)) * (1.0 - inside) * (0.22 + 0.25 * uExo);
   vec3 haloCol = mix(uColor, vec3(1.0, 0.42, 0.18), uExo);
@@ -124,8 +166,9 @@ void main() {
 }
 `;
 
-/** Part kinds: a tier-1 gene's catalog index, or KIND2 + a tier-2 gene's index. */
+/** Part kinds: a tier-1 gene's catalog index, KIND2 + a tier-2 gene's index, or KIND3 + a tier-3 one. */
 const KIND2 = 16;
+const KIND3 = 32;
 
 // Placed parts, one quad each in the cell's frame. In the quad, +x points away from the body (the
 // membrane normal for membrane parts), so every shape grows outward from its base at x = -1. The
@@ -212,7 +255,31 @@ void main() {
     float gullet = 1.0 - smoothstep(0.12, 0.2, rr);
     a = max(max(funnel, bristles * 0.9), gullet * 0.8);
     col = mix(vec3(0.75, 1.0, 0.55), vec3(0.15, 0.25, 0.1), gullet);
-  } else if (k == ${KIND2 + TIER2.GENES.jaw.index}) { // two hooked mandibles snapping open and shut
+  } else if (k == ${KIND3 + TIER3.GENES.paddle.index}) { // a jointed leg rowing, a fan of bristles at its tip
+    float row = 0.55 * sin(t * 4.0);
+    vec2 base = vec2(-0.9, 0.0);
+    vec2 knee = base + 0.6 * vec2(cos(row * 0.6), sin(row * 0.6));
+    vec2 tip = knee + 0.5 * vec2(cos(row), sin(row));
+    float limb = min(segment(p, base, knee), segment(p, knee, tip));
+    a = 1.0 - smoothstep(0.13 - 0.04 * smoothstep(-0.9, 0.3, p.x), 0.17, limb); // stout, tapering
+    for (int i = 0; i < 7; i++) { // a broad fan of swimming bristles: the paddle blade
+      float dir = row + (float(i) - 3.0) * 0.2;
+      a = max(a, 0.85 * (1.0 - smoothstep(0.03, 0.06, segment(p, tip, tip + 0.5 * vec2(cos(dir), sin(dir))))));
+    }
+    col = uColor * 0.6 + vec3(0.35, 0.32, 0.25);
+  } else if (k == ${KIND3 + TIER3.GENES.filterComb.index}) { // feathery combs beating in a wave, sieving the water
+    for (int i = 0; i < 5; i++) {
+      float fi = float(i) - 2.0;
+      float beat = 0.35 * sin(t * 7.0 - fi * 0.9);
+      vec2 base = vec2(-0.85, fi * 0.3);
+      vec2 dir = vec2(cos(beat), sin(beat));
+      float along = clamp(dot(p - base, dir), 0.0, 1.2);
+      float stem = length(p - base - dir * along);
+      float hairs = smoothstep(0.6, 0.95, sin(along * 30.0)) * (1.0 - smoothstep(0.02, 0.12, stem)) * step(0.1, along);
+      a = max(a, max(1.0 - smoothstep(0.025, 0.05, stem), hairs * 0.7) * (1.0 - smoothstep(1.0, 1.2, along)));
+    }
+    col = vec3(0.92, 0.95, 0.85);
+  } else if (k == ${KIND2 + TIER2.GENES.jaw.index} || k == ${KIND3 + TIER3.GENES.mandible.index}) { // two hooked mandibles snapping
     float open = 0.28 + 0.16 * sin(t * 4.0);
     for (int side = -1; side <= 1; side += 2) {
       float s = float(side);
@@ -249,7 +316,7 @@ void main() {
       * smoothstep(0.55, 0.85, valueNoise(p * 7.0 - vec2(t * 14.0, 0.0)));
     a = max(max(shell * 0.85, rim), plume);
     col = mix(vec3(0.85, 0.75, 0.6), vec3(0.8, 0.95, 1.0), plume);
-  } else if (k == ${KIND2 + TIER2.GENES.eye.index}) { // a Spore-cell eye: sclera, wandering pupil, glint
+  } else if (k == ${KIND2 + TIER2.GENES.eye.index} || k == ${KIND3 + TIER3.GENES.eye.index}) { // a Spore-cell eye: sclera, wandering pupil, glint
     float rr = length(p);
     float sclera = 1.0 - smoothstep(0.8, 0.88, rr);
     vec2 look = vec2(0.32, 0.0) + 0.08 * vec2(sin(t * 0.7 + uSeed * 9.0), sin(t * 1.1));
@@ -298,7 +365,7 @@ void main() {
   gl_FragColor = vec4(col * a, a); // premultiplied
 }
 `;
-const kindOf = (tier: number, gene: string) => (tier === 2 ? KIND2 : 0) + catalogFor(tier).GENES[gene]!.index;
+const kindOf = (tier: number, gene: string) => [0, 0, KIND2, KIND3][tier]! + catalogFor(tier).GENES[gene]!.index;
 /** Quad size (cell radii) and how far its centre sits outward from the attachment point (in sizes). */
 const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.cilia.index]: { size: 0.7, out: 0.25 },
@@ -309,6 +376,10 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.electric.index]: { size: 0.5, out: 0 },
   [KIND2 + TIER2.GENES.jet.index]: { size: 0.6, out: 0.35 },
   [KIND2 + TIER2.GENES.eye.index]: { size: 0.32, out: 0 },
+  [KIND3 + TIER3.GENES.paddle.index]: { size: 0.7, out: 0.35 },
+  [KIND3 + TIER3.GENES.filterComb.index]: { size: 0.45, out: 0.3 },
+  [KIND3 + TIER3.GENES.mandible.index]: { size: 0.45, out: 0.35 },
+  [KIND3 + TIER3.GENES.eye.index]: { size: 0.22, out: 0 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
   [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
   [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },
@@ -348,7 +419,9 @@ void main() {
   gl_FragColor = vec4((uColor * 0.9 + 0.05) * a, a); // premultiplied
 }
 `;
-const FLAGELLUM_LENGTH = [0, 3.2, 2.2]; // cell radii, per tier (a eukaryote's whip is shorter relative to its body)
+const FLAGELLUM_LENGTH = [0, 3.2, 2.2, 1.3]; // cell radii, per tier (a eukaryote's whip is shorter; an animal's tail)
+/** How thick a whip is (× part scale) and how fast it beats (× BEAT_RUN), per tier: an animal's tail is stout and slow. */
+const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 3, beat: 0.35 }];
 const BEAT_RUN = 22; // rad/s of wave phase
 const BEAT_TUMBLE = 5; // motor reversal during a tumble: the bundle flails slowly
 
@@ -360,6 +433,8 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 },
   uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uTier: { value: 0 },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
+  uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uCarapace: { value: 0 },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -393,6 +468,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   parent.add(body, frame);
   let partsKey = '';
   let parts: { mesh: ShaderMesh; flagellum: boolean }[] = [];
+  let beat = 1;
 
   const rebuild = (placements: readonly Placement<string>[], tier: number, form: number) => {
     for (const { mesh } of parts) {
@@ -400,16 +476,20 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       mesh.material.dispose();
     }
     parts = [];
-    for (const [i, pl] of placements.entries()) {
-      const kind = kindOf(tier, pl.gene);
-      if (pl.gene === 'flagellum') {
+    beat = WHIP[tier]!.beat;
+    for (const [i, raw] of placements.entries()) {
+      const kind = kindOf(tier, raw.gene);
+      // An animal's membrane parts sit on its segmented outline, not the unit circle.
+      const onRim = tier === 3 && catalogFor(3).GENES[raw.gene]!.slot === 'membrane' ? animalRim(raw.angle) : 1;
+      const pl = { ...raw, x: raw.x * onRim, y: raw.y * onRim };
+      if (pl.gene === 'flagellum' || pl.gene === 'tail') {
         const mesh: ShaderMesh = new THREE.Mesh(flagellumGeometry, flagellumMaterial.clone());
         mesh.material.uniforms.uColor!.value = color;
         mesh.material.uniforms.uBeat!.value = seed * 100 + i * 1.7;
         const root = deform(form, pl.x * 0.92, pl.y * 0.92, pl.angle); // where it leaves the shaped body
         mesh.position.set(root.x, root.y, 0);
         mesh.rotation.z = root.angle;
-        mesh.scale.set(FLAGELLUM_LENGTH[tier]! * pl.scale, pl.scale, 1);
+        mesh.scale.set(FLAGELLUM_LENGTH[tier]! * pl.scale, WHIP[tier]!.width * pl.scale, 1);
         mesh.renderOrder = 9;
         frame.add(mesh);
         parts.push({ mesh, flagellum: true });
@@ -445,7 +525,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend);
         body.material.uniforms.uCentre!.value = s.centre;
       }
-      color.setHSL(look.hue, 0.8, 0.42);
+      color.setHSL(look.hue, look.tier === 3 ? 0.55 : 0.8, 0.42); // animal tissue is less saturated than a cell
       body.position.set(pose.x, pose.y, 0);
       body.rotation.z = pose.heading; // a rod points where it swims
       body.scale.setScalar(radius);
@@ -458,7 +538,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const g1 = look.tier === 1 ? look.genome : 0; // whole-body features are tier-1 genes
       u.uTime!.value = time;
       u.uHeading!.value = pose.heading;
-      u.uTier!.value = look.tier === 2 ? 1 : 0;
+      u.uTier!.value = look.tier - 1;
+      u.uCarapace!.value = look.tier === 3 && TIER3.hasGene(look.genome, 'carapace') ? 1 : 0;
       u.uSidero!.value = hasGene(g1, 'siderophores') ? 1 : 0;
       u.uExo!.value = hasGene(g1, 'exoenzymes') ? 1 : 0;
       u.uCapsule!.value = hasGene(g1, 'capsule') ? 1 : 0;
@@ -466,7 +547,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uSpore!.value = pose.spore > 0 ? 1 : 0;
       u.uCyst!.value = pose.cyst > 0 ? 1 : 0;
       for (const { mesh, flagellum } of parts) {
-        if (flagellum) mesh.material.uniforms.uBeat!.value += dt * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
+        if (flagellum) mesh.material.uniforms.uBeat!.value += dt * beat * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
         else {
           mesh.material.uniforms.uTime!.value = time;
           mesh.material.uniforms.uActive!.value = (pose.dash ?? 0) > 0 ? 1 : 0; // the jet's plume

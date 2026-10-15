@@ -91,7 +91,11 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] P8f (2026-10-15) Hazards of eukaryotes: giant viruses (eukaryote-only, drift, infect on contact 6 s × 20 dps, burst 6 from the dead; bots dodge them) and parasitic bacteria (new tier-1 gene Adhesins: drain 2 energy/s × stack from a touched eukaryote, 80 % to the parasite; bot species Chytridium parasita holds station on a host rim; eukaryote bots jet to shake parasites off; electric/spikes kill them). Sim: parasites thrive (1.8 min generations) and slow eukaryote grazers by ~1 min/gen; 7.5 deaths/min across 40 bots
   - [ ] Next: balance pass with humans in playtests (P6c/d), tier 3
   - [x] P7 rest (2026-10-15): "thriving pond" background — pond bottom with regional sand/silt/moss/weeds under blue/teal/green water, heavily blurred sun patches, a water-column haze layer with soft light shafts (depth parallax), an earthy mossy bank, a mixed plankton palette, and distant giant silhouettes (water fleas, rotifers, nematodes, copepods, a tadpole) swimming far below, recycled around the camera for regular sightings. Generic ±1-tier interaction rules remain for tier 3
-- [ ] P9 Tier 3 Multicellular + egg protection.
+- [ ] P9 Tier 3 small multicellular animals (design: DECISIONS 2026-10-15 "Tier 3 forks"), sliced:
+  - [x] P9a (2026-10-15) Animals exist: Player.genome3 + TIER3 catalog, tier-3 scale, segmented body rendering (default spine), diets (filter combs sweep up specks: bacteria, algae; mandibles bite eukaryotes and rivals), Evolve tier 2 → 3, bigger pool. Done: genome3 + TIER3 (paddle legs, tail, filter combs, mandibles, eye, carapace), mass 1200→6000, evolving a eukaryote species needs 2500 lifetime DNA, combs swallow bacteria, mandibles swallow eukaryotes and bite rival animals in front (carapace ×0.6), pond radius 3000 with rates scaled, 50 bots, three-segment body (tissue, grooves, gut), parts snap to the outline, paired side parts mirror
+  - [ ] P9b Body editor: segmented spine or radial body plan (add/remove/resize segments), parts snap to the body outline
+  - [ ] P9c Mate call, mating, egg clutch (vulnerable until it hatches; children = extra eggs)
+  - [ ] P9d Tier-3 bots + hazards + balance
 - [ ] P10 Tier 4 Arthropod/insect/mollusk + cocoon, ink eject.
 - [ ] P11 Tier 5 Chordate + womb.
 - [ ] P12 Ascension + global Hall of Fame (SQLite).

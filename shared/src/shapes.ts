@@ -9,7 +9,7 @@ export const SHAPES = [
   { sx: 1.4, sy: 0.66, bend: 0.38 }, // curved comma: vibrio
 ] as const;
 /** Shape names per tier (index = shape id). */
-export const SHAPE_NAMES = [[], ['Coccus', 'Rod', 'Vibrio'], ['Round', 'Elongated', 'Crescent']] as const;
+export const SHAPE_NAMES = [[], ['Coccus', 'Rod', 'Vibrio'], ['Round', 'Elongated', 'Crescent'], ['Compact', 'Long', 'Curved']] as const;
 
 /** Bend offset keeping the curved body centred on the cell: y' gets bend·(x'² − BEND_CENTRE·sx²). */
 const BEND_CENTRE = 1 / 3;

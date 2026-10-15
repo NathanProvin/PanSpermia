@@ -65,17 +65,19 @@ export function makeCatalog<const C extends Record<string, CatalogEntry>>(entrie
     priceOf: (genome: number) => NAMES.reduce((sum, g) => sum + copiesOf(genome, g) * GENES[g].price, 0),
     /**
      * A plausible layout for a genome that has no designed one (bots, dev-toggled cells, a new species):
-     * every copy at its gene's default spot, extra copies fanned out around it. One group per gene.
+     * every copy at its gene's default spot, extra copies fanned out around it — or, for a part on the side,
+     * mirrored in pairs across the axis (legs, cilia). One group per gene.
      */
     defaultParts(genome: number): Placement<G>[] {
       const parts: Placement<G>[] = [];
       for (const [group, gene] of NAMES.entries()) {
         const { slot, at } = GENES[gene];
         const n = copiesOf(genome, gene);
+        const side = slot === 'membrane' && Math.abs(Math.sin(at as number)) > 0.3;
         for (let k = 0; k < n; k++) {
           const fan = (k - (n - 1) / 2) * 0.5;
           if (slot === 'membrane') {
-            const a = (at as number) + fan;
+            const a = side ? (k % 2 ? -1 : 1) * ((at as number) + Math.floor(k / 2) * 0.5) : (at as number) + fan;
             parts.push({ gene, x: Math.cos(a), y: Math.sin(a), angle: a, scale: 1, group });
           } else {
             const [x, y] = slot === 'internal' ? (at as readonly [number, number]) : [0, 0];

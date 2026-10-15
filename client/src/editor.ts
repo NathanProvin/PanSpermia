@@ -1,5 +1,5 @@
 import {
-  CHILD_PRICE, EVOLVE_DNA, type Catalog, type Lineage, MAX_CHILDREN, MAX_PARTS, MAX_TIER, NAME_MAX, type Placement, TIER_NAMES,
+  CHILD_PRICE, evolveDnaOf, type Catalog, type Lineage, MAX_CHILDREN, MAX_PARTS, MAX_TIER, NAME_MAX, type Placement, TIER_NAMES,
   SHAPE_NAMES, catalogFor, cleanName, undeform,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -109,8 +109,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       <p class="stats"></p>
       <p class="message" role="status"></p>
       <button type="button" class="hatch">Divide</button>
-      <label class="evolution">Evolution <progress max="${EVOLVE_DNA}"></progress></label>
-      <button type="button" class="evolve" title="Earn ${EVOLVE_DNA} lifetime DNA to evolve">Evolve</button>
+      <label class="evolution">Evolution <progress></progress></label>
+      <button type="button" class="evolve" title="Earn lifetime DNA to evolve">Evolve</button>
     </section>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
   const palette = $<HTMLElement>('.parts');
@@ -214,12 +214,14 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const named = cleanName(name);
     if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
     $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
-    const ready = lineage!.lifetimeDna >= EVOLVE_DNA;
-    $<HTMLProgressElement>('.evolution progress').value = Math.min(EVOLVE_DNA, lineage!.lifetimeDna);
+    const need = evolveDnaOf(lineage!.tier);
+    const ready = lineage!.lifetimeDna >= need;
+    const progress = $<HTMLProgressElement>('.evolution progress');
+    if (Number.isFinite(need)) [progress.max, progress.value] = [need, Math.min(need, lineage!.lifetimeDna)];
     evolveButton.disabled = submitted || left < 0 || !named || !ready;
     const next = TIER_NAMES[lineage!.tier + 1]?.toLowerCase();
     evolveButton.hidden = $<HTMLElement>('.evolution').hidden = lineage!.tier >= MAX_TIER;
-    evolveButton.textContent = evolveArmed ? `Evolve to ${next}? Click again` : ready ? 'Evolve' : `Evolve (${Math.floor(lineage!.lifetimeDna)}/${EVOLVE_DNA} DNA)`;
+    evolveButton.textContent = evolveArmed ? `Evolve to ${next}? Click again` : ready ? 'Evolve' : `Evolve (${Math.floor(lineage!.lifetimeDna)}/${need} DNA)`;
     // Keep the server's draft current (debounced), so the timer running out keeps these edits.
     clearTimeout(draftTimer);
     if (!submitted && left >= 0 && !drag && named) draftTimer = setTimeout(() => submit(design(), false), 250);
@@ -319,7 +321,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       hue = l.hue;
       shape = l.shape;
       // Shape names depend on the tier (coccus/rod/vibrio for bacteria); the shapes themselves don't.
-      $('.shapes').replaceChildren($('.shapes legend'), ...SHAPE_NAMES[l.tier as 1 | 2].map((label, i) => {
+      $('.shapes').replaceChildren($('.shapes legend'), ...SHAPE_NAMES[l.tier as 1 | 2 | 3].map((label, i) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.dataset.shape = String(i);

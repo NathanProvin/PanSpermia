@@ -5,6 +5,9 @@ import {
   SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, drift, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
+
+// Joining decodes the whole pool (thousands of food packets since the tier-3 pond): room tests need more than 5 s.
+vi.setConfig({ testTimeout: 20_000 });
 import { createServer } from './app.ts';
 import type { PoolRoom } from './rooms/PoolRoom.ts';
 

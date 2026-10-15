@@ -1,7 +1,7 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EVOLVE_DNA, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EVOLVE_DNA, EVOLVE_DNA_T2, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, MANDIBLE_DPS, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
@@ -251,7 +251,9 @@ test('kills are attributed to the attacker and burst into debris', () => {
   const { state, target } = duel(GENES.t6ss.bit);
   target.x = 20;
   target.health = 0.5;
-  const deaths = run(state, 0.2);
+  // Check on the tick of the death: later ticks, the attacker may eat debris that spilled within its reach.
+  let deaths: ReturnType<typeof stepWorld> = [];
+  for (let i = 0; i < 4 && !deaths.length; i++) deaths = stepWorld(state);
   expect(deaths).toEqual([{ id: 't', by: 'a' }]);
   expect([...state.nutrients.values()].some((n) => n.kind === NutrientKind.debris)).toBe(true);
 });
@@ -501,7 +503,7 @@ test('kills are counted for the killer species', () => {
   expect(lineage.kills).toBe(0);
 });
 
-test('evolving needs the lifetime DNA, then the next generation hatches as a eukaryote', () => {
+test('evolving needs the lifetime DNA, then the next generation hatches as a eukaryote, then an animal', () => {
   const { state, player, lineage } = species();
   player.cyst = CYST_TIME;
   const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
@@ -518,10 +520,51 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   expect([lineage.tier, lineage.genome, lineage.library]).toEqual([2, STARTER_GENOME2, STARTER_LIBRARY2]);
   eu.cyst = CYST_TIME;
   const parts = lineage.parts.map((p) => ({ ...p.toJSON(), gene: TIER2.NAMES[p.gene] }));
-  expect(submitDesign(state, 'p', { ...evolve, parts })).toBe('cannot evolve further yet');
+  expect(submitDesign(state, 'p', { ...evolve, parts })).toBe('not ready to evolve'); // a eukaryote needs far more
   expect(submitDesign(state, 'p', { ...evolve, parts: keep, evolve: false })).toBe('unknown part'); // tier-1 'pili' isn't a eukaryote part
   expect(submitDesign(state, 'p', { ...evolve, parts, evolve: false })).toBeUndefined(); // tier-2 parts validate
   expect(state.players.get('p')!.tier).toBe(2);
+  state.players.get('p')!.cyst = CYST_TIME;
+  lineage.lifetimeDna = EVOLVE_DNA_T2;
+  expect(submitDesign(state, 'p', { ...evolve, parts })).toBeUndefined();
+  const animal = state.players.get('p')!;
+  expect([animal.tier, animal.genome2, animal.genome3, animal.mass]).toEqual([3, 0, STARTER_GENOME3, T3_SPAWN_MASS]);
+  expect([lineage.tier, lineage.genome, lineage.library]).toEqual([3, STARTER_GENOME3, STARTER_LIBRARY3]);
+  animal.cyst = CYST_TIME;
+  const parts3 = lineage.parts.map((q) => ({ ...q.toJSON(), gene: TIER3.NAMES[q.gene] }));
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBe('cannot evolve further yet');
+});
+
+test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and bite rivals in front', () => {
+  const state = new PoolState();
+  const animal = (genes: (typeof TIER3.NAMES)[number][], x: number, heading = 0) => {
+    const a = spawnPlayer();
+    Object.assign(a, { tier: 3, genome: 0, genome3: TIER3.genomeOf(genes), mass: 2000, health: 1200, x, y: 0, heading });
+    return a;
+  };
+  const filterer = animal(['filterComb'], 0);
+  state.players.set('f', filterer);
+  const bug = spawnPlayer();
+  const eu = spawnPlayer();
+  Object.assign(bug, { x: 10, y: 0, graceUntil: 0 });
+  Object.assign(eu, { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: -10, y: 0, graceUntil: 0 });
+  state.players.set('b', bug);
+  state.players.set('e', eu);
+  stepWorld(state);
+  expect([bug.engulfedBy, eu.engulfedBy]).toEqual(['f', '']); // combs take bacteria, not eukaryotes
+  filterer.genome3 = TIER3.genomeOf(['mandible']);
+  stepWorld(state);
+  expect(eu.engulfedBy).toBe('f');
+  // Two mandibled animals face to face bite each other; a carapace turns part of the bite.
+  const s2 = new PoolState();
+  const a = animal(['mandible'], 0, 0);
+  const b = animal(['mandible', 'carapace'], 2 * radiusOf(2000), Math.PI);
+  s2.players.set('a', a);
+  s2.players.set('b', b);
+  stepWorld(s2);
+  expect(1200 - b.health).toBeCloseTo(MANDIBLE_DPS * CARAPACE_ARMOUR / TICK_RATE, 1);
+  expect(1200 - a.health).toBeCloseTo(MANDIBLE_DPS / TICK_RATE, 1);
+  expect([a.engulfedBy, b.engulfedBy]).toEqual(['', '']); // rivals of a size are bitten, not swallowed
 });
 
 // --- Tier 2: eukaryotes ---------------------------------------------------------------------------

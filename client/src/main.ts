@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  EYE_SIGHT, TICK_DT, TIER2, TOXINS, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  EYE_SIGHT, TICK_DT, TIER2, TIER3, TOXINS, ownGenome, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -31,7 +31,7 @@ document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
 // Top-down perspective camera over the gameplay plane z = 0, which is also the focal plane.
-const camera = new THREE.PerspectiveCamera(50, 1, 10, 6000);
+const camera = new THREE.PerspectiveCamera(50, 1, 10, 9000); // far: an animal's camera over the pond floor
 camera.position.z = 700;
 
 const post = createPost(renderer, scene, camera);
@@ -141,8 +141,10 @@ try {
   /** Spore's stage-up: the title card while the camera zooms out to the bigger body (the follow zoom does it). */
   const stageUp = (l: Lineage) => {
     const subtitle = document.createElement('small');
-    subtitle.textContent = 'Engulf smaller cells with a jaw, graze algae with a filter mouth. Bacteria are food now.';
-    stageup.replaceChildren(`${l.name} evolved into eukaryotes`, subtitle);
+    subtitle.textContent = l.tier === 3
+      ? 'Sweep up bacteria and algae with filter combs, bite with mandibles. Single cells are food now.'
+      : 'Engulf smaller cells with a jaw, graze algae with a filter mouth. Bacteria are food now.';
+    stageup.replaceChildren(`${l.name} evolved into ${l.tier === 3 ? 'animals' : 'eukaryotes'}`, subtitle);
     stageup.classList.add('on');
     stageupUntil = performance.now() + STAGEUP_MS;
   };
@@ -162,7 +164,7 @@ try {
   /** A player's cell wears its species design (unless dev cheats changed its genes); bots get the default layout. */
   const lookOf = (id: string, p: Player): Look => {
     const l = room.state.lineages.get(id);
-    const genome = p.tier === 2 ? p.genome2 : p.genome;
+    const genome = ownGenome(p);
     const cat = catalogFor(p.tier);
     // The species design, unless this individual differs (dev cheats) or has no lineage (bots).
     const parts = l && l.tier === p.tier && l.genome === genome ? partsOf(l) : cat.defaultParts(genome);
@@ -198,7 +200,7 @@ try {
       // smoothing absorbs the tiny resulting drift (currents change slowly).
       step: (ctx, state, cmd) =>
         stepCell(state, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT,
-          player.tier, player.genome2),
+          player.tier, player.genome2, player.genome3),
       warnOnDivergence: import.meta.env.DEV ? 1 : undefined, // console warning if client and server sims drift apart
     });
   });
@@ -253,8 +255,11 @@ try {
     if (self && selfMesh) {
       // Follow the cell; zoom out as it grows.
       // Eyes let a eukaryote see further: the camera pulls back.
-      const sight = 1 + EYE_SIGHT * stack(self.tier === 2 ? TIER2.copiesOf(self.genome2, 'eye') : 0);
-      const targetZ = (140 + 12 * radiusOf(self.mass)) * sight; // bacterium: spawn ≈ 290, cap ≈ 620
+      const eyes = self.tier === 3 ? TIER3.copiesOf(self.genome3, 'eye') : self.tier === 2 ? TIER2.copiesOf(self.genome2, 'eye') : 0;
+      const sight = 1 + EYE_SIGHT * stack(eyes);
+      // bacterium: spawn ≈ 290, cap ≈ 620; eukaryote ≈ 670–1650; animal (gentler: specks still readable) ≈ 1330–2420
+      const r = radiusOf(self.mass);
+      const targetZ = (140 + 12 * Math.min(r, 126) + 5 * Math.max(0, r - 126)) * sight;
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
     }
     // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
@@ -281,9 +286,9 @@ try {
         designedFor = self;
         editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
       }
-      const ownGenome = self.tier === 2 ? self.genome2 : self.genome;
-      const genes = cat.NAMES.filter((g) => cat.hasGene(ownGenome, g))
-        .map((g) => cat.GENES[g]!.label + (cat.copiesOf(ownGenome, g) > 1 ? ` ×${cat.copiesOf(ownGenome, g)}` : '')).join(', ') || 'no genes';
+      const own = ownGenome(self);
+      const genes = cat.NAMES.filter((g) => cat.hasGene(own, g))
+        .map((g) => cat.GENES[g]!.label + (cat.copiesOf(own, g) > 1 ? ` ×${cat.copiesOf(own, g)}` : '')).join(', ') || 'no genes';
       const ready = (s: number) => (s > 0 ? `${s.toFixed(1)}s` : 'ready');
       const abilities = [
         self.tier === 1 && TOXINS.some((t) => t.tier === 1 && hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',

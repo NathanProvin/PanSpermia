@@ -19,8 +19,10 @@ export const Player = schema({
   tier: t.uint8().default(1),
   /** Tier-1 part copies (GENES); 0 for a eukaryote. */
   genome: t.uint32(),
-  /** Tier-2 part copies (TIER2); 0 for a bacterium. */
+  /** Tier-2 part copies (TIER2); 0 for other tiers. */
   genome2: t.uint32().default(0),
+  /** Tier-3 part copies (TIER3); 0 for other tiers. */
+  genome3: t.uint32().default(0),
   /** Seconds left dormant as an endospore (0 = active), and until it can sporulate again. */
   spore: t.number().default(0),
   sporeCooldown: t.number().default(0),

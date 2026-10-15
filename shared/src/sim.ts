@@ -3,13 +3,15 @@
 import {
   DRIFT_PILI, FLAGELLUM_STACK, MASS_CAP, MIN_MASS, RADIUS_PER_SQRT_MASS, SPAWN_MASS, T2_DRIFT, T2_MASS_CAP,
   T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
-  JET_COOLDOWN, JET_TIME, MITO_SPEED, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
+  JET_COOLDOWN, JET_TIME, MITO_SPEED, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
+  T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
 import {
   ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
 } from './combat.ts';
 import { currentAt } from './current.ts';
+import { TIER3 } from './animal.ts';
 import { TIER2 } from './eukaryote.ts';
 import { copiesOf, hasGene, stack } from './genes.ts';
 
@@ -36,11 +38,23 @@ export function sanitizeInput(input: { dirX: number; dirY: number; actions: numb
 }
 
 export const radiusOf = (mass: number) => RADIUS_PER_SQRT_MASS * Math.sqrt(mass);
-export const speedOf = (mass: number, tier = 1) => (tier === 2 ? T2_SPEED_COEF : SPEED_COEF) * mass ** SPEED_EXP;
-// Per-tier body scale: where a newborn starts, the starvation floor, the size that triggers division.
-export const spawnMassOf = (tier: number) => (tier === 2 ? T2_SPAWN_MASS : SPAWN_MASS);
-export const minMassOf = (tier: number) => (tier === 2 ? T2_MIN_MASS : MIN_MASS);
-export const massCapOf = (tier: number) => (tier === 2 ? T2_MASS_CAP : MASS_CAP);
+/** Per-tier body scale: newborn size, starvation floor, size that triggers division, speed coefficient. */
+const BODY = [
+  undefined,
+  { spawn: SPAWN_MASS, min: MIN_MASS, cap: MASS_CAP, speed: SPEED_COEF, evolve: EVOLVE_DNA },
+  { spawn: T2_SPAWN_MASS, min: T2_MIN_MASS, cap: T2_MASS_CAP, speed: T2_SPEED_COEF, evolve: EVOLVE_DNA_T2 },
+  { spawn: T3_SPAWN_MASS, min: T3_MIN_MASS, cap: T3_MASS_CAP, speed: T3_SPEED_COEF, evolve: Infinity },
+] as const;
+const bodyOf = (tier: number) => BODY[tier] ?? BODY[1];
+export const speedOf = (mass: number, tier = 1) => bodyOf(tier).speed * mass ** SPEED_EXP;
+export const spawnMassOf = (tier: number) => bodyOf(tier).spawn;
+export const minMassOf = (tier: number) => bodyOf(tier).min;
+export const massCapOf = (tier: number) => bodyOf(tier).cap;
+/** Lifetime DNA a species of this tier needs to evolve to the next. */
+export const evolveDnaOf = (tier: number) => bodyOf(tier).evolve;
+/** The genome field a cell of its tier reads (each tier has its own catalog and bits). */
+export const ownGenome = (p: { tier: number; genome: number; genome2: number; genome3: number }) =>
+  p.tier === 3 ? p.genome3 : p.tier === 2 ? p.genome2 : p.genome;
 
 /** Angle wrapped to (-π, π]. */
 export const wrapAngle = (a: number) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
@@ -68,10 +82,11 @@ const flow = { x: 0, y: 0 };
  */
 export function stepCell(
   b: CellBody, mass: number, genome: number, dirX: number, dirY: number, actions: number, dt: number, time: number,
-  tier = 1, genome2 = 0,
+  tier = 1, genome2 = 0, genome3 = 0,
 ) {
   const throttle = Math.hypot(dirX, dirY);
   const want = Math.atan2(dirY, dirX);
+  if (tier === 3) return stepAnimal(b, mass, genome3, throttle, want, dt, time);
   if (tier === 2) return stepEukaryote(b, mass, genome2, throttle, want, actions, dt, time);
   let swim = 0;
 
@@ -144,6 +159,22 @@ function stepEukaryote(
   if (b.dash > 0) swim = Math.max(swim, T2_SWIM_CILIA) * JET_BOOST; // the jet pushes even a creeping cell
   swim *= 1 + MITO_SPEED * stack(TIER2.copiesOf(genome2, 'mitochondrion')); // more energy
   move(b, mass, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time);
+}
+
+/** Animals: paddle legs turn at once and steer precisely; a lone tail drives fast but turns wide. */
+function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number, want: number, dt: number, time: number) {
+  const paddles = TIER3.copiesOf(genome3, 'paddle');
+  const tails = TIER3.copiesOf(genome3, 'tail');
+  let swim = 0;
+  if (throttle > 0) {
+    if (tails && !paddles) {
+      const diff = wrapAngle(want - b.heading);
+      b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), T3_TURN_RATE * dt));
+    } else b.heading = want;
+    swim = tails ? T3_SWIM_TAIL * (1 + FLAGELLUM_STACK * (stack(tails) - 1))
+      : paddles ? T3_SWIM_PADDLE * (1 + FLAGELLUM_STACK * (stack(paddles) - 1)) : T3_SWIM_CREEP;
+  }
+  move(b, mass, swim * throttle * speedOf(mass, 3), T3_DRIFT, dt, time);
 }
 
 /** Swim at speed `v` along the heading, drift with a share of the current, stay inside the pool. */
