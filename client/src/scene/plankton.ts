@@ -22,7 +22,10 @@ void main() {
   float ring = smoothstep(0.55 - soft * 0.5, 0.85, r) * disc;
   float body = mix(disc, (0.2 * disc + ring) * 0.4, big); // distant organisms: faint silhouettes
   float twinkle = 0.75 + 0.25 * sin(uTime * (0.6 + vSeed) * 2.0 + vSeed * 40.0);
-  vec3 col = mix(vec3(0.30, 0.70, 0.78), vec3(0.70, 0.95, 0.62), fract(vSeed * 7.31));
+  // A mixed pond community: blue-green specks, pale green algae, golden diatoms.
+  float pick = fract(vSeed * 7.31);
+  vec3 col = pick < 0.45 ? mix(vec3(0.28, 0.62, 0.66), vec3(0.45, 0.78, 0.6), pick / 0.45)
+    : pick < 0.8 ? vec3(0.62, 0.86, 0.45) : vec3(0.85, 0.72, 0.38);
   // Energy conservation: the blurred disc covers (1/vSharp)^2 more area.
   gl_FragColor = vec4(col * body * twinkle * vSharp * vSharp * 0.35, 1.0);
 }

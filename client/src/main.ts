@@ -11,6 +11,7 @@ import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
 import { createMeteor } from './scene/meteor.ts';
 import { createNutrients } from './scene/nutrients.ts';
+import { createGiants } from './scene/giants.ts';
 import { createPlankton } from './scene/plankton.ts';
 import { createPool } from './scene/pool.ts';
 import { createPost } from './scene/post.ts';
@@ -47,12 +48,13 @@ resize();
 
 const pool = createPool();
 const plankton = createPlankton(camera);
+const giants = createGiants();
 const nutrientLayer = createNutrients();
 const cells = createCells(scene);
 const editor = createEditor(renderer, document.getElementById('editor')!);
 const cloudLayer = createClouds();
 const meteor = createMeteor();
-scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects);
+scene.add(...pool.objects, ...giants.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
 const INTRO_HEIGHT = 1800;
 let introPlayed = false;
@@ -310,6 +312,7 @@ try {
 
     const focus = camera.position.z; // distance to the gameplay plane
     pool.update(time);
+    giants.update(time, dt, camera.position);
     plankton.update(time, dt, focus);
     nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus);
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
