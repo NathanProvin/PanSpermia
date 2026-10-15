@@ -20,7 +20,10 @@ const extinctScreen = document.getElementById('extinct')!;
 const cardScreen = document.getElementById('card')!;
 const stageup = document.getElementById('stageup')!;
 const labels = createLabels(document.getElementById('labels')!, document.getElementById('leaders') as HTMLOListElement);
-const endpoint = import.meta.env.VITE_SERVER_URL ?? `${location.protocol}//${location.hostname}:${SERVER_PORT}`;
+// Dev: Vite serves the page, the game server is on its own port. Production: the game server serves
+// the page too, so the game is wherever the page came from (localhost, a tunnel, a domain).
+const endpoint = import.meta.env.VITE_SERVER_URL
+  ?? (import.meta.env.DEV ? `${location.protocol}//${location.hostname}:${SERVER_PORT}` : location.origin);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false }); // MSAA lives on the composer's HDR target
 document.body.append(renderer.domElement);

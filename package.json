@@ -2,14 +2,22 @@
   "name": "panspermia",
   "private": true,
   "type": "module",
-  "workspaces": ["shared", "server", "client"],
-  "engines": { "node": ">=24" },
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "concurrently -k -n server,client -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
     "typecheck": "npm run typecheck --workspaces",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "play": "npm run build && npm start -w server",
+    "tunnel": "cloudflared tunnel --url http://localhost:2567"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

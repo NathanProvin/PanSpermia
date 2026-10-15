@@ -129,7 +129,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   let drag: { gene: Gene; group?: Group; at?: Group } | undefined;
   let message = '';
   let submit: (design: Design, final: boolean) => void = () => {};
-  let draftTimer = 0;
+  let draftTimer: ReturnType<typeof setTimeout> | undefined;
 
   const cost = (gs: Group[]) => priceOf(genomeOf(gs)) - priceOf(lineage!.genome) + children * CHILD_PRICE;
   const working = () => (drag?.at ? [...groups, drag.at] : groups);
