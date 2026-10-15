@@ -1,7 +1,7 @@
 import { matchMaker } from '@colyseus/core';
 import { Callbacks, Client, Predict, type Room } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, GENES, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
+  ACTION_SPORE, ACTION_TOXIN, GENES, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, TIER2, TOXINS, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
   SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, drift, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
@@ -86,7 +86,7 @@ test('client prediction runs ahead, then settles on server truth (tumbles includ
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
   const me = predict.reconciler(player, {
     input,
-    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown'],
+    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown'],
     step: (ctx, s, cmd) =>
       stepCell(s, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
     warnOnDivergence: 1, // also switches on the drift telemetry asserted below
@@ -135,7 +135,7 @@ test('sporulating is predicted instantly and confirmed by the server', async () 
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
   const me = predict.reconciler(player, {
     input,
-    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown'],
+    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown'],
     step: (ctx, s, cmd) =>
       stepCell(s, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
   });
@@ -225,5 +225,29 @@ test('a draft sent over the wire is what a timed-out division hatches with', asy
   authority.players.get(room.sessionId)!.cyst = 0.1; // fast-forward to the editor timing out
   await vi.waitFor(() => expect(lineage.generation).toBe(2));
   expect([lineage.genome, lineage.children]).toEqual([GENES.flagellum.bit, STARTER_CHILDREN + 1]);
+  await room.leave();
+});
+
+test('a eukaryote client poisons (left click) and dashes (right click) over the wire', async () => {
+  const room = await join();
+  const player = await joinedPlayer(room);
+  const authority = serverRoom(room).state;
+  const p = authority.players.get(room.sessionId)!;
+  Object.assign(p, { tier: 2, genome: 0, genome2: TIER2.genomeOf(['cilia', 'poison', 'jet']), mass: 300, health: 300, graceUntil: 0 });
+  await vi.waitFor(() => expect(player.tier).toBe(2));
+
+  const input = room.input({ type: Input, mode: 'reliable' });
+  for (const actions of [ACTION_TOXIN, ACTION_SPORE]) {
+    input.data.dirX = 1;
+    input.data.dirY = 0;
+    input.data.actions = actions;
+    sanitizeInput(input.data);
+    input.send();
+  }
+  await vi.waitFor(() => {
+    expect([...authority.clouds.values()].some((c) => c.owner === room.sessionId && TOXINS[c.kind]!.gene === 'poison')).toBe(true);
+    expect(p.dashCooldown).toBeGreaterThan(0);
+  });
+  await vi.waitFor(() => expect(player.dash + player.dashCooldown).toBeGreaterThan(0)); // synced for prediction
   await room.leave();
 });

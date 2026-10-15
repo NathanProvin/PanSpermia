@@ -22,6 +22,9 @@ export const Player = schema({
   /** Seconds left dormant as an endospore (0 = active), and until it can sporulate again. */
   spore: t.number().default(0),
   sporeCooldown: t.number().default(0),
+  /** Jet dash seconds left, and until it can dash again (tier 2). */
+  dash: t.number().default(0),
+  dashCooldown: t.number().default(0),
   /** Seconds until toxins can be secreted again. */
   toxinCooldown: t.number().default(0),
   /** Seconds left in the division cyst (0 = active). */
@@ -39,7 +42,7 @@ export const Player = schema({
 export type Player = SchemaType<typeof Player>;
 
 /** Everything that drifts passively: food, DNA (fragments, plasmids) and phages. */
-export const NutrientKind = { dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4, algae: 5, chunk: 6 } as const;
+export const NutrientKind = { dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4, algae: 5, chunk: 6, shard: 7 } as const;
 
 /**
  * A packet drifting on the current. Only its spawn point and tick are synced: clients rebuild

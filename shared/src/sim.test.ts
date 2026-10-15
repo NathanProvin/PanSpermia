@@ -11,7 +11,7 @@ const DT = 0.05;
 const T = 12.3;
 const { pili, flagellum, chemoreceptor } = { pili: GENES.pili.bit, flagellum: GENES.flagellum.bit, chemoreceptor: GENES.chemoreceptor.bit };
 const cell = (over: Partial<CellBody> = {}): CellBody => ({
-  x: 200, y: -100, heading: 0, tumble: 0, rng: 12345, spore: 0, sporeCooldown: 0, ...over,
+  x: 200, y: -100, heading: 0, tumble: 0, rng: 12345, spore: 0, sporeCooldown: 0, dash: 0, dashCooldown: 0, ...over,
 });
 
 /** Displacement over one step. */
@@ -167,4 +167,23 @@ test('eukaryotes steer: cilia turn at once, a lone flagellum turns slowly but sw
   stepCell(eu, T2_SPAWN_MASS, 0, 0, 0, 0, DT, T, 2, 0);
   stepCell(bac, SPAWN_MASS, 0, 0, 0, 0, DT, T);
   expect(eu.x - 200).toBeCloseTo((bac.x - 200) * T2_DRIFT, 6);
+});
+
+test('the jet dashes on demand (predicted), then cools down', async () => {
+  const { TIER2 } = await import('./eukaryote.ts');
+  const { JET_TIME, JET_COOLDOWN, JET_BOOST, T2_SPAWN_MASS, T2_SWIM_CILIA } = await import('./constants.ts');
+  const genome2 = TIER2.GENES.cilia.bit | TIER2.GENES.jet.bit;
+  const b = cell();
+  const calm = cell();
+  stepCell(b, T2_SPAWN_MASS, 0, 1, 0, ACTION_SPORE, DT, T, 2, genome2);
+  stepCell(calm, T2_SPAWN_MASS, 0, 1, 0, 0, DT, T, 2, genome2);
+  expect(b.dashCooldown).toBeCloseTo(JET_COOLDOWN - 0, 6);
+  expect(b.dash).toBeCloseTo(JET_TIME, 6);
+  expect((b.x - 200) / (calm.x - 200)).toBeGreaterThan(1.5); // faster than a normal stroke
+  expect(T2_SWIM_CILIA * JET_BOOST).toBeGreaterThan(2);
+  for (let i = 0; i < (JET_TIME / DT) + 1; i++) stepCell(b, T2_SPAWN_MASS, 0, 1, 0, ACTION_SPORE, DT, T, 2, genome2);
+  expect(b.dash).toBe(0); // can't chain dashes during the cooldown
+  const plain = cell();
+  stepCell(plain, T2_SPAWN_MASS, 0, 1, 0, ACTION_SPORE, DT, T, 2, TIER2.GENES.cilia.bit);
+  expect(plain.dash).toBe(0); // needs a jet
 });

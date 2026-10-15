@@ -5,7 +5,7 @@ import {
 } from '@panspermia/shared';
 import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
 import {
-  PHAGE_KILLER, foundSpecies, initPool, secrete, spawnNutrient, spawnPlasmid, stepWorld, submitDesign,
+  PHAGE_KILLER, foundSpecies, initPool, secrete, spawnNutrient, spawnPlasmid, spawnShard, stepWorld, submitDesign,
 } from '../world.ts';
 
 export interface PoolOptions {
@@ -90,7 +90,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       // Drop a plasmid or a phage onto the cell.
       this.onMessage('dev:spawn', (client, what: unknown) => {
         const p = this.state.players.get(client.sessionId);
-        if (p && what === 'plasmid') spawnPlasmid(this.state, p.x, p.y);
+        if (p && what === 'plasmid') (p.tier === 2 ? spawnShard : spawnPlasmid)(this.state, p.x, p.y); // a part for its tier
         if (p && what === 'phage') spawnNutrient(this.state, p.x, p.y, NutrientKind.phage);
       });
       // Jump to the size cap (fission) or die on the spot (children, extinction).

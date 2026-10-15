@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  TICK_DT, TOXINS, catalogFor, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  EYE_SIGHT, TICK_DT, TIER2, TOXINS, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -190,7 +190,7 @@ try {
     me?.dispose();
     me = predict.reconciler(player, {
       input,
-      fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown'],
+      fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown'],
       // Mass, genome and the sim clock are server-driven; replay reads their latest values and
       // smoothing absorbs the tiny resulting drift (currents change slowly).
       step: (ctx, state, cmd) =>
@@ -242,14 +242,16 @@ try {
 
     cells.update(players, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
-      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst,
+      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'),
     }), lookOf);
     const self = players.get(room.sessionId);
     const selfView = cells.get(room.sessionId);
     const selfMesh = selfView?.body;
     if (self && selfMesh) {
       // Follow the cell; zoom out as it grows.
-      const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
+      // Eyes let a eukaryote see further: the camera pulls back.
+      const sight = 1 + EYE_SIGHT * stack(self.tier === 2 ? TIER2.copiesOf(self.genome2, 'eye') : 0);
+      const targetZ = (140 + 12 * radiusOf(self.mass)) * sight; // bacterium: spawn ≈ 290, cap ≈ 620
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
     }
     // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
@@ -281,7 +283,9 @@ try {
         .map((g) => cat.GENES[g]!.label + (cat.copiesOf(ownGenome, g) > 1 ? ` ×${cat.copiesOf(ownGenome, g)}` : '')).join(', ') || 'no genes';
       const ready = (s: number) => (s > 0 ? `${s.toFixed(1)}s` : 'ready');
       const abilities = [
-        TOXINS.some((t) => hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
+        self.tier === 1 && TOXINS.some((t) => t.tier === 1 && hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
+        self.tier === 2 && TIER2.hasGene(self.genome2, 'poison') ? `poison ${ready(self.toxinCooldown)}` : '',
+        self.tier === 2 && TIER2.hasGene(self.genome2, 'jet') ? (self.dash > 0 ? 'DASH' : `jet ${ready(self.dashCooldown)}`) : '',
         hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
         self.cyst > 0 ? 'DIVIDING' : '',

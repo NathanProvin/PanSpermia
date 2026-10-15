@@ -125,6 +125,7 @@ const PART_FRAGMENT = /* glsl */ `
 uniform float uTime;
 uniform float uSeed;
 uniform float uKind;
+uniform float uActive;
 uniform vec3 uColor;
 varying vec2 vUv;
 ${NOISE}
@@ -214,6 +215,40 @@ void main() {
       a = max(a, 1.0 - smoothstep(w - 0.03, w + 0.02, d));
     }
     col = vec3(1.0, 0.86, 0.68);
+  } else if (k == ${KIND2 + TIER2.GENES.spike.index}) { // a long bony spike
+    float s = (p.x + 0.95) / 1.9;
+    float w = 0.3 * (1.0 - s);
+    a = step(0.0, s) * step(s, 1.0) * (1.0 - smoothstep(w - 0.04, w + 0.03, abs(p.y)));
+    col = mix(vec3(0.75, 0.6, 0.45), vec3(1.0, 0.95, 0.85), s);
+  } else if (k == ${KIND2 + TIER2.GENES.poison.index}) { // a swollen poison gland, bubbling green
+    vec2 q = p - vec2(-0.45, 0.0);
+    float blob = length(q * vec2(0.9, 1.0));
+    float bubbles = smoothstep(0.7, 0.9, valueNoise(q * 6.0 + vec2(0.0, -t * 1.5)));
+    a = (1.0 - smoothstep(0.48, 0.58, blob)) * (0.55 + 0.45 * bubbles);
+    col = vec3(0.4, 1.0, 0.3) * (1.1 + 0.3 * sin(t * 3.0));
+  } else if (k == ${KIND2 + TIER2.GENES.electric.index}) { // an electric organ crackling with arcs
+    float lens = 1.0 - smoothstep(0.55, 0.65, length(p * vec2(1.0, 1.4)));
+    float arcs = 1.0 - smoothstep(0.0, 0.06, abs(valueNoise(p * 4.0 + floor(t * 12.0) * 1.7) - 0.5));
+    a = max(lens * 0.6, arcs * smoothstep(0.95, 0.4, length(p)));
+    col = vec3(0.55, 0.8, 1.0) * (1.2 + arcs);
+  } else if (k == ${KIND2 + TIER2.GENES.jet.index}) { // a nozzle; a bubbling plume while dashing
+    float s = (p.x + 0.9) / 1.3; // along the nozzle
+    float w = mix(0.14, 0.42, clamp(s, 0.0, 1.0));
+    float shell = step(-0.9, p.x) * step(p.x, 0.4) * (1.0 - smoothstep(w - 0.03, w + 0.03, abs(p.y)));
+    float rim = exp(-pow((p.x - 0.4) / 0.05, 2.0)) * step(abs(p.y), 0.42);
+    float plume = uActive * step(0.4, p.x) * (1.0 - smoothstep(0.1, 0.45, abs(p.y)))
+      * smoothstep(0.55, 0.85, valueNoise(p * 7.0 - vec2(t * 14.0, 0.0)));
+    a = max(max(shell * 0.85, rim), plume);
+    col = mix(vec3(0.85, 0.75, 0.6), vec3(0.8, 0.95, 1.0), plume);
+  } else if (k == ${KIND2 + TIER2.GENES.eye.index}) { // a Spore-cell eye: sclera, wandering pupil, glint
+    float rr = length(p);
+    float sclera = 1.0 - smoothstep(0.8, 0.88, rr);
+    vec2 look = vec2(0.32, 0.0) + 0.08 * vec2(sin(t * 0.7 + uSeed * 9.0), sin(t * 1.1));
+    float pupil = 1.0 - smoothstep(0.32, 0.38, length(p - look));
+    float glint = 1.0 - smoothstep(0.08, 0.12, length(p - look - vec2(0.1, 0.12)));
+    float outline = sclera * smoothstep(0.7, 0.82, rr);
+    a = sclera;
+    col = mix(vec3(0.95), vec3(0.05, 0.05, 0.08), max(pupil, outline * 0.8)) + glint * 0.9;
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -229,6 +264,11 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.cilia.index]: { size: 0.7, out: 0.25 },
   [KIND2 + TIER2.GENES.filter.index]: { size: 0.55, out: 0.2 },
   [KIND2 + TIER2.GENES.jaw.index]: { size: 0.6, out: 0.4 },
+  [KIND2 + TIER2.GENES.spike.index]: { size: 0.6, out: 0.45 },
+  [KIND2 + TIER2.GENES.poison.index]: { size: 0.45, out: 0.1 },
+  [KIND2 + TIER2.GENES.electric.index]: { size: 0.5, out: 0 },
+  [KIND2 + TIER2.GENES.jet.index]: { size: 0.6, out: 0.35 },
+  [KIND2 + TIER2.GENES.eye.index]: { size: 0.32, out: 0 },
   [GENES.pili.index]: { size: 0.6, out: 0.35 },
   [GENES.chemoreceptor.index]: { size: 0.32, out: 0 },
   [GENES.transporters.index]: { size: 0.36, out: 0 },
@@ -278,7 +318,7 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
-  uTime: { value: 0 }, uSeed: { value: 0 }, uKind: { value: 0 }, uColor: { value: new THREE.Color() },
+  uTime: { value: 0 }, uSeed: { value: 0 }, uKind: { value: 0 }, uActive: { value: 0 }, uColor: { value: new THREE.Color() },
 });
 const flagellumGeometry = new THREE.PlaneGeometry(1, 1, 48, 1).translate(0.5, 0, 0);
 const flagellumMaterial = material(FLAGELLUM_VERTEX, FLAGELLUM_FRAGMENT, { uBeat: { value: 0 }, uColor: { value: new THREE.Color() } });
@@ -291,7 +331,7 @@ export function hashId(id: string) {
 }
 
 /** Rendered (predicted or smoothed) pose of a cell. */
-export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number }
+export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
 export interface Look { tier: number; genome: number; parts: readonly Placement<string>[]; hue: number }
 
@@ -375,7 +415,10 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uCyst!.value = pose.cyst > 0 ? 1 : 0;
       for (const { mesh, flagellum } of parts) {
         if (flagellum) mesh.material.uniforms.uBeat!.value += dt * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
-        else mesh.material.uniforms.uTime!.value = time;
+        else {
+          mesh.material.uniforms.uTime!.value = time;
+          mesh.material.uniforms.uActive!.value = (pose.dash ?? 0) > 0 ? 1 : 0; // the jet's plume
+        }
       }
     },
     setInfected(infected: boolean) { body.material.uniforms.uInfect!.value = infected ? 1 : 0; },

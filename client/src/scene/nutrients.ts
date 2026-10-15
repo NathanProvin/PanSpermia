@@ -6,7 +6,7 @@ import { createSprites } from './sprites.ts';
 // DNA (the rare prize); phages: pale icosahedral heads on a tail with splayed fibres (the hazard);
 // algae: little green cells packed with chloroplasts (tier-2 plant food); meat chunks: big ragged red
 // pieces of a dead eukaryote; seeps: soft glows just below the plane where plumes rise. Bright cores bloom.
-// Kind rides in the integer part of aSeed (7 = seep), the per-sprite random seed in the fraction.
+// meteor shards: glinting crystals (tier-2 part unlocks). Kind rides in the integer part of aSeed (8 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
 varying vec2 vUv;
@@ -68,6 +68,14 @@ void main() {
     float chunk = 1.0 - smoothstep(edge - 0.06, edge, sqrt(r2));
     float inner = smoothstep(edge - 0.25, edge - 0.05, sqrt(r2));
     color = vec3(0.75, 0.16, 0.12) * chunk * (0.5 + 0.9 * inner) + vec3(1.0, 0.4, 0.3) * exp(-r2 * 5.0) * 0.15;
+  } else if (kind < 7.5) {
+    // A meteor shard: a faceted, glinting crystal shard (Spore's meteor bits) — the rare tier-2 prize.
+    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.5);
+    float facet = max(abs(q.x) * 0.9 + abs(q.y) * 0.45, abs(q.y) * 1.2);
+    float shard = 1.0 - smoothstep(0.42, 0.48, facet);
+    float glint = pow(max(0.0, sin(uTime * 3.0 + seed * 20.0)), 8.0);
+    color = mix(vec3(1.0, 0.75, 0.4), vec3(0.75, 0.9, 1.0), smoothstep(-0.4, 0.4, q.x)) * shard * (1.0 + glint)
+      + vec3(1.0, 0.9, 0.7) * exp(-r2 * 6.0) * 0.4 * pulse;
   } else {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.35, 0.9, 0.55) * exp(-r2 * 3.5) * 0.22 * breathe;
@@ -77,7 +85,7 @@ void main() {
 `;
 const SIZE: Record<number, number> = {
   [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 20, [NutrientKind.plasmid]: 30,
-  [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42,
+  [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42, [NutrientKind.shard]: 36,
 };
 const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
@@ -120,7 +128,7 @@ export function createNutrients() {
         sprites.offsets[i * 3 + 1] = seep.y;
         sprites.offsets[i * 3 + 2] = SEEP_DEPTH;
         sprites.sizes[i] = SEEP_SIZE;
-        sprites.seeds[i] = 7 + (s++ * 0.37) % 1;
+        sprites.seeds[i] = 8 + (s++ * 0.37) % 1;
         i++;
       }
       sprites.commit(i);

@@ -3,7 +3,7 @@ import { NOISE } from './glsl.ts';
 import { createSprites } from './sprites.ts';
 
 // Toxin clouds in the focal plane, rebuilt locally from spawn data like food. Bacteriocin: a slow
-// violet haze. Pore-former: an acid-yellow shockwave ring. Kind rides in the integer part of aSeed,
+// violet haze. Pore-former: an acid-yellow shockwave ring. Eukaryote poison: a green bubbling mist. Kind rides in the integer part of aSeed,
 // the life fraction (0 fresh → 1 spent) in the fraction, so the cloud fades as it weakens.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
@@ -21,6 +21,11 @@ void main() {
     float wisps = 0.55 + 0.45 * valueNoise(p * 3.2 + vec2(uTime * 0.35, -uTime * 0.27));
     float body = (1.0 - smoothstep(0.25, 1.0, r)) * wisps;
     color = vec3(0.55, 0.22, 1.0) * body * 0.42 * fade;
+  } else if (kind > 1.5) {
+    float mist = 0.5 + 0.5 * valueNoise(p * 2.6 + vec2(-uTime * 0.4, uTime * 0.3));
+    float bubbles = smoothstep(0.75, 0.95, valueNoise(p * 9.0 + uTime * 0.8));
+    float body = (1.0 - smoothstep(0.3, 1.0, r)) * mist;
+    color = vec3(0.35, 1.0, 0.25) * (body * 0.4 + bubbles * body * 0.6) * fade;
   } else {
     float ring = exp(-pow((r - 0.82) / 0.07, 2.0));
     float core = (1.0 - smoothstep(0.0, 0.85, r)) * 0.25;

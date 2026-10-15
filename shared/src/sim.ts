@@ -2,7 +2,8 @@
 // Keep them pure and deterministic: both sides must compute the same step from the same input.
 import {
   DRIFT_PILI, FLAGELLUM_STACK, MASS_CAP, MIN_MASS, RADIUS_PER_SQRT_MASS, SPAWN_MASS, T2_DRIFT, T2_MASS_CAP,
-  T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
+  T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
+  JET_COOLDOWN, JET_TIME, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
 import {
@@ -56,6 +57,7 @@ function random(body: { rng: number }) {
 
 export interface CellBody {
   x: number; y: number; heading: number; tumble: number; rng: number; spore: number; sporeCooldown: number;
+  dash: number; dashCooldown: number;
 }
 const flow = { x: 0, y: 0 };
 
@@ -70,7 +72,7 @@ export function stepCell(
 ) {
   const throttle = Math.hypot(dirX, dirY);
   const want = Math.atan2(dirY, dirX);
-  if (tier === 2) return stepEukaryote(b, mass, genome2, throttle, want, dt, time);
+  if (tier === 2) return stepEukaryote(b, mass, genome2, throttle, want, actions, dt, time);
   let swim = 0;
 
   // Endospore: a dormant, invulnerable husk that still drifts. Simulated here so it's predicted.
@@ -118,7 +120,16 @@ export function stepCell(
  * Eukaryotes steer instead of tumbling: cilia give precise, instant turns; a flagellum alone is fast
  * but turns at T2_TURN_RATE; with both you get the flagellum's speed and the cilia's control.
  */
-function stepEukaryote(b: CellBody, mass: number, genome2: number, throttle: number, want: number, dt: number, time: number) {
+function stepEukaryote(
+  b: CellBody, mass: number, genome2: number, throttle: number, want: number, actions: number, dt: number, time: number,
+) {
+  // Jet: a short predicted dash, like the endospore is for bacteria.
+  b.dashCooldown = Math.max(0, b.dashCooldown - dt);
+  if (b.dash > 0) b.dash = Math.max(0, b.dash - dt - 1e-9);
+  else if (actions & ACTION_SPORE && TIER2.hasGene(genome2, 'jet') && b.dashCooldown === 0) {
+    b.dash = JET_TIME;
+    b.dashCooldown = JET_COOLDOWN;
+  }
   const cilia = TIER2.copiesOf(genome2, 'cilia');
   const flagella = TIER2.copiesOf(genome2, 'flagellum');
   let swim = 0;
@@ -130,7 +141,8 @@ function stepEukaryote(b: CellBody, mass: number, genome2: number, throttle: num
     swim = flagella ? T2_SWIM_FLAGELLUM * (1 + FLAGELLUM_STACK * (stack(flagella) - 1))
       : cilia ? T2_SWIM_CILIA * (1 + FLAGELLUM_STACK * (stack(cilia) - 1)) : T2_SWIM_CREEP;
   }
-  move(b, mass, swim * throttle * speedOf(mass, 2), T2_DRIFT, dt, time);
+  if (b.dash > 0) swim = Math.max(swim, T2_SWIM_CILIA) * JET_BOOST; // the jet pushes even a creeping cell
+  move(b, mass, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time);
 }
 
 /** Swim at speed `v` along the heading, drift with a share of the current, stay inside the pool. */

@@ -118,3 +118,17 @@ export const SEEP_ALGAE = 0.25; // per s per seep
 export const CHUNK_MASS = 10;
 export const ENGULF_RATIO = 0.5;
 export const ENGULF_SHARE = 0.8; // of the victim's mass, to the eater
+
+// Tier-2 weapons and abilities (P8c).
+export const SPIKE_DPS = 30; // per facing spike, stacked by stack(count)
+export const SPIKE_ARC = 0.6; // rad either side of a spike's direction it can stab into
+export const SPIKE_REACH = 0.35; // spike length beyond the membrane, in the bearer's radii
+export const ELECTRIC_DPS = 14; // to everything touching the body, stacked by copies
+export const ELECTRIC_REACH = 1.3; // the field around the bearer, in its radii
+export const JET_TIME = 0.8; // s of dash
+export const JET_COOLDOWN = 6; // s
+export const JET_BOOST = 2.6; // × swim speed while dashing
+export const EYE_SIGHT = 0.18; // camera pulls back this much more per stacked eye (client)
+// Meteor shards: Spore's meteor bits. Rare sparkly packets carrying a random tier-2 part; any eukaryote
+// that touches one unlocks it. A dead eukaryote's chunks carry its parts too (eaten with a jaw: may unlock).
+export const SHARD_RATE = 1 / 20; // per s over the whole pool

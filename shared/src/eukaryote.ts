@@ -8,12 +8,21 @@ export const TIER2 = makeCatalog({
   flagellum: { upkeep: 0.05, price: 25, maxCopies: 3, slot: 'membrane', at: Math.PI, label: 'Flagellum' },
   filter: { upkeep: 0.02, price: 15, maxCopies: 1, slot: 'membrane', at: 0.45, label: 'Filter mouth' },
   jaw: { upkeep: 0.03, price: 20, maxCopies: 1, slot: 'membrane', at: 0, label: 'Jaw' },
+  // P8c — weapons, the jet, eyes. Spikes only stab where they point; the electric organ shocks anything
+  // touching the body; poison is left behind as a cloud (left click); the jet is a dash (right click/Shift).
+  spike: { upkeep: 0.03, price: 18, maxCopies: 3, slot: 'membrane', at: 0.3, label: 'Spike' },
+  poison: { upkeep: 0.03, price: 22, maxCopies: 2, slot: 'membrane', at: 2.6, label: 'Poison gland' },
+  electric: { upkeep: 0.05, price: 30, maxCopies: 2, slot: 'internal', at: [-0.35, -0.3], label: 'Electric organ' },
+  jet: { upkeep: 0.04, price: 25, maxCopies: 1, slot: 'membrane', at: -2.6, label: 'Jet' },
+  eye: { upkeep: 0.005, price: 8, maxCopies: 3, slot: 'internal', at: [0.45, 0.2], label: 'Eye' },
 });
 export type Gene2 = (typeof TIER2.NAMES)[number];
 
 /** A newly evolved eukaryote: a little cilia to steer and both mouths (omnivore) until the editor says otherwise. */
 export const STARTER_GENOME2 = TIER2.genomeOf(['cilia', 'filter', 'jaw']);
-export const STARTER_LIBRARY2 = TIER2.GENES.cilia.bit | TIER2.GENES.flagellum.bit | TIER2.GENES.filter.bit | TIER2.GENES.jaw.bit;
+/** Parts a new eukaryote can buy at once; weapons and the jet are found (meteor shards, eaten eukaryotes). */
+export const STARTER_LIBRARY2 = TIER2.GENES.cilia.bit | TIER2.GENES.flagellum.bit | TIER2.GENES.filter.bit
+  | TIER2.GENES.jaw.bit | TIER2.GENES.eye.bit;
 
 /** The highest tier that exists so far; Evolve is offered below it. */
 export const MAX_TIER = 2;

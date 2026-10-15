@@ -3,18 +3,20 @@
 import { HEALTH_MAX, T2_HEALTH_MAX } from './constants.ts';
 import { hasGene } from './genes.ts';
 
-/** Input action bits (Input.actions). */
+/** Input action bits (Input.actions). Toxin: secrete (tier 1) / poison (tier 2). Spore: endospore (tier 1) / jet dash (tier 2). */
 export const ACTION_TOXIN = 1;
 export const ACTION_SPORE = 2;
 export const ACTION_MASK = ACTION_TOXIN | ACTION_SPORE;
 
 /**
  * Secreted toxins form clouds that drift on the current, spread out and weaken with age.
- * radius: [at release, at dissolution]; dps at release, fading linearly to 0; cost in mass.
+ * radius: [at release, at dissolution]; dps at release, fading linearly to 0; cost in mass. `gene` is
+ * in the catalog of `tier`; a cell secretes the toxins of its own tier.
  */
 export const TOXINS = [
-  { gene: 'bacteriocin', radius: [40, 110], life: 4, dps: 12, cooldown: 2.5, cost: 0.6 }, // wide area denial
-  { gene: 'poreFormer', radius: [28, 55], life: 1.2, dps: 45, cooldown: 3, cost: 0.8 }, // short brutal burst
+  { gene: 'bacteriocin', tier: 1, radius: [40, 110], life: 4, dps: 12, cooldown: 2.5, cost: 0.6 }, // wide area denial
+  { gene: 'poreFormer', tier: 1, radius: [28, 55], life: 1.2, dps: 45, cooldown: 3, cost: 0.8 }, // short brutal burst
+  { gene: 'poison', tier: 2, radius: [45, 130], life: 3, dps: 30, cooldown: 2, cost: 3 }, // eukaryote poison trail
 ] as const;
 export type ToxinKind = number; // index into TOXINS
 

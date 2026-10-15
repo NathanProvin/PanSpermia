@@ -1,6 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
+  ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
@@ -172,6 +173,19 @@ function apply(l: Lineage, d: Design) {
   l.children += d.children;
 }
 
+/** A meteor shard carrying one random tier-2 part (Spore's meteor bits). */
+export function spawnShard(state: PoolState, x: number, y: number) {
+  const gene = TIER2.NAMES[Math.floor(Math.random() * TIER2.NAMES.length)]!;
+  spawnNutrient(state, x, y, NutrientKind.shard, TIER2.GENES[gene].bit);
+}
+
+/** The parts a tier-2 cell actually wears: its species design, or the default layout (bots, dev cheats). */
+function partsOfCell(state: PoolState, id: string, p: Player) {
+  const l = state.lineages.get(id);
+  if (l && l.tier === p.tier && l.genome === p.genome2) return [...l.parts].map((q) => ({ gene: TIER2.NAMES[q.gene]!, angle: q.angle }));
+  return TIER2.defaultParts(p.genome2);
+}
+
 /** A plasmid carrying one random gene of the catalog. */
 export function spawnPlasmid(state: PoolState, x: number, y: number) {
   const gene = GENE_NAMES[Math.floor(Math.random() * GENE_NAMES.length)]!;
@@ -207,12 +221,15 @@ export function secrete(state: PoolState, id: string) {
   const p = state.players.get(id);
   if (!p || dormant(p) || p.toxinCooldown > 0) return;
   for (const [kind, toxin] of TOXINS.entries()) {
-    const power = stack(copiesOf(p.genome, toxin.gene)); // more copies: stronger cloud, dearer to make
-    if (!power || p.mass - toxin.cost * power < MIN_MASS) continue;
+    if (toxin.tier !== p.tier) continue;
+    const genome = p.tier === 2 ? p.genome2 : p.genome;
+    const power = stack(catalogFor(p.tier).copiesOf(genome, toxin.gene)); // more copies: stronger cloud, dearer
+    if (!power || p.mass - toxin.cost * power < minMassOf(p.tier)) continue;
     p.mass -= toxin.cost * power;
     p.toxinCooldown = Math.max(p.toxinCooldown, toxin.cooldown);
-    const x0 = Math.fround(p.x);
-    const y0 = Math.fround(p.y);
+    const back = p.tier === 2 ? radiusOf(p.mass) * 1.2 : 0; // a eukaryote leaves its poison behind it
+    const x0 = Math.fround(p.x - Math.cos(p.heading) * back);
+    const y0 = Math.fround(p.y - Math.sin(p.heading) * back);
     state.clouds.set(`c${nextCloudId++}`, new Cloud({ x0, y0, tick0: state.tick, kind, owner: id, power, x: x0, y: y0, tick: state.tick }));
   }
 }
@@ -303,6 +320,10 @@ export function stepWorld(state: PoolState): Death[] {
     const at = randomInDisc(WORLD_RADIUS);
     spawnPlasmid(state, at.x, at.y);
   }
+  if (Math.random() < SHARD_RATE * TICK_DT) {
+    const at = randomInDisc(WORLD_RADIUS);
+    spawnShard(state, at.x, at.y);
+  }
   if (Math.random() < PHAGE_RATE * TICK_DT) {
     // ponytail: a crowded pool skips the spawn instead of searching for room; phages still burst from the infected.
     const at = randomInDisc(WORLD_RADIUS);
@@ -351,13 +372,22 @@ export function stepWorld(state: PoolState): Death[] {
           if (!n) continue; // gone: eaten this tick
           const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
           if (t2) {
-            // Eukaryotes eat by mouth; phages (bacteria-only viruses) and DNA packets drift past.
-            const food = d2 < reach * reach ? yield2Of(n.kind, p.genome2) : 0;
-            if (!food) continue;
-            p.mass = Math.min(massCapOf(2), p.mass + food);
-            earn(state, id, food * DNA_PER_MASS);
-          } else if (n.kind === NutrientKind.algae) {
-            continue; // too big for a bacterium to take in
+            if (d2 >= reach * reach) continue;
+            const l = state.lineages.get(id);
+            if (n.kind === NutrientKind.shard) { // any eukaryote touching a meteor shard takes its part
+              earn(state, id, PACKET_DNA);
+              if (l?.tier === 2) l.library |= n.gene;
+            } else {
+              // Eukaryotes eat by mouth; phages (bacteria-only viruses) and bacterial DNA drift past.
+              const food = yield2Of(n.kind, p.genome2);
+              if (!food) continue;
+              p.mass = Math.min(massCapOf(2), p.mass + food);
+              earn(state, id, food * DNA_PER_MASS);
+              // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
+              if (l?.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
+            }
+          } else if (n.kind === NutrientKind.algae || n.kind === NutrientKind.shard) {
+            continue; // too big for a bacterium to take in; not its kind of DNA
           } else if (n.kind === NutrientKind.phage) {
             // Phages bind the cell itself (siderophores don't reach them); a capsule may mask the receptor.
             if (d2 >= r * r || tick < p.graceUntil) continue;
@@ -366,11 +396,12 @@ export function stepWorld(state: PoolState): Death[] {
             if (d2 >= reach * reach) continue;
             const food = yieldOf(n.kind, p.genome);
             p.mass = Math.min(MASS_CAP, p.mass + food);
-            earn(state, id, n.gene ? PACKET_DNA : food * DNA_PER_MASS);
+            const dna = n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid; // bacterial DNA only
+            earn(state, id, dna ? PACKET_DNA : food * DNA_PER_MASS);
             // Gene transfer unlocks the part for the species' editor. Plasmids always take; fragments
             // only sometimes recombine (transformation).
             const l = state.lineages.get(id);
-            if (l && n.gene && (n.kind === NutrientKind.plasmid || Math.random() < TRANSFORM_CHANCE)) l.library |= n.gene;
+            if (l?.tier === 1 && dna && (n.kind === NutrientKind.plasmid || Math.random() < TRANSFORM_CHANCE)) l.library |= n.gene;
           }
           state.nutrients.delete(nid);
         }
@@ -395,6 +426,14 @@ export function stepWorld(state: PoolState): Death[] {
     }
   }
 
+  // Where each spiked eukaryote's spikes point (body frame); spikes only stab in those directions.
+  const spikes = new Map<string, number[]>();
+  for (const [id, p] of state.players) {
+    if (p.tier === 2 && TIER2.hasGene(p.genome2, 'spike')) {
+      spikes.set(id, partsOfCell(state, id, p).filter((q) => q.gene === 'spike').map((q) => q.angle));
+    }
+  }
+
   // Lysis. ponytail: O(players × (clouds + players)), fine at 50; reuse the spatial grid when bots raise counts.
   for (const [id, p] of state.players) {
     if (dormant(p) || tick < p.graceUntil) continue; // dormant: the infection waits too
@@ -412,10 +451,24 @@ export function stepWorld(state: PoolState): Death[] {
       }
     }
     for (const [aid, a] of state.players) {
-      if (aid === id || dormant(a) || !hasGene(a.genome, 't6ss')) continue;
-      const touch = radiusOf(a.mass) + r;
-      if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 < touch * touch) {
+      if (aid === id || dormant(a)) continue;
+      const ra = radiusOf(a.mass);
+      const dx = p.x - a.x;
+      const dy = p.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (hasGene(a.genome, 't6ss') && d < ra + r) {
         hurt(p, T6SS_DPS * stack(copiesOf(a.genome, 't6ss')) * contactFactor(p.genome) * TICK_DT, aid, tick);
+      }
+      if (a.tier !== 2) continue;
+      // Electric organ: shocks everything inside its field, all around.
+      const organs = TIER2.copiesOf(a.genome2, 'electric');
+      if (organs && d < ra * ELECTRIC_REACH + r) hurt(p, ELECTRIC_DPS * stack(organs) * contactFactor(p.genome) * TICK_DT, aid, tick);
+      // Spikes stab only what's in front of them.
+      const angles = spikes.get(aid);
+      if (angles && d < ra * (1 + SPIKE_REACH) + r) {
+        const bearing = Math.atan2(dy, dx) - a.heading;
+        const facing = angles.filter((s) => Math.abs(wrapAngle(bearing - s)) < SPIKE_ARC).length;
+        if (facing) hurt(p, SPIKE_DPS * stack(facing) * contactFactor(p.genome) * TICK_DT, aid, tick);
       }
     }
   }
@@ -461,6 +514,7 @@ export function stepWorld(state: PoolState): Death[] {
       const [kind, size] = p.tier === 2 ? [NutrientKind.chunk, CHUNK_MASS] : [NutrientKind.debris, DEBRIS_MASS];
       for (let k = Math.floor((p.mass * DEBRIS_SHARE) / size); k > 0; k--) spill(kind);
       for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
+      for (const g of TIER2.NAMES) if (TIER2.hasGene(p.genome2, g)) spill(NutrientKind.chunk, TIER2.GENES[g].bit);
       if (p.infection > 0) for (let k = 0; k < PHAGE_BURST; k++) spill(NutrientKind.phage);
     }
     if (death.by) {

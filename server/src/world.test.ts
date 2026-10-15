@@ -588,7 +588,9 @@ test('a dead eukaryote falls apart into meat chunks; tier-2 cells divide at the 
   const { state, e } = eukaryote(STARTER_GENOME2, 401); // metabolism trims a little before death
   e.health = -1;
   stepWorld(state);
-  expect(ofKind(state, NutrientKind.chunk).length).toBe(Math.floor((400 * 0.5) / CHUNK_MASS));
+  const chunks = ofKind(state, NutrientKind.chunk);
+  expect(chunks.filter((n) => !n.gene).length).toBe(Math.floor((400 * 0.5) / CHUNK_MASS));
+  expect(chunks.filter((n) => n.gene).length).toBe(3); // one per part it wore: cilia, filter, jaw
   expect(ofKind(state, NutrientKind.debris).filter((n) => Math.hypot(n.x0, n.y0) < 80)).toEqual([]);
 
   const { state: s2, player, lineage } = species();
@@ -596,4 +598,77 @@ test('a dead eukaryote falls apart into meat chunks; tier-2 cells divide at the 
   Object.assign(player, { tier: 2, genome: 0, genome2: STARTER_GENOME2, mass: T2_MASS_CAP, health: 300 });
   stepWorld(s2);
   expect(player.cyst).toBe(CYST_TIME);
+});
+
+// --- Tier 2: weapons and part discovery (P8c) ---------------------------------------------------
+
+/** Two eukaryotes facing each other along x: 'e' at the origin heading +x, 'v' in front of it. */
+const face = (genome2: number, gap = 0) => {
+  const { state, e } = eukaryote(genome2 | TIER2.GENES.cilia.bit);
+  e.heading = 0;
+  const v = spawnPlayer();
+  Object.assign(v, { tier: 2, genome: 0, genome2: TIER2.GENES.cilia.bit, mass: 300, health: 300, x: 2 * radiusOf(300) + gap, y: 0 });
+  state.players.set('v', v);
+  return { state, e, v };
+};
+
+test('spikes stab only where they point', () => {
+  const spike = TIER2.GENES.spike.bit; // default spot: the front (angle 0.3)
+  const ahead = face(spike);
+  stepWorld(ahead.state);
+  expect(ahead.v.health).toBeLessThan(300);
+  expect(ahead.e.health).toBe(300); // the victim has no weapon
+  const behind = face(spike);
+  behind.e.heading = Math.PI; // spike now points away from v
+  stepWorld(behind.state);
+  expect(behind.v.health).toBe(300);
+});
+
+test('the electric organ shocks anything close, bacteria included', () => {
+  const { state, e, v } = face(TIER2.GENES.electric.bit, radiusOf(300) * 0.2);
+  e.heading = Math.PI; // direction doesn't matter
+  const bug = spawnPlayer();
+  Object.assign(bug, { x: 0, y: radiusOf(300) * 1.1, mass: 70 }); // too big to engulf, inside the field
+  state.players.set('bug', bug);
+  stepWorld(state);
+  expect(v.health).toBeLessThan(300);
+  expect(bug.health).toBeLessThan(100);
+});
+
+test('poison is left behind a eukaryote, and its maker is immune', () => {
+  const { state, e } = eukaryote(TIER2.GENES.poison.bit);
+  e.heading = 0;
+  secrete(state, 'e');
+  const cloud = [...state.clouds.values()][0]!;
+  expect(TOXINS[cloud.kind]!.gene).toBe('poison');
+  expect(cloud.x0).toBeLessThan(-radiusOf(e.mass)); // behind
+  run(state, 1);
+  expect(e.health).toBe(300);
+  // A bacterium can't secrete tier-2 poison, a eukaryote can't secrete bacteriocin.
+  const { state: s2, player } = worldWith();
+  player.genome = TIER2.GENES.poison.bit; // the same bits mean another tier-1 gene: not poison
+  secrete(s2, 'p');
+  expect([...s2.clouds.values()].every((c) => TOXINS[c.kind]!.tier === 1)).toBe(true);
+});
+
+test('meteor shards unlock tier-2 parts on touch; eaten chunks may carry the dead cell\'s parts', () => {
+  const { state, player, lineage } = species();
+  lineage.tier = 2;
+  lineage.library = STARTER_LIBRARY2;
+  Object.assign(player, { tier: 2, genome: 0, genome2: STARTER_GENOME2, mass: 300, health: 300 });
+  foodAt(state, player.x, player.y, NutrientKind.shard, TIER2.GENES.spike.bit);
+  stepWorld(state);
+  expect(lineage.library & TIER2.GENES.spike.bit).toBeTruthy();
+  for (let i = 0; i < 40 && !(lineage.library & TIER2.GENES.poison.bit); i++) {
+    foodAt(state, player.x, player.y, NutrientKind.chunk, TIER2.GENES.poison.bit);
+    stepWorld(state);
+  }
+  expect(lineage.library & TIER2.GENES.poison.bit).toBeTruthy();
+
+  // Bacteria eat such a chunk as food, but a tier-2 part never lands in a tier-1 library.
+  const s2 = species();
+  const before = s2.lineage.library;
+  foodAt(s2.state, s2.player.x, s2.player.y, NutrientKind.chunk, TIER2.GENES.electric.bit);
+  stepWorld(s2.state);
+  expect(s2.lineage.library).toBe(before);
 });
