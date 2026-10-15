@@ -1,6 +1,6 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, PoolState, genomeOf } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, genomeOf } from '@panspermia/shared';
 import { expect, test } from 'vitest';
-import { type Bots, fillBots, rebirth, stepBots } from './bots.ts';
+import { type Bots, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
 import { spawnNutrient, spawnPlayer, stepWorld } from './world.ts';
 
 const species = (name: string) => BOT_SPECIES.findIndex((s) => s.name === name);
@@ -23,10 +23,10 @@ const other = (state: PoolState, x: number, mass: number, genome: number) => {
   state.players.set('h', p);
 };
 
-test('bots top up and trim to the target, species spread round-robin', () => {
+test('bots top up and trim to the target, every species represented', () => {
   const state = new PoolState();
   const bots: Bots = new Map();
-  fillBots(state, bots, BOT_SPECIES.length);
+  fillBots(state, bots, 30);
   expect(new Set([...bots.values()].map((b) => b.species)).size).toBe(BOT_SPECIES.length);
   for (const [id, b] of bots) expect(state.players.get(id)!.genome).toBe(genomeOf(BOT_SPECIES[b.species]!.genes));
   fillBots(state, bots, 3);
@@ -66,4 +66,20 @@ test('dead bots are reborn as their own species', () => {
   expect(reborn).not.toBe(bot);
   expect(reborn.genome).toBe(genomeOf(BOT_SPECIES[brain.species]!.genes));
   expect(bots.get(id)!.species).toBe(species('Murus armatus'));
+});
+
+test('every species design is legal: copies within each part\'s limit', () => {
+  for (const s of BOT_SPECIES) {
+    for (const g of new Set(s.genes)) expect(s.genes.filter((x) => x === g).length).toBeLessThanOrEqual(GENES[g].maxCopies);
+  }
+});
+
+test('bots at the size cap divide into a fresh child of the same design, where they were', () => {
+  const { state, bots, id, bot, brain } = withBot('Vibrio celer', MASS_CAP);
+  bot.x = 123;
+  expect(divideBots(state, bots)).toEqual([id]);
+  const child = state.players.get(id)!;
+  expect(child).not.toBe(bot);
+  expect([child.x, child.mass, child.genome]).toEqual([123, SPAWN_MASS, genomeOf(BOT_SPECIES[brain.species]!.genes)]);
+  expect(divideBots(state, bots)).toEqual([]);
 });

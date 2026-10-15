@@ -46,7 +46,7 @@ export const HEALTH_REGEN = 5;
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
 export const SEEP_COUNT = 7;
-export const SEEP_RATE = 0.8; // packets/s per seep
+export const SEEP_RATE = 1.1; // packets/s per seep
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
 export const BACKGROUND_RATE = 6; // packets/s scattered over the whole pool

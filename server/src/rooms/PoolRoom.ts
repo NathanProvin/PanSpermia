@@ -3,7 +3,7 @@ import {
   ACTION_TOXIN, BOT_FILL, MASS_CAP, BOT_SPECIES, GENES, copiesOf, withCopies, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
   stepCell,
 } from '@panspermia/shared';
-import { type Bots, fillBots, rebirth, stepBots } from '../bots.ts';
+import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
 import {
   PHAGE_KILLER, foundSpecies, initPool, secrete, spawnNutrient, spawnPlasmid, stepWorld, submitDesign,
 } from '../world.ts';
@@ -54,6 +54,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       stepBots(this.state, this.bots);
       const deaths = stepWorld(this.state);
       rebirth(this.state, this.bots, deaths);
+      divideBots(this.state, this.bots);
       for (const { id, by, extinct = false } of deaths) {
         const why = by === PHAGE_KILLER ? { cause: 'phage' } : by ? { cause: 'lysed', killer: this.speciesName(by) } : { cause: 'starvation' };
         this.clients.getById(id)?.send('died', { ...why, extinct });

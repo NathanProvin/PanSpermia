@@ -2,7 +2,7 @@
 // PoolState, stepped by the same `stepCell`/`stepWorld` rules, so balance numbers transfer to humans.
 // Pure functions over PoolState + a brain map: the room and the headless balancing sim both drive them.
 import {
-  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, NutrientKind, type Player, type PoolState, TICK_DT, WORLD_RADIUS,
+  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, MASS_CAP, NutrientKind, type Player, type PoolState, TICK_DT, WORLD_RADIUS,
   genomeOf, hasGene, healthMaxOf, radiusOf, stepCell,
 } from '@panspermia/shared';
 import { type Death, secrete, spawnPlayer, yieldOf } from './world.ts';
@@ -23,6 +23,14 @@ const THINK_TICKS = 4; // 5 Hz reactions, and 4× cheaper perception
 const PHAGE_DODGE = 90; // keep this far beyond the membrane
 const GENE_VALUE = 3; // how much a missing gene is worth, in food-mass terms
 const TOXIN_RANGE = 55; // fire when a foreigner is this close (+ half its radius)
+const PREY_RATIO = 0.7; // hunters only chase cells clearly smaller than themselves (agar's rule)
+const GRAZER_FEAR = 200; // grazers keep this gap from armed cells at least half their mass
+const HUNT_UNTIL = 70; // hunters stop hunting when this well fed (they graze on, divide, and get hungry again)
+/** Recently hit this many ticks ago or less: fire back in self-defence. */
+const DEFEND_TICKS = 20;
+/** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. */
+const SPAWN_WEIGHT = { grazer: 3, coward: 2, swarm: 2, hunter: 1 } as const;
+const SPAWN_CYCLE = BOT_SPECIES.flatMap((s, i) => Array<number>(SPAWN_WEIGHT[s.archetype]).fill(i));
 
 const armed = (genome: number) =>
   hasGene(genome, 'bacteriocin') || hasGene(genome, 'poreFormer') || hasGene(genome, 't6ss');
@@ -33,8 +41,8 @@ const brain = (species: number, tick: number): Brain => ({
 });
 
 let nextBotId = 0;
-/** Spawn a bot, species round-robin unless given. Ids contain no '~' and never collide with session ids. */
-export function addBot(state: PoolState, bots: Bots, species = nextBotId % BOT_SPECIES.length) {
+/** Spawn a bot, species from the weighted cycle unless given. Ids contain no '~' and never collide with session ids. */
+export function addBot(state: PoolState, bots: Bots, species = SPAWN_CYCLE[nextBotId % SPAWN_CYCLE.length]!) {
   const id = `bot${nextBotId++}`;
   bots.set(id, brain(species, state.tick));
   const p = spawnPlayer(state.tick);
@@ -61,6 +69,24 @@ export function rebirth(state: PoolState, bots: Bots, deaths: Death[]) {
     bots.set(id, brain(b.species, state.tick));
     state.players.get(id)!.genome = genomeOf(BOT_SPECIES[b.species]!.genes);
   }
+}
+
+/**
+ * After stepWorld: bots at the size cap divide like players do, minus the editor — a fresh child of the
+ * same design takes over where the parent was. Returns the ids that divided (the sim counts generations).
+ */
+export function divideBots(state: PoolState, bots: Bots) {
+  const divided: string[] = [];
+  for (const [id, b] of bots) {
+    const p = state.players.get(id);
+    if (!p || p.mass < MASS_CAP - 1) continue;
+    const child = spawnPlayer(state.tick);
+    Object.assign(child, { x: p.x, y: p.y, heading: p.heading, genome: p.genome });
+    state.players.set(id, child);
+    bots.set(id, brain(b.species, state.tick));
+    divided.push(id);
+  }
+  return divided;
 }
 
 /** Decide where to swim and what to fire, from what the bot can see. */
@@ -118,18 +144,18 @@ function think(state: PoolState, bots: Bots, id: string, p: Player, b: Brain) {
       continue;
     }
     const gap = d - r - radiusOf(o.mass);
-    if (archetype === 'hunter' && o.spore === 0 && o.cyst === 0 && state.tick >= o.graceUntil && o.mass < p.mass && d < (prey?.d ?? Infinity)) {
-      prey = { d, x: dx / d, y: dy / d };
-    }
-    const fear = archetype === 'coward' ? 250 : archetype === 'grazer' && armed(o.genome) && o.mass > p.mass * 0.7 ? 150 : 0;
+    const isPrey = archetype === 'hunter' && p.mass < HUNT_UNTIL && o.spore === 0 && o.cyst === 0
+      && state.tick >= o.graceUntil && o.mass < p.mass * PREY_RATIO;
+    if (isPrey && d < (prey?.d ?? Infinity)) prey = { d, x: dx / d, y: dy / d };
+    const fear = archetype === 'coward' ? 250 : archetype === 'grazer' && armed(o.genome) && o.mass > p.mass * 0.5 ? GRAZER_FEAR : 0;
     if (gap < fear) {
       const w = 2 * (1 - gap / fear);
       sx -= (dx / d) * w;
       sy -= (dy / d) * w;
     }
-    if ((archetype === 'hunter' || archetype === 'swarm') && d < TOXIN_RANGE + r + radiusOf(o.mass) * 0.5) {
-      actions |= ACTION_TOXIN;
-    }
+    // Swarms defend their patch from any foreigner; hunters fire at prey, or back at whoever hit them.
+    const target = archetype === 'swarm' || isPrey || (archetype === 'hunter' && state.tick - p.lastHitTick <= DEFEND_TICKS);
+    if (target && d < TOXIN_RANGE + r + radiusOf(o.mass) * 0.5) actions |= ACTION_TOXIN;
   }
   if (prey) {
     sx += prey.x * 2.5;

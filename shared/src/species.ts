@@ -8,17 +8,18 @@ import type { Gene } from './genes.ts';
  */
 export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm';
 
+/** genes: the design; a gene listed twice is two copies (stacking, like a player's editor design). */
 export interface Species { name: string; archetype: Archetype; genes: readonly Gene[] }
 
 export const BOT_SPECIES: readonly Species[] = [
   { name: 'Nudus errans', archetype: 'grazer', genes: [] }, // geneless drifter: everyone's first meal
-  { name: 'Pilus repens', archetype: 'grazer', genes: ['pili', 'siderophores'] },
-  { name: 'Vibrio celer', archetype: 'grazer', genes: ['flagellum', 'chemoreceptor', 'transporters'] },
-  { name: 'Mucus tardus', archetype: 'grazer', genes: ['pili', 'capsule', 'transporters'] },
-  { name: 'Necrophagus', archetype: 'grazer', genes: ['flagellum', 'chemoreceptor', 'exoenzymes'] }, // scavenger
-  { name: 'Spina venator', archetype: 'hunter', genes: ['flagellum', 't6ss', 'exoenzymes'] },
-  { name: 'Toxicus lentus', archetype: 'hunter', genes: ['pili', 'bacteriocin', 'effluxPump'] },
+  { name: 'Pilus repens', archetype: 'grazer', genes: ['pili', 'pili', 'pili', 'siderophores'] }, // anchored filter
+  { name: 'Vibrio celer', archetype: 'grazer', genes: ['flagellum', 'flagellum', 'chemoreceptor', 'transporters'] },
+  { name: 'Mucus tardus', archetype: 'grazer', genes: ['pili', 'capsule', 'transporters', 'transporters'] },
+  { name: 'Necrophagus', archetype: 'grazer', genes: ['flagellum', 'chemoreceptor', 'exoenzymes', 'transporters'] }, // scavenger that can also graze
+  { name: 'Spina venator', archetype: 'hunter', genes: ['flagellum', 't6ss', 't6ss', 'exoenzymes'] },
+  { name: 'Toxicus lentus', archetype: 'hunter', genes: ['pili', 'bacteriocin', 'bacteriocin', 'effluxPump'] },
   { name: 'Murus armatus', archetype: 'hunter', genes: ['pili', 'thickWall', 't6ss'] },
-  { name: 'Fuga timida', archetype: 'coward', genes: ['flagellum', 'endospore', 'capsule'] },
-  { name: 'Grex acidus', archetype: 'swarm', genes: ['pili', 'poreFormer', 'transporters'] },
+  { name: 'Fuga timida', archetype: 'coward', genes: ['flagellum', 'flagellum', 'endospore', 'capsule'] },
+  { name: 'Grex acidus', archetype: 'swarm', genes: ['pili', 'pili', 'poreFormer', 'transporters'] },
 ];

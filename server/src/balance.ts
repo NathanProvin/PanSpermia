@@ -1,9 +1,10 @@
 // Headless balancing sim: a pool of bots run at full speed with the real world rules, no network.
 //   npm run balance -w server -- [minutes=20] [bots=30]
-// Targets (ROADMAP "Numbers"): ~4 min from spawn to the tier-1 cap; kills and phages should matter
-// without wiping the pool; no species should dominate or starve out.
-import { BOT_SPECIES, MASS_CAP, PoolState, TICK_RATE } from '@panspermia/shared';
-import { type Bots, fillBots, rebirth, stepBots } from './bots.ts';
+// Bots divide at the size cap like players, so a generation = spawn → cap. Targets (P4d, DECISIONS):
+// a generation in ~2 min; under one life lost per generation on average (lives/gen < 1); kills and
+// phages should matter without wiping the pool; no species should dominate or starve out.
+import { BOT_SPECIES, PoolState, TICK_RATE } from '@panspermia/shared';
+import { type Bots, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
 import { PHAGE_KILLER, initPool, stepWorld } from './world.ts';
 
 const minutes = Number(process.argv[2] ?? 20);
@@ -16,12 +17,11 @@ fillBots(state, bots, count);
 
 const rows = BOT_SPECIES.map((s) => ({
   species: s.name, archetype: s.archetype, lives: 0, kills: 0, lysed: 0, phage: 0, starved: 0,
-  capped: 0, capMin: 0, lifeMin: 0, massNow: 0, topKiller: '',
+  gens: 0, genMin: 0, livesPerGen: 0, lifeMin: 0, massNow: 0, topKiller: '',
 }));
 const killedBy = BOT_SPECIES.map(() => BOT_SPECIES.map(() => 0)); // [victim][killer]
 const speciesOf = (id: string) => bots.get(id)!.species;
 for (const b of bots.values()) rows[b.species]!.lives++;
-const cappedAt = new Map<string, number>(); // id → tick its current life hit the cap
 const lifeMin = new Map<number, number[]>(); // species → lifetimes, minutes
 let infections = 0;
 
@@ -46,18 +46,14 @@ for (let t = 0; t < ticks; t++) {
     } else row.starved++;
     const life = (state.tick - bots.get(id)!.born) / TICK_RATE / 60;
     lifeMin.set(s, [...(lifeMin.get(s) ?? []), life]);
-    cappedAt.delete(id);
     row.lives++;
   }
   rebirth(state, bots, deaths);
 
-  for (const [id, b] of bots) {
-    const p = state.players.get(id)!;
-    if (p.mass >= MASS_CAP - 1 && !cappedAt.has(id)) { // metabolism shaves the clamp within the same tick
-      cappedAt.set(id, state.tick);
-      const row = rows[b.species]!;
-      row.capMin += ((state.tick - b.born) / TICK_RATE / 60 - row.capMin) / ++row.capped; // running mean
-    }
+  const bornBefore = new Map([...bots].map(([id, b]) => [id, b.born]));
+  for (const id of divideBots(state, bots)) {
+    const row = rows[speciesOf(id)]!;
+    row.genMin += ((state.tick - bornBefore.get(id)!) / TICK_RATE / 60 - row.genMin) / ++row.gens; // running mean
   }
 }
 
@@ -70,6 +66,7 @@ for (const [s, row] of rows.entries()) {
   });
   row.lifeMin = mean([...(lifeMin.get(s) ?? []), ...running]);
   row.massNow /= running.length || 1;
+  row.livesPerGen = (row.lysed + row.phage + row.starved) / (row.gens || 1);
   const k = killedBy[s]!;
   const top = k.indexOf(Math.max(...k));
   if (k[top]) row.topKiller = `${BOT_SPECIES[top]!.name} (${Math.round((100 * k[top]) / row.lysed)}%)`;
