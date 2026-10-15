@@ -68,7 +68,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   }
 
   override onJoin(client: Client) {
-    this.state.players.set(client.sessionId, spawnPlayer());
+    this.state.players.set(client.sessionId, spawnPlayer(this.state.tick));
   }
 
   override onLeave(client: Client) {

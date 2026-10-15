@@ -6,6 +6,7 @@ import {
 import * as THREE from 'three';
 import { createCells } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
+import { createMeteor } from './scene/meteor.ts';
 import { createNutrients } from './scene/nutrients.ts';
 import { createPlankton } from './scene/plankton.ts';
 import { createPool } from './scene/pool.ts';
@@ -39,7 +40,11 @@ const plankton = createPlankton(camera);
 const nutrientLayer = createNutrients();
 const cells = createCells(scene);
 const cloudLayer = createClouds();
-scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects);
+const meteor = createMeteor();
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects);
+/** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
+const INTRO_HEIGHT = 1800;
+let introPlayed = false;
 
 // Steering: pointer offset from the screen centre (where your cell is drawn).
 // Full throttle at a quarter of the short screen side; `clampSteer` caps anything beyond.
@@ -109,6 +114,11 @@ try {
   callbacks.onAdd('players', (player, id) => {
     if (id !== room.sessionId) return;
     knownGenome = -1; // a new individual: its starter genes aren't news
+    if (!introPlayed) {
+      introPlayed = true;
+      meteor.start();
+      camera.position.z = INTRO_HEIGHT;
+    }
     me?.dispose();
     me = predict.reconciler(player, {
       input,
@@ -139,9 +149,10 @@ try {
   renderer.setAnimationLoop((now) => {
     // Send the due inputs before reading any predicted value (see Predict.tick).
     for (let due = predict.tick(now); due > 0; due--) {
-      input.data.dirX = pointer.x / throttleScale();
-      input.data.dirY = pointer.y / throttleScale();
-      input.data.actions = takeActions();
+      const steer = meteor.active ? 0 : 1; // the hatchling waits for the intro to end
+      input.data.dirX = (pointer.x / throttleScale()) * steer;
+      input.data.dirY = (pointer.y / throttleScale()) * steer;
+      input.data.actions = takeActions() * steer;
       sanitizeInput(input.data); // same sanitizer as the server, so prediction replays the real command
       input.send();
     }
@@ -166,6 +177,10 @@ try {
       // Follow the cell; zoom out as it grows.
       const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
+      const { hatch, shake } = meteor.update(dt, time, camera.position.z, selfMesh.position.x, selfMesh.position.y);
+      selfMesh.scale.multiplyScalar(hatch);
+      camera.position.x += (Math.random() - 0.5) * shake;
+      camera.position.y += (Math.random() - 0.5) * shake;
       if (knownGenome >= 0 && self.genome & ~knownGenome) {
         const gained = GENE_NAMES.filter((g) => hasGene(self.genome & ~knownGenome, g)).map((g) => GENES[g].label);
         say(`New gene: ${gained.join(', ')}`);

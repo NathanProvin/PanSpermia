@@ -6,7 +6,7 @@ import {
   PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
   type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
-  STARVE_DPS, Seep, TICK_DT, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
 } from '@panspermia/shared';
 
 /** Uniform random point in a disc of radius `r` centred on the origin. */
@@ -16,7 +16,9 @@ function randomInDisc(r: number) {
   return { x: d * Math.cos(angle), y: d * Math.sin(angle) };
 }
 
-export const spawnPlayer = () => new Player({
+/** A fresh individual; pass the current tick to shield it for SPAWN_GRACE (tests usually don't). */
+export const spawnPlayer = (tick?: number) => new Player({
+  graceUntil: tick === undefined ? 0 : tick + SPAWN_GRACE * TICK_RATE,
   ...randomInDisc(WORLD_RADIUS - radiusOf(SPAWN_MASS)),
   heading: Math.random() * 2 * Math.PI,
   tumble: 0,
@@ -174,7 +176,7 @@ export function stepWorld(state: PoolState): Death[] {
           const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
           if (n.kind === NutrientKind.phage) {
             // Phages bind the cell itself (siderophores don't reach them); a capsule may mask the receptor.
-            if (d2 >= r * r) continue;
+            if (d2 >= r * r || tick < p.graceUntil) continue;
             if (!(hasGene(p.genome, 'capsule') && Math.random() < CAPSULE_PHAGE_BLOCK)) p.infection += PHAGE_LATENT;
           } else {
             if (d2 >= reach * reach) continue;
@@ -190,7 +192,7 @@ export function stepWorld(state: PoolState): Death[] {
 
   // Lysis. ponytail: O(players × (clouds + players)), fine at 50; reuse the spatial grid when bots raise counts.
   for (const [id, p] of state.players) {
-    if (p.spore > 0) continue; // dormant: the infection waits too
+    if (p.spore > 0 || tick < p.graceUntil) continue; // dormant: the infection waits too
     const r = radiusOf(p.mass);
     if (p.infection > 0) {
       hurt(p, PHAGE_DPS * TICK_DT, PHAGE_KILLER, tick);
@@ -237,7 +239,7 @@ export function stepWorld(state: PoolState): Death[] {
     for (let k = Math.floor((p.mass * DEBRIS_SHARE) / DEBRIS_MASS); k > 0; k--) spill(NutrientKind.debris);
     for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
     if (p.infection > 0) for (let k = 0; k < PHAGE_BURST; k++) spill(NutrientKind.phage);
-    state.players.set(deaths[i]!.id, spawnPlayer());
+    state.players.set(deaths[i]!.id, spawnPlayer(tick));
   }
   return deaths;
 }

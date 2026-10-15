@@ -1,6 +1,6 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
-  NutrientKind, PHAGE_BURST, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
+  NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
@@ -327,4 +327,18 @@ test('endospores and capsules resist phages', () => {
   } finally {
     random.mockRestore();
   }
+});
+
+test('new cells are shielded from lysis and phages for the spawn grace', () => {
+  const { state, attacker, target } = duel(GENES.t6ss.bit);
+  const fresh = spawnPlayer(state.tick);
+  Object.assign(fresh, { x: target.x, y: target.y, mass: target.mass, genome: target.genome });
+  state.players.set('t', fresh);
+  fresh.x = attacker.x + 20;
+  foodAt(state, fresh.x, fresh.y, NutrientKind.phage);
+  run(state, SPAWN_GRACE - 0.5);
+  expect(fresh.health).toBe(healthMaxOf(fresh.genome));
+  expect(fresh.infection).toBe(0);
+  run(state, 1);
+  expect(fresh.health).toBeLessThan(healthMaxOf(fresh.genome));
 });

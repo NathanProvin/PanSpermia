@@ -23,6 +23,8 @@ export const Player = schema({
   // Server-side kill attribution and regen gating, never sent.
   lastHitBy: t.string().noSync().default(''),
   lastHitTick: t.uint32().noSync().default(0),
+  /** Spawn protection lasts until this tick (server-side). */
+  graceUntil: t.uint32().noSync().default(0),
 }, 'Player');
 export type Player = SchemaType<typeof Player>;
 

@@ -77,3 +77,5 @@ export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors 
 
 /** Bots top a room up to this many cells (humans + bots); humans displace them as they join. */
 export const BOT_FILL = 30;
+/** New cells can't be hurt or infected, and bots don't hunt them, for this long (covers the meteor intro). */
+export const SPAWN_GRACE = 5; // s
