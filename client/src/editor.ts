@@ -239,6 +239,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const named = cleanName(name);
     if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
     $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
+    $('.hatch').textContent = animal() ? 'Lay eggs' : 'Divide'; // animals mate and lay a clutch
     const need = evolveDnaOf(lineage!.tier);
     const ready = lineage!.lifetimeDna >= need;
     const progress = $<HTMLProgressElement>('.evolution progress');
@@ -431,7 +432,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       const gs = working();
       cell.update({ x: 0, y: 0, heading: FORWARD, tumble: 0, spore: 0, cyst: 0 }, 1,
         { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue, shape, segments: segments() }, time, dt);
-      $('.timer').textContent = `Dividing — ${Math.ceil(secondsLeft)} s left`;
+      $('.timer').textContent = `${animal() ? 'Mating' : 'Dividing'} — ${Math.ceil(secondsLeft)} s left`;
       return { scene, camera };
     },
   };

@@ -5,7 +5,8 @@ import {
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   CARAPACE_ARMOUR, MANDIBLE_ARC, MANDIBLE_DPS, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_HEALTH_MAX, T3_METABOLISM_BASE,
-  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, evolveDnaOf, DEFAULT_RADII, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN,
+  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
+  MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
@@ -49,6 +50,76 @@ export function spawnNutrient(state: PoolState, x: number, y: number, kind: numb
 /** Dormant cells (endospore, division cyst) neither eat, fight, metabolize nor take damage. */
 const dormant = (p: Player) => p.spore > 0 || p.cyst > 0;
 
+/**
+ * Mate calls: each calling animal's mate swims straight in (spawned on the first tick of the call);
+ * meeting it — or calling too long — starts the editor (the cyst). Mates of callers that stopped go away.
+ */
+function stepMates(state: PoolState) {
+  const gone: string[] = [];
+  for (const [id, p] of state.players) {
+    if (isMate(id)) {
+      if (!(state.players.get(id.slice(MATE_PREFIX.length))?.call)) gone.push(id);
+      continue;
+    }
+    if (!p.call) continue;
+    const mid = MATE_PREFIX + id;
+    const m = state.players.get(mid);
+    if (!m) {
+      const a = Math.random() * 2 * Math.PI;
+      const far = 2 * radiusOf(p.mass) + MATE_DISTANCE; // two grown animals touch ~620 apart
+      const at = { x: p.x + Math.cos(a) * far, y: p.y + Math.sin(a) * far };
+      const k = Math.min(1, (WORLD_RADIUS * 0.95) / Math.hypot(at.x, at.y)); // inside the pool
+      state.players.set(mid, new Player({
+        name: p.name, shape: p.shape, tier: 3, genome3: p.genome3, mass: p.mass, health: T3_HEALTH_MAX,
+        x: at.x * k, y: at.y * k, heading: a + Math.PI, graceUntil: 0xffffffff, tumble: 0, rng: 1, genome: 0,
+      }));
+      continue;
+    }
+    p.call += TICK_DT;
+    const dx = p.x - m.x;
+    const dy = p.y - m.y;
+    const d = Math.hypot(dx, dy);
+    if (d < radiusOf(p.mass) + radiusOf(m.mass) || p.call > MATE_TIMEOUT) {
+      gone.push(mid);
+      p.call = 0;
+      p.cyst = CYST_TIME; // mated: shielded while the player edits the next generation
+      continue;
+    }
+    const step = Math.min(d, MATE_SPEED * TICK_DT);
+    m.x += (dx / d) * step;
+    m.y += (dy / d) * step;
+    m.heading = Math.atan2(dy, dx);
+  }
+  for (const id of gone) state.players.delete(id);
+}
+
+/** Clutches hatch into the species' next individual, unless eukaryotes or animals eat them first. */
+function stepEggs(state: PoolState, tick: number) {
+  for (const [eid, egg] of [...state.eggs]) {
+    const l = state.lineages.get(egg.owner);
+    if (!l || l.extinct) {
+      state.eggs.delete(eid);
+      continue;
+    }
+    if (tick >= egg.hatchTick) {
+      state.eggs.delete(eid);
+      l.generation++;
+      state.players.set(egg.owner, nextOf(l, tick, { x: egg.x, y: egg.y, heading: Math.random() * 2 * Math.PI }));
+      continue;
+    }
+    for (const [pid, p] of state.players) {
+      if (pid === egg.owner || isMate(pid) || p.tier < 2 || dormant(p)) continue;
+      const reach = radiusOf(p.mass) * 1.05 + EGG_RADIUS;
+      if (!((p.x - egg.x) ** 2 + (p.y - egg.y) ** 2 < reach * reach)) continue;
+      const bite = Math.min(egg.health, EGG_EAT_DPS * TICK_DT);
+      egg.health -= bite;
+      p.mass = Math.min(massCapOf(p.tier), p.mass + bite);
+      earn(state, pid, bite * DNA_PER_MASS);
+    }
+    if (egg.health <= 0) state.eggs.delete(eid);
+  }
+}
+
 /** DNA to a lineage (bots have none). */
 function earn(state: PoolState, id: string, dna: number) {
   const l = state.lineages.get(id);
@@ -86,12 +157,24 @@ export function foundSpecies(state: PoolState, id: string) {
   state.players.set(id, nextOf(state.lineages.get(id)!, state.tick));
 }
 
-/** Fission done: a child with the lineage's current design takes over where the parent divided. */
+let nextEggId = 0;
+/**
+ * Editing done. Cells divide: a child with the lineage's current design takes over where the parent
+ * divided. Animals lay a clutch instead and carry on, spent; the clutch hatches into the new design.
+ */
 export function hatch(state: PoolState, id: string) {
   const parent = state.players.get(id);
   const l = state.lineages.get(id);
   if (!parent || !l) return;
   drafts.delete(l);
+  if (parent.tier === 3 && l.tier === 3) {
+    parent.cyst = 0;
+    parent.mass = T3_SPAWN_MASS; // the energy went into the eggs
+    state.eggs.set(`e${nextEggId++}`, new Egg({
+      x: parent.x, y: parent.y, owner: id, hatchTick: state.tick + EGG_TIME * TICK_RATE, health: EGG_HEALTH, count: Math.min(6, 1 + l.children),
+    }));
+    return;
+  }
   l.generation++;
   state.players.set(id, nextOf(l, state.tick, { x: parent.x, y: parent.y, heading: parent.heading }));
 }
@@ -422,8 +505,11 @@ export function stepWorld(state: PoolState): Death[] {
   }
   for (const id of spent) state.clouds.delete(id);
 
+  stepMates(state);
+  stepEggs(state, tick);
+
   for (const [id, p] of state.players) {
-    if (dormant(p)) continue;
+    if (dormant(p) || isMate(id)) continue;
     const r = radiusOf(p.mass);
     const t2 = p.tier >= 2; // eukaryotes and animals eat by mouth
     const reach = t2 ? r * 1.05 : reachOf(p.mass, p.genome);
@@ -484,7 +570,7 @@ export function stepWorld(state: PoolState): Death[] {
   // newborns are shielded.
   // ponytail: O(players²), fine at 50; use a grid when tier-2 bots raise counts.
   for (const [eid, e] of state.players) {
-    if (e.tier < 2 || dormant(e) || e.engulfedBy) continue;
+    if (e.tier < 2 || dormant(e) || e.engulfedBy || isMate(eid)) continue;
     const mouth = radiusOf(e.mass) * 0.9;
     for (const [vid, v] of state.players) {
       if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || !swallows(e, v)) continue;
@@ -546,7 +632,7 @@ export function stepWorld(state: PoolState): Death[] {
       }
     }
     for (const [aid, a] of state.players) {
-      if (aid === id || dormant(a)) continue;
+      if (aid === id || dormant(a) || isMate(aid)) continue;
       const ra = radiusOf(a.mass);
       const dx = p.x - a.x;
       const dy = p.y - a.y;
@@ -585,7 +671,7 @@ export function stepWorld(state: PoolState): Death[] {
       if (p.cyst === 0) hatching.push(id); // editor timed out: hatch with the latest draft, or the old design
       continue;
     }
-    if (p.spore > 0) continue;
+    if (p.spore > 0 || isMate(id)) continue;
     const recentlyHit = p.lastHitBy !== '' && tick - p.lastHitTick <= REGEN_DELAY * TICK_RATE;
     metabolize(p, TICK_DT, !recentlyHit);
     p.toxinCooldown = Math.max(0, p.toxinCooldown - TICK_DT);
@@ -593,7 +679,9 @@ export function stepWorld(state: PoolState): Death[] {
       deaths.push({ id, by: recentlyHit ? p.lastHitBy : '' });
       dead.push(p);
     } else if (p.mass >= massCapOf(p.tier) - 1 && state.lineages.has(id)) {
-      p.cyst = CYST_TIME; // binary fission: shielded while the player edits the next generation
+      // Binary fission: shielded while the player edits the next generation. Animals call a mate first.
+      if (p.tier === 3) p.call ||= TICK_DT;
+      else p.cyst = CYST_TIME;
     }
   }
   for (const id of hatching) {

@@ -62,6 +62,13 @@ export function segmentsOf(plan: number, radii: readonly number[]): Segment[] {
 /** The default animal body (bots, a newly evolved species). */
 export const DEFAULT_SEGMENTS = segmentsOf(0, DEFAULT_RADII);
 
+/**
+ * Id prefix of an answering mate: a server-driven Player of the caller's species (the caller's id follows).
+ * Session ids never contain '~'. Mates are inert: they neither eat, fight, metabolize nor take damage.
+ */
+export const MATE_PREFIX = '~mate:';
+export const isMate = (id: string) => id.startsWith(MATE_PREFIX);
+
 /** Blend radius (cell radii) of the smooth union that joins segments into one body. */
 export const SEGMENT_BLEND = 0.12;
 

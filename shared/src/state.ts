@@ -15,7 +15,7 @@ export const Player = schema({
   rng: t.uint32(),
   mass: t.number(),
   health: t.number(),
-  /** 1 = bacterium, 2 = eukaryote. */
+  /** 1 = bacterium, 2 = eukaryote, 3 = animal. */
   tier: t.uint8().default(1),
   /** Tier-1 part copies (GENES); 0 for a eukaryote. */
   genome: t.uint32(),
@@ -33,6 +33,8 @@ export const Player = schema({
   toxinCooldown: t.number().default(0),
   /** Seconds left in the division cyst (0 = active). */
   cyst: t.number().default(0),
+  /** Animals: seconds spent calling for a mate (0 = not calling). */
+  call: t.number().default(0),
   /** Seconds of phage lysis left (0 = healthy). */
   infection: t.number().default(0),
   // Server-side kill attribution and regen gating, never sent.
@@ -128,6 +130,19 @@ export const Lineage = schema({
 }, 'Lineage');
 export type Lineage = SchemaType<typeof Lineage>;
 
+/** An animal's egg clutch: hatches into the species' next individual unless eaten first. */
+export const Egg = schema({
+  x: t.float32(),
+  y: t.float32(),
+  /** The lineage (session id) it belongs to. */
+  owner: t.string(),
+  hatchTick: t.uint32(),
+  health: t.number(),
+  /** Eggs drawn (1 + children in reserve, capped): visual only. */
+  count: t.uint8().default(1),
+}, 'Egg');
+export type Egg = SchemaType<typeof Egg>;
+
 export const PoolState = schema({
   /** Simulation clock in fixed ticks (time = tick · TICK_DT); integer, so exact on every side forever. */
   tick: t.uint32().default(0),
@@ -137,6 +152,7 @@ export const PoolState = schema({
   clouds: t.map(Cloud),
   /** Keyed by session id; bots have none. */
   lineages: t.map(Lineage),
+  eggs: t.map(Egg),
 }, 'PoolState');
 export type PoolState = SchemaType<typeof PoolState>;
 

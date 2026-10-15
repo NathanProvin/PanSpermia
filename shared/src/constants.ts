@@ -171,3 +171,12 @@ export const MANDIBLE_ARC = 0.7;
 export const CARAPACE_ARMOUR = 0.6; // share of bite damage that gets through a carapace
 /** A dead animal can't spill thousands of chunks: at most this many (the rest is lost). */
 export const SPILL_MAX = 40;
+
+// Tier 3 reproduction (P9c): mate call, mating, egg clutch.
+export const MATE_DISTANCE = 700; // a mate answers the call from this far beyond touching distance (~3 s away)
+export const MATE_SPEED = 260; // u/s, faster than any animal: it always arrives
+export const MATE_TIMEOUT = 15; // s of calling after which mating happens anyway
+export const EGG_TIME = 20; // s until the clutch hatches
+export const EGG_HEALTH = 400; // a clutch survives this much eating
+export const EGG_EAT_DPS = 150; // how fast a eukaryote or animal touching it eats it
+export const EGG_RADIUS = 70;

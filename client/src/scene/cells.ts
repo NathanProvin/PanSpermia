@@ -37,6 +37,7 @@ uniform float uWall;
 uniform float uSpore;
 uniform float uInfect;
 uniform float uCyst;
+uniform float uCall;
 uniform float uTier;
 uniform vec3 uShape; // stretch x, stretch y, bend (shared/shapes.ts)
 uniform float uCentre;
@@ -110,7 +111,7 @@ void main() {
   vacuoles *= euk;
   cyto = mix(cyto, uColor * 0.35 + 0.05, nucleus * 0.7);
   cyto += (uColor * 0.4 + 0.25) * vacuoles * 0.35;
-  float furrow = uCyst * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside;
+  float furrow = uCyst * (1.0 - animal) * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside; // animals mate, they don't split
   cyto *= 1.0 - 0.6 * furrow;
   float cytoAlpha = inside * (0.6 + 0.35 * shell);
 
@@ -157,11 +158,16 @@ void main() {
   cyto = mix(cyto, vec3(0.8, 0.84, 0.74) * (0.3 + 0.45 * shell), uSpore);
   membraneCol = mix(membraneCol, vec3(0.95, 0.97, 0.88), uSpore);
 
+  // Mate call: rings pulsing out from a calling animal.
+  float ping = fract(t * 0.6);
+  float callRing = uCall * exp(-pow((r - (1.15 + 0.7 * ping)) / 0.035, 2.0)) * (1.0 - ping) * (1.0 - inside);
+
   // Premultiplied alpha.
   vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.55 + haloCol * halo * 0.6
     + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.8 * inside
     + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(1.0, 0.3, 0.25) * virions * 1.2;
-  float alpha = clamp(cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
+  color += (uColor * 0.4 + 0.55) * callRing;
+  float alpha = clamp(callRing + cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
 }
 `;
@@ -431,7 +437,7 @@ const bodyGeometry = new THREE.PlaneGeometry(2 * QUAD_HALF, 2 * QUAD_HALF);
 const bodyMaterial = material(VERTEX, FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() }, uHeading: { value: 0 },
   uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 },
-  uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uTier: { value: 0 },
+  uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uCall: { value: 0 }, uTier: { value: 0 },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
   uSegN: { value: DEFAULT_SEGMENTS.length }, uCarapace: { value: 0 },
@@ -451,7 +457,7 @@ export function hashId(id: string) {
 }
 
 /** Rendered (predicted or smoothed) pose of a cell. */
-export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number }
+export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number; call?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
 export interface Look {
   tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number;
@@ -554,6 +560,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uWall!.value = hasGene(g1, 'thickWall') ? 1 : 0;
       u.uSpore!.value = pose.spore > 0 ? 1 : 0;
       u.uCyst!.value = pose.cyst > 0 ? 1 : 0;
+      u.uCall!.value = (pose.call ?? 0) > 0 ? 1 : 0;
       for (const { mesh, flagellum } of parts) {
         if (flagellum) mesh.material.uniforms.uBeat!.value += dt * beat * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
         else {

@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  EYE_SIGHT, TICK_DT, TIER2, TIER3, TOXINS, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TOXINS, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -9,6 +9,7 @@ import { createEditor } from './editor.ts';
 import { createLabels } from './labels.ts';
 import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
+import { createEggs } from './scene/eggs.ts';
 import { createMeteor } from './scene/meteor.ts';
 import { createNutrients } from './scene/nutrients.ts';
 import { createGiants } from './scene/giants.ts';
@@ -53,8 +54,9 @@ const nutrientLayer = createNutrients();
 const cells = createCells(scene);
 const editor = createEditor(renderer, document.getElementById('editor')!);
 const cloudLayer = createClouds();
+const eggLayer = createEggs();
 const meteor = createMeteor();
-scene.add(...pool.objects, ...giants.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects);
+scene.add(...pool.objects, ...giants.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
 const INTRO_HEIGHT = 1800;
 let introPlayed = false;
@@ -163,7 +165,7 @@ try {
 
   /** A player's cell wears its species design (unless dev cheats changed its genes); bots get the default layout. */
   const lookOf = (id: string, p: Player): Look => {
-    const l = room.state.lineages.get(id);
+    const l = room.state.lineages.get(isMate(id) ? id.slice(MATE_PREFIX.length) : id); // a mate looks like its species
     const genome = ownGenome(p);
     const cat = catalogFor(p.tier);
     // The species design, unless this individual differs (dev cheats) or has no lineage (bots).
@@ -184,6 +186,10 @@ try {
   callbacks.onRemove('nutrients', (_, id) => nutrientLayer.remove(id));
   callbacks.onAdd('clouds', (c, id) => cloudLayer.add(id, c));
   callbacks.onRemove('clouds', (_, id) => cloudLayer.remove(id));
+  // A clutch that vanishes before its hatching tick was eaten.
+  callbacks.onRemove('eggs', (egg) => {
+    if (egg.owner === room.sessionId && room.state.tick < egg.hatchTick) say('Your eggs were eaten!');
+  });
 
   let me: Reconciler | undefined;
   callbacks.onAdd('players', (player, id) => {
@@ -248,7 +254,7 @@ try {
 
     cells.update(players, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
-      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'),
+      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'), call: p.call,
     }), lookOf);
     const self = players.get(room.sessionId);
     const selfView = cells.get(room.sessionId);
@@ -283,6 +289,7 @@ try {
         say(`Part unlocked: ${found.join(', ')}`);
       }
       knownLibrary = lineage.library;
+      if (self.cyst === 0) designedFor = undefined; // an animal stays the same individual: it may mate again
       if (self.cyst > 0 && designedFor !== self) {
         designedFor = self;
         editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
@@ -297,7 +304,10 @@ try {
         self.tier === 2 && TIER2.hasGene(self.genome2, 'jet') ? (self.dash > 0 ? 'DASH' : `jet ${ready(self.dashCooldown)}`) : '',
         hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
-        self.cyst > 0 ? 'DIVIDING' : '',
+        self.cyst > 0 ? (self.tier === 3 ? 'MATING' : 'DIVIDING') : '',
+        self.call > 0 ? 'CALLING — a mate is coming' : '',
+        ...[...room.state.eggs.values()].filter((e) => e.owner === room.sessionId)
+          .map((e) => `eggs hatch in ${Math.ceil((e.hatchTick - room.state.tick) / TICK_RATE)}s`),
       ].filter(Boolean).join(' · ');
       hud.textContent = `${lineage.name} · energy ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome, self.tier)}`
         + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
@@ -323,6 +333,7 @@ try {
     plankton.update(time, dt, focus);
     nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus);
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
+    eggLayer.update(room.state.eggs.values(), tick, time, focus);
     // The editor stays up for exactly one division: until this individual hatches (or dies).
     if (editor.isOpen && (!self || self !== designedFor || self.cyst === 0)) editor.close();
     if (editor.isOpen) {

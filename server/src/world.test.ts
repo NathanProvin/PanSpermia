@@ -1,7 +1,7 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EVOLVE_DNA, EVOLVE_DNA_T2, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, MANDIBLE_DPS, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, MANDIBLE_DPS, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
@@ -810,4 +810,65 @@ test('an animal species designs its body: plan and segment sizes are validated, 
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: Array(7).fill(0.5) })).toBe('bad segments');
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.6, 0.4, 0.4, 0.4] })).toBeUndefined();
   expect([lineage.plan, [...lineage.radii].map((r) => Math.round(r * 10) / 10)]).toEqual([1, [0.6, 0.4, 0.4, 0.4]]);
+});
+
+/** A player species 'p' that is an animal, at the size cap. */
+const animalSpecies = () => {
+  const { state, player, lineage } = species();
+  lineage.tier = 3;
+  lineage.genome = TIER3.genomeOf(['paddle']);
+  lineage.parts.clear();
+  Object.assign(player, { tier: 3, genome: 0, genome3: lineage.genome, mass: T3_MASS_CAP, health: 1200, x: 0, y: 0 });
+  return { state, player, lineage };
+};
+
+test('an animal at the cap calls; its mate swims in; mating opens the editor; the clutch hatches the new design', () => {
+  const { state, player, lineage } = animalSpecies();
+  stepWorld(state);
+  expect(player.call).toBeGreaterThan(0);
+  expect(player.cyst).toBe(0); // calling, not dividing: still swimming, eating, vulnerable
+  stepWorld(state);
+  const mate = state.players.get(MATE_PREFIX + 'p')!;
+  expect([mate.name, mate.tier, mate.genome3]).toEqual([lineage.name, 3, lineage.genome]);
+  for (let i = 0; i < 5 * TICK_RATE && player.cyst === 0; i++) {
+    player.mass = T3_MASS_CAP;
+    stepWorld(state);
+  }
+  expect(player.cyst).toBeGreaterThan(0);
+  expect(state.players.has(MATE_PREFIX + 'p')).toBe(false);
+  // Editor done: a clutch is laid where the parent is, and the parent carries on, spent.
+  Object.assign(player, { x: 100, y: -50 });
+  const parts = [{ gene: 'tail', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
+  lineage.dna = 1000;
+  expect(submitDesign(state, 'p', { parts, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
+  expect(state.players.get('p')).toBe(player);
+  expect([player.cyst, player.mass]).toEqual([0, T3_SPAWN_MASS]);
+  const [egg] = [...state.eggs.values()];
+  expect([egg!.x, egg!.y, egg!.owner]).toEqual([100, -50, 'p']);
+  Object.assign(player, { x: 900, y: 900 });
+  for (let i = 0; i < EGG_TIME * TICK_RATE; i++) stepWorld(state);
+  const hatchling = state.players.get('p')!;
+  expect(hatchling).not.toBe(player);
+  expect([hatchling.genome3, Math.round(hatchling.x), Math.round(hatchling.y), lineage.generation]).toEqual([TIER3.genomeOf(['tail']), 100, -50, 2]);
+  expect(state.eggs.size).toBe(0);
+});
+
+test('eukaryotes and animals eat an unguarded clutch; bacteria cannot', () => {
+  const { state, player } = animalSpecies();
+  player.mass = T3_SPAWN_MASS;
+  player.cyst = CYST_TIME;
+  hatch(state, 'p');
+  const egg = [...state.eggs.values()][0]!;
+  Object.assign(player, { x: 2000, y: 0, cyst: 0 });
+  const bug = spawnPlayer();
+  Object.assign(bug, { x: egg.x, y: egg.y });
+  state.players.set('b', bug);
+  stepWorld(state);
+  expect(egg.health).toBe(EGG_HEALTH);
+  const eu = spawnPlayer();
+  Object.assign(eu, { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: egg.x + 30, y: egg.y });
+  state.players.set('e', eu);
+  for (let i = 0; i < 4 * TICK_RATE && state.eggs.size; i++) stepWorld(state);
+  expect(state.eggs.size).toBe(0);
+  expect(eu.mass).toBeGreaterThan(300 + EGG_HEALTH * 0.5);
 });

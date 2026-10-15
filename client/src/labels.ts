@@ -45,7 +45,8 @@ export function createLabels(layer: HTMLElement, board: HTMLOListElement) {
     /** Biggest cells first; the DOM only changes when the ranking or rounded masses do. */
     leaderboard(players: Map<string, Player>, selfId: string, show: boolean) {
       board.hidden = !show;
-      const top = [...players].filter(([, p]) => p.name).sort(([, a], [, b]) => b.mass - a.mass).slice(0, LEADERS);
+      // Mates ('~' ids) answer a call; they're not contestants.
+      const top = [...players].filter(([id, p]) => p.name && !id.startsWith('~')).sort(([, a], [, b]) => b.mass - a.mass).slice(0, LEADERS);
       const key = top.map(([id, p]) => `${id}:${Math.round(p.mass)}`).join();
       if (key === boardKey) return;
       boardKey = key;
