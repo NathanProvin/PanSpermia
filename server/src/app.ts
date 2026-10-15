@@ -1,6 +1,10 @@
 import { defineRoom, defineServer } from '@colyseus/core';
-import { ROOM_NAME } from '@panspermia/shared';
+import { Encoder } from '@colyseus/schema';
+import { NUTRIENT_CAP, ROOM_NAME } from '@panspermia/shared';
 import { PoolRoom, type PoolOptions } from './rooms/PoolRoom.ts';
+
+// The join snapshot carries every drifting packet (~20 bytes each); size it for a full pool.
+Encoder.BUFFER_SIZE = Math.max(Encoder.BUFFER_SIZE, NUTRIENT_CAP * 24);
 
 export const createServer = (options: PoolOptions = {}) => defineServer({
   greet: false,

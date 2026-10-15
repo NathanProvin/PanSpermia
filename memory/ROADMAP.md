@@ -63,9 +63,9 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
 - [ ] P3 Tier-1 gameplay, sliced (2026-10-14):
   - [x] P3a Gene catalog (`shared/src/genes.ts`, bitmask genome, upkeep) + currents move cells + run-and-tumble (flagellum/pili/chemoreceptor), gene visuals, dev gene cheats (`--dev` only)
   - [x] P3b Feeding: 7 wandering seeps emit plumes of food packets drifting on the currents (+ thin background, 60 s lifetime); debris (red) from dead cells (50% of mass); transporters ×1.5 dissolved, siderophores ×1.6 reach, exoenzymes ×2 debris; 80-unit spatial grid; packet paths rebuilt client-side (spawn-only sync); integer tick clock
-  - [ ] P3c Combat: health, toxin clouds (bacteriocin, pore-former), T6SS, capsule/wall/efflux, endospore; lysis -> debris + DNA; Input gains action bits (click toxin, Shift/right-click endospore)
-  - [ ] P3d Unlocks: transformation from DNA fragments, drifting plasmids (auto-express until P4)
-  - [ ] P3e Phages
+  - [x] P3c Combat: drifting toxin clouds (bacteriocin wide/slow, pore-former burst; producer immune; mass cost + cooldown), T6SS contact stab, capsule/thick wall/efflux resistances, endospore (predicted, 5 s dormant, 45 s cooldown), regen only 3 s after last hit, kill attribution (died: lysed by), kills burst into debris. DNA fragments moved to P3d. Controls: hold/tap left click toxin, right click or Shift endospore (presses latch until next send)
+  - [x] P3d Unlocks (2026-10-15): dead cells spill one DNA fragment per gene (50% transformation on absorb), rare plasmids (1/15 s, random gene, always take); DNA isn't food; auto-express + HUD "New gene" notice; dev keys P/V drop plasmid/phage on your cell
+  - [x] P3e Phages (2026-10-15): wild phages drift passively (0.5/s, never spawn within 200 of a cell); contact = infection (5 s × 10 dps each, stacks); dying infected bursts 8 phages (epidemics); capsule blocks 60%, endospore immune/frozen; "Phages burst you open" death; virions drawn inside infected cells
   - [ ] P3f Bot species (genome + archetype) + headless balancing sim
   - [ ] P3g Meteor intro
   - Original scope: run-and-tumble movement, nutrient plumes + debris feeding, lysis combat (toxin clouds, T6SS, defenses, endospore), transformation + plasmid unlocks, fission, phages, bot ecology (tier-1 part + bot catalog), headless sim tool for tuning, meteor intro.

@@ -4,6 +4,9 @@ import {
   DRIFT_PILI, RADIUS_PER_SQRT_MASS, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
+import {
+  ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
+} from './combat.ts';
 import { currentAt } from './current.ts';
 import { hasGene } from './genes.ts';
 
@@ -23,6 +26,12 @@ export function clampSteer(input: { dirX: number; dirY: number }) {
   }
 }
 
+/** The full input contract, applied by the client before `send()` and by the server as its sanitizer. */
+export function sanitizeInput(input: { dirX: number; dirY: number; actions: number }) {
+  clampSteer(input);
+  input.actions &= ACTION_MASK;
+}
+
 export const radiusOf = (mass: number) => RADIUS_PER_SQRT_MASS * Math.sqrt(mass);
 export const speedOf = (mass: number) => SPEED_COEF * mass ** SPEED_EXP;
 
@@ -39,20 +48,35 @@ function random(body: { rng: number }) {
   return body.rng / 2 ** 32;
 }
 
-export interface CellBody { x: number; y: number; heading: number; tumble: number; rng: number }
+export interface CellBody {
+  x: number; y: number; heading: number; tumble: number; rng: number; spore: number; sporeCooldown: number;
+}
 const flow = { x: 0, y: 0 };
 
 /**
- * Advance a cell one step: swim per its motility genes, drift with the current at `time`, stay in the pool.
- * Microbes live at low Reynolds number: no inertia, velocity follows propulsion instantly.
- * `dirX/dirY` must already be clampSteer'd (throttle = length ≤ 1).
+ * Advance a cell one step: sporulate on request, swim per its motility genes, drift with the current
+ * at `time`, stay in the pool. Microbes live at low Reynolds number: no inertia, velocity follows
+ * propulsion instantly. Inputs must already be sanitized (throttle = |dir| ≤ 1).
  */
-export function stepCell(b: CellBody, mass: number, genome: number, dirX: number, dirY: number, dt: number, time: number) {
+export function stepCell(
+  b: CellBody, mass: number, genome: number, dirX: number, dirY: number, actions: number, dt: number, time: number,
+) {
   const throttle = Math.hypot(dirX, dirY);
   const want = Math.atan2(dirY, dirX);
   let swim = 0;
 
-  if (hasGene(genome, 'flagellum')) {
+  // Endospore: a dormant, invulnerable husk that still drifts. Simulated here so it's predicted.
+  b.sporeCooldown = Math.max(0, b.sporeCooldown - dt);
+  if (b.spore > 0) {
+    b.spore = Math.max(0, b.spore - dt - 1e-9);
+  } else if (actions & ACTION_SPORE && hasGene(genome, 'endospore') && b.sporeCooldown === 0) {
+    b.spore = ENDOSPORE_TIME;
+    b.sporeCooldown = ENDOSPORE_COOLDOWN;
+  }
+
+  if (b.spore > 0) {
+    // dormant: no swimming, tumbles frozen
+  } else if (hasGene(genome, 'flagellum')) {
     if (b.tumble > 0) {
       b.tumble = Math.max(0, b.tumble - dt - 1e-9); // epsilon: exact 0 after the last step despite float dt
       if (b.tumble === 0) {
@@ -73,7 +97,8 @@ export function stepCell(b: CellBody, mass: number, genome: number, dirX: number
     swim = (hasGene(genome, 'pili') ? SWIM_PILI : SWIM_CREEP) * throttle;
   }
 
-  const v = swim * speedOf(mass);
+  const v = swim * speedOf(mass)
+    * (hasGene(genome, 'capsule') ? CAPSULE_SWIM : 1) * (hasGene(genome, 'thickWall') ? WALL_SWIM : 1);
   const drift = hasGene(genome, 'pili') ? DRIFT_PILI : 1;
   currentAt(b.x, b.y, time, flow);
   b.x += (Math.cos(b.heading) * v + flow.x * drift) * dt;

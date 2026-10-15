@@ -1,3 +1,4 @@
+export * from './combat.ts';
 export * from './constants.ts';
 export * from './current.ts';
 export * from './genes.ts';

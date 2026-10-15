@@ -139,3 +139,19 @@ Decision: `PoolState.tick` (uint32) replaces the float `time`; time = tick · TI
 
 ## 2026-10-14 — Feeding genes and Spore colour code
 Decision: transporters ×1.5 dissolved yield, siderophores ×1.6 absorption reach (dotted ring shows it), exoenzymes ×2 debris yield (warm halo). Dissolved food is green, debris is red: Spore's plant/meat colour code, a nostalgia cue. Dead cells release 50% of their mass as debris.
+
+## 2026-10-14 — P3c combat model
+Decision: toxins are clouds synced like food (spawn point/tick/kind/owner; path rebuilt with `drift`), radius grows ∝ √age, dps fades linearly. Bacteriocin r 40→110, 4 s, 12 dps, 2.5 s cooldown, 0.6 mass; pore-former r 28→55, 1.2 s, 45 dps, 3 s cooldown, 0.8 mass; one click releases every toxin the genome makes; secretion can't drop you below MIN_MASS. Owner immune (P4: whole species, like real bacteriocin immunity genes). T6SS 20 dps on contact. Capsule ×0.6 toxin damage & ×0.9 swim; thick wall ×0.5 contact damage, ×1.4 max health, ×0.85 swim; efflux pump ×0.3 bacteriocin only (counterplay). Endospore lives in the shared step (predicted): 5 s dormant (no swim/eat/metabolism/damage, still drifts), 45 s cooldown. Health regenerates only 3 s after the last hit; deaths within that window are attributed to the last attacker. Stats live in `shared/src/combat.ts`.
+Why: lysis-not-engulf (tier-1 realism); every weapon has a counter-gene; numbers are first guesses for the P3f balancing sim.
+
+## 2026-10-14 — Action presses latch
+Decision: a click/key press sets its action bit until the next input is sent (in addition to "held"). Why: on slow frames a quick tap could start and end between two input sends and be lost.
+
+## 2026-10-14 — Dev workflow note
+Decision: kill dev servers by process tree (`taskkill /T /F`) and re-check ports; `node --watch` parents otherwise survive and respawn stale servers that hold port 2567 without `--dev`.
+
+## 2026-10-15 — P3d/P3e: one drifting-packet pipeline for food, DNA and phages
+Decision: fragments, plasmids and phages are new `NutrientKind`s in the existing nutrient map (spawn-only sync, shared `drift`, 60 s lifetime, spatial grid, `NUTRIENT_CAP`). The carried gene is a server-only `Nutrient.gene` (noSync): what a packet holds is a surprise, like Spore's meteors. Phages bind the cell body (not siderophore reach) and are used up on contact. Phage deaths are attributed to `PHAGE_KILLER` ('~phage', never a session id).
+Why: zero new sync/render/drift code paths; ~30 phages + a few plasmids cost nothing extra on the wire.
+Numbers (first guesses for P3f): TRANSFORM_CHANCE 0.5, PLASMID_RATE 1/15 s, PHAGE_RATE 0.5/s, clearance 200, latent 5 s × 10 dps, burst 8, capsule blocks 0.6. Gained genes show as a client-side genome diff ("New gene: …"), no server message.
+Note: `Encoder.BUFFER_SIZE` raised to NUTRIENT_CAP·24 bytes: the join snapshot of ~1000 packets overflowed the 8 KB default (warning since P3b).

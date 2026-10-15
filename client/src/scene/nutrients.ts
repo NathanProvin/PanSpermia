@@ -1,13 +1,20 @@
 import { NUTRIENT_CAP, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, currentAt, drift } from '@panspermia/shared';
 import { createSprites } from './sprites.ts';
 
-// Food in the focal plane. Dissolved packets: green motes (Spore's plant food); debris: ragged red
-// chunks (its meat); seeps: soft glows just below the plane where plumes rise. Bright cores bloom.
-// Kind rides in the integer part of aSeed (2 = seep), the per-sprite random seed in the fraction.
+// Drifting packets in the focal plane. Dissolved food: green motes (Spore's plant food); debris: ragged
+// red chunks (its meat); DNA fragments: short cyan double helices; plasmids: golden rings of circular
+// DNA (the rare prize); phages: pale icosahedral heads on a tail with splayed fibres (the hazard);
+// seeps: soft glows just below the plane where plumes rise. Bright cores bloom.
+// Kind rides in the integer part of aSeed (5 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
 varying vec2 vUv;
 varying float vSeed;
+float segment(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a;
+  return length(p - a - ab * clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0));
+}
+vec2 rotate(vec2 p, float a) { return vec2(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y); }
 void main() {
   float kind = floor(vSeed);
   float seed = fract(vSeed);
@@ -25,6 +32,28 @@ void main() {
     float chunk = 1.0 - smoothstep(edge - 0.08, edge, sqrt(r2));
     float glow = exp(-r2 * 6.0) * 0.3;
     color = vec3(1.0, 0.32, 0.18) * (chunk * 1.6 + glow) * (0.9 + 0.1 * pulse);
+  } else if (kind < 2.5) {
+    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.3);
+    float phase = q.x * 7.0 + uTime * 1.5;
+    float span = 1.0 - smoothstep(0.6, 0.75, abs(q.x));
+    float strands = exp(-pow((q.y - 0.2 * sin(phase)) / 0.06, 2.0)) + exp(-pow((q.y + 0.2 * sin(phase)) / 0.06, 2.0));
+    float rungs = step(abs(q.y), 0.2 * abs(sin(phase))) * smoothstep(0.7, 0.95, cos(q.x * 40.0));
+    color = vec3(0.3, 0.85, 1.0) * (strands * 1.3 + rungs * 0.6 + exp(-r2 * 4.0) * 0.15) * span;
+  } else if (kind < 3.5) {
+    float a = atan(p.y, p.x) + uTime * 0.4;
+    float ringR = 0.55 + 0.05 * sin(a * 2.0 + uTime); // a hint of supercoiling
+    float ring = exp(-pow((sqrt(r2) - ringR) / 0.06, 2.0));
+    float genes = ring * smoothstep(0.6, 0.9, sin(a * 6.0 + seed * 20.0));
+    color = vec3(1.0, 0.82, 0.35) * (ring * 1.4 + genes * 1.5 + exp(-r2 * 3.0) * 0.25) * pulse;
+  } else if (kind < 4.5) {
+    vec2 q = rotate(p, seed * 6.2831 + 0.4 * sin(uTime * 0.7 + seed * 9.0));
+    vec2 h = q - vec2(0.0, 0.32);
+    float head = max(abs(h.y) * 0.866 + abs(h.x) * 0.5, abs(h.x)) - 0.26; // pointy-topped hexagon
+    float d = min(abs(head), segment(q, vec2(0.0, 0.08), vec2(0.0, -0.4)));
+    d = min(d, min(segment(q, vec2(0.0, -0.4), vec2(-0.32, -0.72)), segment(q, vec2(0.0, -0.4), vec2(0.32, -0.72))));
+    d = min(d, min(segment(q, vec2(0.0, -0.4), vec2(-0.12, -0.78)), segment(q, vec2(0.0, -0.4), vec2(0.12, -0.78))));
+    float fill = (1.0 - smoothstep(-0.02, 0.0, head)) * 0.25; // packed genome inside the capsid
+    color = vec3(0.86, 0.8, 1.0) * (exp(-pow(d / 0.035, 2.0)) * 1.5 + fill);
   } else {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.35, 0.9, 0.55) * exp(-r2 * 3.5) * 0.22 * breathe;
@@ -32,7 +61,10 @@ void main() {
   gl_FragColor = vec4(color, 1.0);
 }
 `;
-const SIZE = { [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22 } as Record<number, number>;
+const SIZE: Record<number, number> = {
+  [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 20, [NutrientKind.plasmid]: 30,
+  [NutrientKind.phage]: 26,
+};
 const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
 
@@ -74,7 +106,7 @@ export function createNutrients() {
         sprites.offsets[i * 3 + 1] = seep.y;
         sprites.offsets[i * 3 + 2] = SEEP_DEPTH;
         sprites.sizes[i] = SEEP_SIZE;
-        sprites.seeds[i] = 2 + (s++ * 0.37) % 1;
+        sprites.seeds[i] = 5 + (s++ * 0.37) % 1;
         i++;
       }
       sprites.commit(i);

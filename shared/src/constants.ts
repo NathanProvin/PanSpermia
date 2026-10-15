@@ -59,3 +59,18 @@ export const DEBRIS_SHARE = 0.5; // share of a dead cell's mass released as debr
 export const TRANSPORTER_YIELD = 1.5; // × dissolved yield
 export const SIDEROPHORE_REACH = 1.6; // × absorption radius
 export const EXOENZYME_YIELD = 2; // × debris yield
+
+// Horizontal gene transfer. A dead cell spills one DNA fragment per gene it expressed; absorbing one
+// may add that gene (transformation: "eat a creature, get its part"). Rare plasmids drift in carrying
+// a random gene and always take.
+export const TRANSFORM_CHANCE = 0.5;
+export const PLASMID_RATE = 1 / 15; // packets/s scattered over the whole pool
+
+// Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
+// lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
+export const PHAGE_RATE = 0.5; // wild phages/s
+export const PHAGE_CLEARANCE = 200; // wild phages never appear this close to a cell
+export const PHAGE_LATENT = 5; // s of damage per infecting phage
+export const PHAGE_DPS = 10;
+export const PHAGE_BURST = 8; // phages released by a cell dying infected
+export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors a phage binds to

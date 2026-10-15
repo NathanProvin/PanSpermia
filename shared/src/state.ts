@@ -13,13 +13,24 @@ export const Player = schema({
   health: t.number(),
   /** Bitmask of GENES. */
   genome: t.uint32(),
+  /** Seconds left dormant as an endospore (0 = active), and until it can sporulate again. */
+  spore: t.number().default(0),
+  sporeCooldown: t.number().default(0),
+  /** Seconds until toxins can be secreted again. */
+  toxinCooldown: t.number().default(0),
+  /** Seconds of phage lysis left (0 = healthy). */
+  infection: t.number().default(0),
+  // Server-side kill attribution and regen gating, never sent.
+  lastHitBy: t.string().noSync().default(''),
+  lastHitTick: t.uint32().noSync().default(0),
 }, 'Player');
 export type Player = SchemaType<typeof Player>;
 
-export const NutrientKind = { dissolved: 0, debris: 1 } as const;
+/** Everything that drifts passively: food, DNA (fragments, plasmids) and phages. */
+export const NutrientKind = { dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4 } as const;
 
 /**
- * A food packet drifting on the current. Only its spawn point and tick are synced: clients rebuild
+ * A packet drifting on the current. Only its spawn point and tick are synced: clients rebuild
  * the path with `drift`. Spawn coordinates are float32 on the wire, so the server stores them
  * pre-rounded (Math.fround) and both sides start from identical numbers.
  */
@@ -28,7 +39,8 @@ export const Nutrient = schema({
   y0: t.float32(),
   tick0: t.uint32(),
   kind: t.uint8(),
-  // Server-side current position, never sent.
+  // Server-side: the GENES bit a fragment or plasmid carries, and the current position. Never sent.
+  gene: t.uint32().noSync().default(0),
   x: t.number().noSync(),
   y: t.number().noSync(),
   tick: t.uint32().noSync(),
@@ -43,18 +55,33 @@ export const Seep = schema({
 }, 'Seep');
 export type Seep = SchemaType<typeof Seep>;
 
+/** A drifting toxin cloud; synced like food (spawn only), its owner is immune. */
+export const Cloud = schema({
+  x0: t.float32(),
+  y0: t.float32(),
+  tick0: t.uint32(),
+  kind: t.uint8(),
+  owner: t.string(),
+  x: t.number().noSync(),
+  y: t.number().noSync(),
+  tick: t.uint32().noSync(),
+}, 'Cloud');
+export type Cloud = SchemaType<typeof Cloud>;
+
 export const PoolState = schema({
   /** Simulation clock in fixed ticks (time = tick · TICK_DT); integer, so exact on every side forever. */
   tick: t.uint32().default(0),
   players: t.map(Player),
   nutrients: t.map(Nutrient),
   seeps: t.array(Seep),
+  clouds: t.map(Cloud),
 }, 'PoolState');
 export type PoolState = SchemaType<typeof PoolState>;
 
-/** One client input per fixed step: desired heading, magnitude = throttle (see clampSteer). */
+/** One client input per fixed step: desired heading (magnitude = throttle, see clampSteer) and action bits. */
 export const Input = schema({
   dirX: t.float32(),
   dirY: t.float32(),
+  actions: t.uint8(),
 }, 'Input');
 export type Input = SchemaType<typeof Input>;

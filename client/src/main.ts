@@ -1,9 +1,11 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
-  GENES, GENE_NAMES, Input, PoolState, ROOM_NAME, SERVER_PORT, TICK_DT, clampSteer, hasGene, radiusOf, stepCell,
+  ACTION_SPORE, ACTION_TOXIN, GENES, GENE_NAMES, Input, PoolState, ROOM_NAME, SERVER_PORT, TICK_DT, TOXINS, hasGene,
+  healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCells } from './scene/cells.ts';
+import { createClouds } from './scene/clouds.ts';
 import { createNutrients } from './scene/nutrients.ts';
 import { createPlankton } from './scene/plankton.ts';
 import { createPool } from './scene/pool.ts';
@@ -36,7 +38,8 @@ const pool = createPool();
 const plankton = createPlankton(camera);
 const nutrientLayer = createNutrients();
 const cells = createCells(scene);
-scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects);
+const cloudLayer = createClouds();
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects);
 
 // Steering: pointer offset from the screen centre (where your cell is drawn).
 // Full throttle at a quarter of the short screen side; `clampSteer` caps anything beyond.
@@ -47,16 +50,46 @@ addEventListener('pointermove', (e) => {
 });
 const throttleScale = () => Math.min(innerWidth, innerHeight) / 4;
 
+// Actions: hold left click to secrete toxins; right click or Shift to sporulate. A press also
+// latches until the next input is sent, so a quick tap between two frames is never lost.
+const held = { toxin: false, sporeButton: false, sporeKey: false };
+let latched = 0;
+addEventListener('pointerdown', (e) => {
+  if (e.button === 0) { held.toxin = true; latched |= ACTION_TOXIN; }
+  if (e.button === 2) { held.sporeButton = true; latched |= ACTION_SPORE; }
+});
+addEventListener('pointerup', (e) => {
+  if (e.button === 0) held.toxin = false;
+  if (e.button === 2) held.sporeButton = false;
+});
+addEventListener('keydown', (e) => {
+  if (e.key === 'Shift') { held.sporeKey = true; latched |= ACTION_SPORE; }
+});
+addEventListener('keyup', (e) => { if (e.key === 'Shift') held.sporeKey = false; });
+addEventListener('blur', () => { held.toxin = held.sporeButton = held.sporeKey = false; });
+addEventListener('contextmenu', (e) => e.preventDefault());
+const takeActions = () => {
+  const bits = latched | (held.toxin ? ACTION_TOXIN : 0) | (held.sporeButton || held.sporeKey ? ACTION_SPORE : 0);
+  latched = 0;
+  return bits;
+};
+
 let notice = '';
 let fps = 0; // dev readout, exponential moving average
 let noticeUntil = 0;
+const say = (text: string) => {
+  notice = text;
+  noticeUntil = performance.now() + 4000;
+};
+/** Genome last seen on our cell, to announce genes picked up from DNA (P4 turns this into the editor). */
+let knownGenome = -1;
 
 try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
   room.onLeave(() => { hud.textContent = 'Disconnected'; });
   room.onMessage('died', ({ cause }: { cause: string }) => {
-    notice = cause === 'starvation' ? 'You starved. A new cell drifts in…' : 'You died.';
-    noticeUntil = performance.now() + 4000;
+    const how = { starvation: 'You starved', phage: 'Phages burst you open' }[cause] ?? 'Lysed by a rival';
+    say(`${how}. A new cell drifts in…`);
   });
 
   const input = room.input({ type: Input, mode: 'reliable' });
@@ -69,26 +102,34 @@ try {
   const callbacks = Callbacks.get<PoolState>(room);
   callbacks.onAdd('nutrients', (n, id) => nutrientLayer.add(id, n));
   callbacks.onRemove('nutrients', (_, id) => nutrientLayer.remove(id));
+  callbacks.onAdd('clouds', (c, id) => cloudLayer.add(id, c));
+  callbacks.onRemove('clouds', (_, id) => cloudLayer.remove(id));
 
   let me: Reconciler | undefined;
   callbacks.onAdd('players', (player, id) => {
     if (id !== room.sessionId) return;
+    knownGenome = -1; // a new individual: its starter genes aren't news
     me?.dispose();
     me = predict.reconciler(player, {
       input,
-      fields: ['x', 'y', 'heading', 'tumble', 'rng'],
+      fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown'],
       // Mass, genome and the sim clock are server-driven; replay reads their latest values and
       // smoothing absorbs the tiny resulting drift (currents change slowly).
-      step: (ctx, state, cmd) => stepCell(state, player.mass, player.genome, cmd.dirX, cmd.dirY, ctx.dt, room.state.tick * TICK_DT),
+      step: (ctx, state, cmd) =>
+        stepCell(state, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
       warnOnDivergence: import.meta.env.DEV ? 1 : undefined, // console warning if client and server sims drift apart
     });
   });
 
   if (import.meta.env.DEV) {
-    // Dev cheat (server must run with --dev, else it kicks us): number keys toggle genes.
+    // Dev cheats (server must run with --dev, else it kicks us): these keys toggle genes in catalog
+    // order; P drops a plasmid, V a phage, onto the cell.
+    const DEV_KEYS = '1234567890-=[';
     addEventListener('keydown', (e) => {
-      const gene = GENE_NAMES[Number(e.key) - 1];
+      const gene = GENE_NAMES[DEV_KEYS.indexOf(e.key)];
       if (gene) room.send('dev:toggleGene', gene);
+      if (e.key === 'p') room.send('dev:spawn', 'plasmid');
+      if (e.key === 'v') room.send('dev:spawn', 'phage');
     });
   }
 
@@ -100,7 +141,8 @@ try {
     for (let due = predict.tick(now); due > 0; due--) {
       input.data.dirX = pointer.x / throttleScale();
       input.data.dirY = pointer.y / throttleScale();
-      clampSteer(input.data); // same sanitizer as the server, so prediction replays the real command
+      input.data.actions = takeActions();
+      sanitizeInput(input.data); // same sanitizer as the server, so prediction replays the real command
       input.send();
     }
 
@@ -115,7 +157,8 @@ try {
     }
 
     cells.update(players, room.sessionId, time, dt, (p) => ({
-      x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'), tumble: predict.value(p, 'tumble'),
+      x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
+      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'),
     }));
     const self = players.get(room.sessionId);
     const selfMesh = cells.get(room.sessionId);
@@ -123,8 +166,20 @@ try {
       // Follow the cell; zoom out as it grows.
       const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
+      if (knownGenome >= 0 && self.genome & ~knownGenome) {
+        const gained = GENE_NAMES.filter((g) => hasGene(self.genome & ~knownGenome, g)).map((g) => GENES[g].label);
+        say(`New gene: ${gained.join(', ')}`);
+      }
+      knownGenome = self.genome;
       const genes = GENE_NAMES.filter((g) => hasGene(self.genome, g)).map((g) => GENES[g].label).join(', ') || 'no genes';
-      hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)} · ${genes} · ${players.size} cell${players.size === 1 ? '' : 's'}`
+      const ready = (s: number) => (s > 0 ? `${s.toFixed(1)}s` : 'ready');
+      const abilities = [
+        TOXINS.some((t) => hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
+        hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
+        self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
+      ].filter(Boolean).join(' · ');
+      hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome)}`
+        + (abilities ? ` · ${abilities}` : '') + ` · ${genes} · ${players.size} cell${players.size === 1 ? '' : 's'}`
         + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
     }
@@ -133,6 +188,7 @@ try {
     pool.update(time);
     plankton.update(time, dt, focus);
     nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus);
+    cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
     post.render();
   });
 } catch (err) {

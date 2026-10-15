@@ -9,7 +9,9 @@ const QUAD_HALF = 1.9;
 // sphere), drifting granules, a diffuse nucleoid (bacteria have no nucleus), a wet specular glint.
 // Gene features drawn on top: pili hairs around the rim, chemoreceptor clusters at the leading pole,
 // transporter pores in the membrane, a dotted siderophore ring at the absorption reach, a warm
-// exoenzyme halo.
+// exoenzyme halo, T6SS syringe spikes, a capsule gel shell, a thick dark wall, efflux pump beads.
+// A phage infection darkens the cytoplasm and fills it with new virions. An endospore replaces all of
+// it with a hard pale husk.
 const VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -28,6 +30,12 @@ uniform float uTrans;
 uniform float uSidero;
 uniform float uExo;
 uniform float uReach;
+uniform float uT6ss;
+uniform float uCapsule;
+uniform float uWall;
+uniform float uEfflux;
+uniform float uSpore;
+uniform float uInfect;
 varying vec2 vUv;
 ${NOISE}
 void main() {
@@ -47,8 +55,9 @@ void main() {
   vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid);
   float cytoAlpha = inside * (0.6 + 0.35 * shell);
 
-  float membrane = 1.0 - smoothstep(0.025, 0.025 + aa, abs(d + 0.03));
-  vec3 membraneCol = uColor * 0.85 + 0.04;
+  float wall = 0.025 + 0.04 * max(uWall, uSpore);
+  float membrane = 1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005));
+  vec3 membraneCol = mix(uColor * 0.85 + 0.04, uColor * 0.45 + vec3(0.09, 0.07, 0.04), uWall);
 
   // Pili: fine swaying hairs of varied length bristling from the rim.
   float k = a * 26.0 / 6.2831853 + 0.12 * sin(t * 0.9 + d * 18.0);
@@ -72,6 +81,25 @@ void main() {
   // Siderophores: a faint dotted ring where they reach, slowly rotating.
   float ring = uSidero * exp(-pow((r - uReach) / 0.025, 2.0)) * step(0.5, fract(a * 48.0 / 6.2831853 + t * 0.15)) * 0.45;
 
+  // T6SS: a ring of tapered syringe spikes.
+  float ks = a * 9.0 / 6.2831853;
+  float spikeW = 0.11 * (1.0 - d / 0.24);
+  float spike = uT6ss * step(0.0, d) * step(d, 0.24)
+    * (1.0 - smoothstep(spikeW - fwidth(ks), spikeW + fwidth(ks), abs(fract(ks) - 0.5)));
+
+  // Capsule: a translucent slime shell around the membrane.
+  float gel = uCapsule * smoothstep(-0.02, 0.02, d) * (1.0 - smoothstep(0.18, 0.28, d));
+
+  // Efflux pumps: orange beads in the membrane.
+  float beads = uEfflux * smoothstep(0.82, 0.97, sin(a * 13.0 - t * 0.4)) * (1.0 - smoothstep(0.0, 0.05, abs(d + 0.03)));
+
+  // Phage infection: a violet tint and pale virions crowding the cytoplasm, flickering as they assemble.
+  vec2 vg = p * 8.0 + vec2(0.0, t * 0.05);
+  vec2 vf = fract(vg) - 0.5;
+  float virions = uInfect * inside * step(0.55, hash12(floor(vg) + uSeed)) * exp(-dot(vf, vf) * 70.0)
+    * (0.6 + 0.4 * sin(t * 6.0 + hash12(floor(vg)) * 30.0));
+  cyto = mix(cyto, cyto * vec3(0.75, 0.45, 0.95), uInfect * 0.6);
+
   // Wet glint from a light above-left, using the sphere normal the disc implies.
   vec3 n = vec3(p / max(rim, 1e-3), sqrt(max(0.0, 1.0 - dot(p, p) / (rim * rim))));
   float glint = pow(max(0.0, dot(n, normalize(vec3(-0.45, 0.55, 0.7)))), 28.0) * inside;
@@ -79,11 +107,20 @@ void main() {
   float halo = exp(-max(d, 0.0) * (12.0 - 6.0 * uExo)) * (1.0 - inside) * (0.22 + 0.25 * uExo);
   vec3 haloCol = mix(uColor, vec3(1.0, 0.42, 0.18), uExo);
 
+  // Gene features vanish inside the spore coat.
+  float live = 1.0 - uSpore;
+  hair *= live; pores *= live; virions *= live; ring *= live; receptors *= live; spike *= live; gel *= live; beads *= live;
+  cyto = mix(cyto, vec3(0.8, 0.84, 0.74) * (0.3 + 0.45 * shell), uSpore);
+  membraneCol = mix(membraneCol, vec3(0.95, 0.97, 0.88), uSpore);
+  halo *= live;
+
   // Premultiplied alpha.
   vec3 color = cyto * cytoAlpha + membraneCol * (membrane + hair * 0.8) + vec3(1.0) * glint * 0.55
     + haloCol * halo * 0.6 + vec3(1.0, 0.85, 0.55) * receptors * 1.6 + vec3(0.9, 1.0, 0.8) * pores * 1.4
-    + vec3(0.7, 0.95, 0.85) * ring;
-  float alpha = clamp(cytoAlpha + membrane + hair * 0.7 + halo * 0.5 + receptors + pores + ring, 0.0, 1.0);
+    + vec3(0.7, 0.95, 0.85) * ring + vec3(0.85, 0.9, 1.0) * spike * 0.9 + (uColor * 0.3 + 0.08) * gel * 0.5
+    + vec3(1.0, 0.6, 0.2) * beads * 1.3 + vec3(0.86, 0.8, 1.0) * virions * 1.2;
+  float alpha = clamp(cytoAlpha + membrane + hair * 0.7 + halo * 0.5 + receptors + pores + ring + spike + gel * 0.35 + beads
+    + virions, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
 }
 `;
@@ -121,6 +158,7 @@ const bodyMaterial = new THREE.ShaderMaterial({
     uTime: { value: 0 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() },
     uHeading: { value: 0 }, uPili: { value: 0 }, uChemo: { value: 0 },
     uTrans: { value: 0 }, uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH },
+    uT6ss: { value: 0 }, uCapsule: { value: 0 }, uWall: { value: 0 }, uEfflux: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 },
   },
   vertexShader: VERTEX,
   fragmentShader: FRAGMENT,
@@ -146,7 +184,7 @@ function hashId(id: string) {
 }
 
 /** Rendered (predicted or smoothed) pose of a cell. */
-export interface Pose { x: number; y: number; heading: number; tumble: number }
+export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number }
 
 interface CellView {
   body: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
@@ -181,7 +219,7 @@ export function createCells(scene: THREE.Scene) {
       for (const [id, p] of players) {
         let view = views.get(id);
         if (!view) views.set(id, (view = createView(id, id === selfId)));
-        const { x, y, heading, tumble } = pose(p);
+        const { x, y, heading, tumble, spore } = pose(p);
         const radius = radiusOf(p.mass);
         const u = view.body.material.uniforms;
         view.body.position.set(x, y, 0);
@@ -193,9 +231,15 @@ export function createCells(scene: THREE.Scene) {
         u.uTrans!.value = hasGene(p.genome, 'transporters') ? 1 : 0;
         u.uSidero!.value = hasGene(p.genome, 'siderophores') ? 1 : 0;
         u.uExo!.value = hasGene(p.genome, 'exoenzymes') ? 1 : 0;
+        u.uT6ss!.value = hasGene(p.genome, 't6ss') ? 1 : 0;
+        u.uCapsule!.value = hasGene(p.genome, 'capsule') ? 1 : 0;
+        u.uWall!.value = hasGene(p.genome, 'thickWall') ? 1 : 0;
+        u.uEfflux!.value = hasGene(p.genome, 'effluxPump') ? 1 : 0;
+        u.uSpore!.value = spore > 0 ? 1 : 0;
+        u.uInfect!.value = p.infection > 0 ? 1 : 0;
 
         const f = view.flagellum;
-        f.visible = hasGene(p.genome, 'flagellum');
+        f.visible = hasGene(p.genome, 'flagellum') && spore === 0;
         if (f.visible) {
           f.position.set(x - Math.cos(heading) * radius * 0.92, y - Math.sin(heading) * radius * 0.92, 0);
           f.rotation.z = heading + Math.PI;

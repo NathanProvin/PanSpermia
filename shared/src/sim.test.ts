@@ -3,18 +3,21 @@ import {
   DRIFT_PILI, MASS_CAP, RUN_TURN_RATE, SPAWN_MASS, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI, TUMBLE_ERROR,
   TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
+import { ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM } from './combat.ts';
 import { GENES } from './genes.ts';
 import { type CellBody, clampSteer, radiusOf, speedOf, stepCell, wrapAngle } from './sim.ts';
 
 const DT = 0.05;
 const T = 12.3;
 const { pili, flagellum, chemoreceptor } = { pili: GENES.pili.bit, flagellum: GENES.flagellum.bit, chemoreceptor: GENES.chemoreceptor.bit };
-const cell = (over: Partial<CellBody> = {}): CellBody => ({ x: 200, y: -100, heading: 0, tumble: 0, rng: 12345, ...over });
+const cell = (over: Partial<CellBody> = {}): CellBody => ({
+  x: 200, y: -100, heading: 0, tumble: 0, rng: 12345, spore: 0, sporeCooldown: 0, ...over,
+});
 
 /** Displacement over one step. */
 const stepOf = (genome: number, dirX: number, dirY: number, start = cell()) => {
   const b = { ...start };
-  stepCell(b, SPAWN_MASS, genome, dirX, dirY, DT, T);
+  stepCell(b, SPAWN_MASS, genome, dirX, dirY, 0, DT, T);
   return { dx: b.x - start.x, dy: b.y - start.y, body: b };
 };
 /** Swim displacement alone: the same step minus the pure drift from the same spot and time. */
@@ -57,13 +60,13 @@ test('flagellum: wide turns tumble, then re-aim at the pointer with bounded rand
     for (let seed = 1; seed <= 200; seed++) {
       const b = cell({ rng: seed * 2654435761 >>> 0 });
       const want = 2.5; // well past the tumble angle from heading 0
-      stepCell(b, SPAWN_MASS, genome, Math.cos(want), Math.sin(want), DT, T);
+      stepCell(b, SPAWN_MASS, genome, Math.cos(want), Math.sin(want), 0, DT, T);
       expect(b.tumble).toBeGreaterThan(0);
       const stepsToFinish = Math.round(TUMBLE_TIME / DT);
       for (let i = 0; i < stepsToFinish; i++) {
         const before = { x: b.x, y: b.y };
         const drift = stepOf(genome, 0, 0, b); // no swim while tumbling: same as drifting
-        stepCell(b, SPAWN_MASS, genome, Math.cos(want), Math.sin(want), DT, T);
+        stepCell(b, SPAWN_MASS, genome, Math.cos(want), Math.sin(want), 0, DT, T);
         if (b.tumble > 0) expect(Math.hypot(b.x - before.x - drift.dx, b.y - before.y - drift.dy)).toBeLessThan(1e-9);
       }
       expect(b.tumble).toBe(0);
@@ -74,20 +77,47 @@ test('flagellum: wide turns tumble, then re-aim at the pointer with bounded rand
   }
 });
 
+test('capsule and thick wall slow swimming', () => {
+  const full = swimOf(pili, 1, 0);
+  expect(swimOf(pili | GENES.capsule.bit, 1, 0)).toBeCloseTo(full * CAPSULE_SWIM, 10);
+  expect(swimOf(pili | GENES.thickWall.bit, 1, 0)).toBeCloseTo(full * WALL_SWIM, 10);
+});
+
+test('endospore: dormant (no swim, still drifts) for its duration, then a long cooldown', () => {
+  const spore = pili | GENES.endospore.bit;
+  const b = cell();
+  stepCell(b, SPAWN_MASS, pili, 1, 0, ACTION_SPORE, DT, T); // without the gene: nothing
+  expect(b.spore).toBe(0);
+
+  const s = cell();
+  const drifted = stepOf(spore, 0, 0, s);
+  stepCell(s, SPAWN_MASS, spore, 1, 0, ACTION_SPORE, DT, T);
+  expect(s.spore).toBeCloseTo(ENDOSPORE_TIME, 6);
+  expect(s.x - 200).toBeCloseTo(drifted.dx, 10); // swim suppressed, drift kept
+  expect(s.y + 100).toBeCloseTo(drifted.dy, 10);
+
+  const steps = Math.round(ENDOSPORE_TIME / DT);
+  for (let i = 0; i < steps; i++) stepCell(s, SPAWN_MASS, spore, 1, 0, ACTION_SPORE, DT, T);
+  expect(s.spore).toBe(0);
+  expect(s.sporeCooldown).toBeCloseTo(ENDOSPORE_COOLDOWN - ENDOSPORE_TIME, 6);
+  stepCell(s, SPAWN_MASS, spore, 1, 0, ACTION_SPORE, DT, T); // still cooling down: no re-trigger
+  expect(s.spore).toBe(0);
+});
+
 test('steps are deterministic given the same rng state', () => {
   const a = cell({ rng: 777 });
   const b = cell({ rng: 777 });
   for (let i = 0; i < 50; i++) {
     const dir = [Math.cos(i), Math.sin(i * 1.7)] as const;
-    stepCell(a, SPAWN_MASS, flagellum, dir[0], dir[1], DT, T + i * DT);
-    stepCell(b, SPAWN_MASS, flagellum, dir[0], dir[1], DT, T + i * DT);
+    stepCell(a, SPAWN_MASS, flagellum, dir[0], dir[1], 0, DT, T + i * DT);
+    stepCell(b, SPAWN_MASS, flagellum, dir[0], dir[1], 0, DT, T + i * DT);
   }
   expect(a).toEqual(b);
 });
 
 test('the whole cell stays inside the pool', () => {
   const b = cell({ x: WORLD_RADIUS - 1, y: 0 });
-  stepCell(b, MASS_CAP, flagellum, 1, 0, DT, T);
+  stepCell(b, MASS_CAP, flagellum, 1, 0, 0, DT, T);
   expect(Math.hypot(b.x, b.y)).toBeLessThanOrEqual(WORLD_RADIUS - radiusOf(MASS_CAP) + 1e-9);
 });
 

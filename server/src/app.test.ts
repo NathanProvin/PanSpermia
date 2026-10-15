@@ -1,8 +1,8 @@
 import { matchMaker } from '@colyseus/core';
 import { Callbacks, Client, Predict, type Room } from '@colyseus/sdk';
 import {
-  GENES, HEALTH_MAX, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
-  SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, clampSteer, drift, stepCell,
+  ACTION_SPORE, GENES, HEALTH_MAX, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
+  SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, drift, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { createServer } from './app.ts';
@@ -84,8 +84,9 @@ test('client prediction runs ahead, then settles on server truth (tumbles includ
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
   const me = predict.reconciler(player, {
     input,
-    fields: ['x', 'y', 'heading', 'tumble', 'rng'],
-    step: (ctx, s, cmd) => stepCell(s, player.mass, player.genome, cmd.dirX, cmd.dirY, ctx.dt, room.state.tick * TICK_DT),
+    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown'],
+    step: (ctx, s, cmd) =>
+      stepCell(s, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
     warnOnDivergence: 1, // also switches on the drift telemetry asserted below
   });
 
@@ -97,7 +98,7 @@ test('client prediction runs ahead, then settles on server truth (tumbles includ
       const a = frame < 45 ? 0 : Math.PI; // a 180° swing halfway
       input.data.dirX = Math.cos(a) * 5; // |dir| ≫ 1, like a far-off pointer
       input.data.dirY = Math.sin(a) * 5;
-      clampSteer(input.data);
+      sanitizeInput(input.data);
       input.send();
     }
     if (me.state.tumble > 0) tumbles++;
@@ -118,6 +119,38 @@ test('client prediction runs ahead, then settles on server truth (tumbles includ
   predict.tick(performance.now());
   expect(input.lastProcessed).toBe(input.sentCount);
   expect(me.state.rng).toBe(player.rng); // tumble randomness replayed exactly
+  await room.leave();
+});
+
+test('sporulating is predicted instantly and confirmed by the server', async () => {
+  const room = await join();
+  const player = await joinedPlayer(room);
+  const authority = serverRoom(room).state.players.get(room.sessionId)!;
+  authority.genome |= GENES.endospore.bit;
+  await vi.waitFor(() => expect(player.genome & GENES.endospore.bit).toBeTruthy());
+
+  const input = room.input({ type: Input, mode: 'reliable' });
+  const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
+  const me = predict.reconciler(player, {
+    input,
+    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown'],
+    step: (ctx, s, cmd) =>
+      stepCell(s, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
+  });
+  let predictedAt = -1;
+  for (let frame = 0; frame < 40 && authority.spore === 0; frame++) {
+    for (let due = predict.tick(performance.now()); due > 0; due--) {
+      input.data.dirX = 1;
+      input.data.dirY = 0;
+      input.data.actions = ACTION_SPORE;
+      sanitizeInput(input.data);
+      input.send();
+      if (predictedAt < 0 && me.state.spore > 0) predictedAt = frame;
+    }
+    await sleep(16);
+  }
+  expect(predictedAt).toBeGreaterThanOrEqual(0); // the client went dormant on its own send
+  await vi.waitFor(() => expect(authority.spore).toBeGreaterThan(0));
   await room.leave();
 });
 
