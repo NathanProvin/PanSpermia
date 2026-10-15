@@ -115,8 +115,9 @@ export function createNutrients() {
         if (i >= NUTRIENT_CAP) break;
         drift(p, tick); // a joining client catches each packet up from its spawn tick here
         currentAt(p.x, p.y, tick * TICK_DT, flow);
-        sprites.offsets[i * 3] = p.x + flow.x * glide;
-        sprites.offsets[i * 3 + 1] = p.y + flow.y * glide;
+        const ahead = (tick - p.tick) * TICK_DT + glide; // drift steps every DRIFT_TICKS: glide since the last step
+        sprites.offsets[i * 3] = p.x + flow.x * ahead;
+        sprites.offsets[i * 3 + 1] = p.y + flow.y * ahead;
         sprites.offsets[i * 3 + 2] = 0;
         sprites.sizes[i] = SIZE[p.kind] ?? 16;
         sprites.seeds[i] = p.kind + p.seed;

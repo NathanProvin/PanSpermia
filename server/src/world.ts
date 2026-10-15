@@ -425,7 +425,7 @@ export function stepWorld(state: PoolState): Death[] {
     const mouth = radiusOf(e.mass) * 0.9;
     for (const [vid, v] of state.players) {
       if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || v.mass > e.mass * ENGULF_RATIO) continue;
-      if ((v.x - e.x) ** 2 + (v.y - e.y) ** 2 >= mouth * mouth) continue;
+      if (!((v.x - e.x) ** 2 + (v.y - e.y) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
       v.engulfedBy = eid;
       hurt(v, v.health + 1, eid, tick);
       const food = v.mass * ENGULF_SHARE;

@@ -1,6 +1,8 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, genomeOf } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, catalogFor } from '@panspermia/shared';
+
+const genomeOf = (s: (typeof BOT_SPECIES)[number]) => catalogFor(s.tier).genomeOf(s.genes);
 import { expect, test } from 'vitest';
-import { type Bots, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
+import { type Bots, addBot, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
 import { spawnNutrient, spawnPlayer, stepWorld } from './world.ts';
 
 const species = (name: string) => BOT_SPECIES.findIndex((s) => s.name === name);
@@ -9,12 +11,11 @@ const species = (name: string) => BOT_SPECIES.findIndex((s) => s.name === name);
 const withBot = (name: string, mass = 30) => {
   const state = new PoolState();
   const bots: Bots = new Map();
-  fillBots(state, bots, 1);
-  const [id, brain] = [...bots][0]!;
-  brain.species = species(name);
+  const id = addBot(state, bots, species(name));
+  const brain = bots.get(id)!;
   brain.phase = 0;
   const bot = state.players.get(id)!;
-  Object.assign(bot, { x: 0, y: 0, mass, genome: genomeOf(BOT_SPECIES[brain.species]!.genes) });
+  Object.assign(bot, { x: 0, y: 0, mass, graceUntil: 0 });
   return { state, bots, id, brain, bot };
 };
 const other = (state: PoolState, x: number, mass: number, genome: number) => {
@@ -26,9 +27,13 @@ const other = (state: PoolState, x: number, mass: number, genome: number) => {
 test('bots top up and trim to the target, every species represented', () => {
   const state = new PoolState();
   const bots: Bots = new Map();
-  fillBots(state, bots, 30);
+  fillBots(state, bots, 40); // more than one full spawn cycle
   expect(new Set([...bots.values()].map((b) => b.species)).size).toBe(BOT_SPECIES.length);
-  for (const [id, b] of bots) expect(state.players.get(id)!.genome).toBe(genomeOf(BOT_SPECIES[b.species]!.genes));
+  for (const [id, b] of bots) {
+    const p = state.players.get(id)!;
+    expect(p.tier).toBe(BOT_SPECIES[b.species]!.tier);
+    expect(p.tier === 2 ? p.genome2 : p.genome).toBe(genomeOf(BOT_SPECIES[b.species]!));
+  }
   fillBots(state, bots, 3);
   expect(bots.size).toBe(3);
   expect(state.players.size).toBe(3);
@@ -64,14 +69,15 @@ test('dead bots are reborn as their own species', () => {
   rebirth(state, bots, stepWorld(state));
   const reborn = state.players.get(id)!;
   expect(reborn).not.toBe(bot);
-  expect(reborn.genome).toBe(genomeOf(BOT_SPECIES[brain.species]!.genes));
+  expect(reborn.genome).toBe(genomeOf(BOT_SPECIES[brain.species]!));
   expect(reborn.name).toBe('Murus armatus');
   expect(bots.get(id)!.species).toBe(species('Murus armatus'));
 });
 
 test('every species design is legal: copies within each part\'s limit', () => {
   for (const s of BOT_SPECIES) {
-    for (const g of new Set(s.genes)) expect(s.genes.filter((x) => x === g).length).toBeLessThanOrEqual(GENES[g].maxCopies);
+    const cat = catalogFor(s.tier);
+    for (const g of new Set(s.genes)) expect(s.genes.filter((x) => x === g).length).toBeLessThanOrEqual(cat.GENES[g]!.maxCopies);
   }
 });
 
@@ -81,6 +87,29 @@ test('bots at the size cap divide into a fresh child of the same design, where t
   expect(divideBots(state, bots)).toEqual([id]);
   const child = state.players.get(id)!;
   expect(child).not.toBe(bot);
-  expect([child.x, child.mass, child.genome]).toEqual([123, SPAWN_MASS, genomeOf(BOT_SPECIES[brain.species]!.genes)]);
+  expect([child.x, child.mass, child.genome]).toEqual([123, SPAWN_MASS, genomeOf(BOT_SPECIES[brain.species]!)]);
   expect(divideBots(state, bots)).toEqual([]);
+});
+
+test('eukaryote bots: a hungry hunter goes for what its jaw can swallow; bacteria flee it', () => {
+  const { state, bots, brain, bot } = withBot('Amoebina vorax', 300);
+  expect([bot.tier, bot.genome]).toEqual([2, 0]);
+  other(state, 120, 40, 0); // a bacterium: swallowable
+  stepBots(state, bots);
+  expect(brain.dirX).toBeGreaterThan(0.9);
+
+  const prey = withBot('Nudus errans', 20);
+  const eater = addBot(prey.state, prey.bots, species('Amoebina vorax'));
+  Object.assign(prey.state.players.get(eater)!, { x: 150, y: 0, mass: 300 });
+  stepBots(prey.state, prey.bots);
+  expect(prey.brain.dirX).toBeLessThan(-0.5);
+});
+
+test('overlapping a cell a bot does not fear never poisons its steering with NaN', () => {
+  const { state, bots, brain, bot } = withBot('Didinia ferox', 300);
+  other(state, 10, 30, 0); // overlapping, and neither feared nor prey for a sated hunter
+  bot.mass = 900; // not hungry
+  stepBots(state, bots);
+  expect(Number.isFinite(brain.dirX) && Number.isFinite(brain.dirY)).toBe(true);
+  expect(Number.isFinite(bot.x)).toBe(true);
 });

@@ -56,8 +56,9 @@ export function createClouds() {
         drift(p, tick);
         currentAt(p.x, p.y, tick * TICK_DT, flow);
         const age = (tick - p.tick0) * TICK_DT + glide;
-        sprites.offsets[i * 3] = p.x + flow.x * glide;
-        sprites.offsets[i * 3 + 1] = p.y + flow.y * glide;
+        const ahead = (tick - p.tick) * TICK_DT + glide; // drift steps every DRIFT_TICKS: glide since the last step
+        sprites.offsets[i * 3] = p.x + flow.x * ahead;
+        sprites.offsets[i * 3 + 1] = p.y + flow.y * ahead;
         sprites.offsets[i * 3 + 2] = 0;
         sprites.sizes[i] = 2 * cloudRadius(p.kind, age);
         sprites.seeds[i] = p.kind + Math.min(0.999, age / TOXINS[p.kind]!.life);

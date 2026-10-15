@@ -207,7 +207,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.dna').textContent = `DNA ${Math.floor(left)} left (${spend >= 0 ? 'spending' : 'refunding'} ${Math.abs(Math.round(spend))})`;
     $('.dna').classList.toggle('short', left < 0);
     $('.children').textContent = `${lineage!.children} + ${children}`;
-    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(3)} mass/s`;
+    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(3)} energy/s`;
     $('.message').textContent = message;
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) b.setAttribute('aria-pressed', String(b.dataset.sym === symmetry));
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-shape]')) b.setAttribute('aria-pressed', String(Number(b.dataset.shape) === shape));

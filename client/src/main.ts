@@ -290,7 +290,7 @@ try {
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
         self.cyst > 0 ? 'DIVIDING' : '',
       ].filter(Boolean).join(' · ');
-      hud.textContent = `${lineage.name} · mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome, self.tier)}`
+      hud.textContent = `${lineage.name} · energy ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome, self.tier)}`
         + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
         + ` · DNA ${Math.floor(lineage.dna)} · children ${lineage.children} · gen ${lineage.generation} · ${players.size} cell${players.size === 1 ? '' : 's'}`
         + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')

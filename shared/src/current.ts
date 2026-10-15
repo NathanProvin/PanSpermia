@@ -28,14 +28,20 @@ export function currentAt(x: number, y: number, t: number, out = { x: 0, y: 0 })
 
 const flow = { x: 0, y: 0 };
 /**
- * Carry a passive particle (nutrient, debris) on the current in fixed ticks, from `p.tick` up to
- * `untilTick`. Integer ticks make the path identical wherever it is computed: the server, and every
- * client reconstructing it from the spawn point alone (so positions never need syncing).
+ * Passive particles step every DRIFT_TICKS ticks: the current varies slowly, and this halves the cost of
+ * thousands of drifting packets (the server's biggest per-tick cost once the pool grew, P8e).
+ */
+export const DRIFT_TICKS = 2;
+/**
+ * Carry a passive particle (nutrient, debris) on the current in fixed steps of DRIFT_TICKS ticks, from
+ * `p.tick` up to `untilTick` (it may stop up to DRIFT_TICKS − 1 ticks short). Integer ticks make the path
+ * identical wherever it is computed: the server, and every client reconstructing it from the spawn point
+ * alone (so positions never need syncing).
  */
 export function drift(p: { x: number; y: number; tick: number }, untilTick: number) {
-  for (; p.tick < untilTick; p.tick++) {
+  for (; p.tick + DRIFT_TICKS <= untilTick; p.tick += DRIFT_TICKS) {
     currentAt(p.x, p.y, p.tick * TICK_DT, flow);
-    p.x += flow.x * TICK_DT;
-    p.y += flow.y * TICK_DT;
+    p.x += flow.x * TICK_DT * DRIFT_TICKS;
+    p.y += flow.y * TICK_DT * DRIFT_TICKS;
   }
 }

@@ -697,6 +697,7 @@ test('swallowing the right bacteria may adopt them as organelles', () => {
   lineage.library = STARTER_LIBRARY2;
   Object.assign(player, { tier: 2, genome: 0, genome2: STARTER_GENOME2, mass: 600, health: 300, x: 0, y: 0 });
   for (let i = 0; i < 40 && !(lineage.library & TIER2.GENES.chloroplast.bit && lineage.library & TIER2.GENES.mitochondrion.bit); i++) {
+    player.mass = 600; // stay below the cap: a dividing cell is dormant and swallows nothing
     for (const [id, genome] of [['cyano', GENES.thylakoid.bit], ['resp', GENES.transporters.bit]] as const) {
       const b = spawnPlayer();
       Object.assign(b, { x: 5, y: 0, mass: 20, genome });
