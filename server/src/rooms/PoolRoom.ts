@@ -1,6 +1,6 @@
 import { Room, type Client } from '@colyseus/core';
 import {
-  ACTION_TOXIN, BOT_FILL, massCapOf, BOT_SPECIES, GENES, copiesOf, withCopies, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
+  ACTION_TOXIN, BOT_FILL, massCapOf, BOT_SPECIES, catalogFor, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
   stepCell,
 } from '@panspermia/shared';
 import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
@@ -76,14 +76,16 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
     });
 
     if (options.dev) {
-      this.onMessage('dev:toggleGene', (client, gene: unknown) => {
+      this.onMessage('dev:toggleGene', (client, index: unknown) => {
         const p = this.state.players.get(client.sessionId);
-        // Cycle this individual's copies 0 → max → 0 and unlock the part for the editor.
+        // Cycle this individual's copies 0 → max → 0 of its tier's index-th part; unlock it for the editor.
         const l = this.state.lineages.get(client.sessionId);
-        if (!p || !l || typeof gene !== 'string' || !Object.hasOwn(GENES, gene)) return;
-        const g = gene as Gene;
-        p.genome = withCopies(p.genome, g, (copiesOf(p.genome, g) + 1) % (GENES[g].maxCopies + 1));
-        l.library |= GENES[g].bit;
+        const cat = catalogFor(p?.tier ?? 1);
+        const gene = cat.NAMES[index as number];
+        if (!p || !l || !Number.isInteger(index) || !gene) return;
+        const field = p.tier === 2 ? 'genome2' : 'genome';
+        p[field] = cat.withCopies(p[field], gene, (cat.copiesOf(p[field], gene) + 1) % (cat.GENES[gene]!.maxCopies + 1));
+        if (l.tier === p.tier) l.library |= cat.GENES[gene]!.bit;
       });
       // Drop a plasmid or a phage onto the cell.
       this.onMessage('dev:spawn', (client, what: unknown) => {

@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, ACTION_TOXIN, GENES, GENE_NAMES, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  TICK_DT, TIER1, TIER2, TOXINS, type Catalog, defaultParts, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
+  TICK_DT, TOXINS, catalogFor, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -119,9 +119,7 @@ if (sharedCard) {
   await new Promise(() => {}); // park: a card viewer never joins a room
 }
 
-/** The part catalog a lineage designs with at its tier. */
-const catalogOf = (l: Lineage) => (l.tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
-const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogOf(l).NAMES[part.gene]! }));
+const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogFor(l.tier).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
   tier: l.tier,
@@ -161,11 +159,11 @@ try {
   /** A player's cell wears its species design (unless dev cheats changed its genes); bots get the default layout. */
   const lookOf = (id: string, p: Player): Look => {
     const l = room.state.lineages.get(id);
-    // ponytail: eukaryotes are plain bodies until P8b draws their parts.
-    if (p.tier === 2) return { genome: 0, parts: [], hue: l?.hue ?? hashId(id) };
-    if (!l) return { genome: p.genome, parts: defaultParts(p.genome), hue: hashId(id) };
-    const parts = p.genome === l.genome ? (partsOf(l) as Look['parts']) : defaultParts(p.genome);
-    return { genome: p.genome, parts, hue: l.hue };
+    const genome = p.tier === 2 ? p.genome2 : p.genome;
+    const cat = catalogFor(p.tier);
+    // The species design, unless this individual differs (dev cheats) or has no lineage (bots).
+    const parts = l && l.tier === p.tier && l.genome === genome ? partsOf(l) : cat.defaultParts(genome);
+    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id) };
   };
 
   const input = room.input({ type: Input, mode: 'reliable' });
@@ -207,8 +205,8 @@ try {
     // order; P drops a plasmid, V a phage, onto the cell; G grows to the cap, K kills the cell, N grants DNA.
     const DEV_KEYS = '1234567890-=[';
     addEventListener('keydown', (e) => {
-      const gene = GENE_NAMES[DEV_KEYS.indexOf(e.key)];
-      if (gene) room.send('dev:toggleGene', gene);
+      const index = DEV_KEYS.indexOf(e.key); // into the cell's own tier catalog
+      if (index >= 0) room.send('dev:toggleGene', index);
       if (e.key === 'p') room.send('dev:spawn', 'plasmid');
       if (e.key === 'v') room.send('dev:spawn', 'phage');
       if (e.key === 'g') room.send('dev:grow');
@@ -263,7 +261,7 @@ try {
     if (self && selfMesh) {
       const lineage = room.state.lineages.get(room.sessionId)!;
       if (lineage !== knownLineage) [knownLineage, knownLibrary] = [lineage, lineage.library]; // a new species
-      const cat = catalogOf(lineage);
+      const cat = catalogFor(lineage.tier);
       if (lineage.tier !== knownTier) { // a new species, or a stage-up: the library starts over
         if (knownTier && lineage.tier > knownTier) stageUp(lineage);
         knownTier = lineage.tier;
@@ -276,9 +274,7 @@ try {
       knownLibrary = lineage.library;
       if (self.cyst > 0 && designedFor !== self) {
         designedFor = self;
-        if (lineage.tier === 1) editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
-        // ponytail: stub until the tier-2 editor (P8b) — divide with the same design.
-        else room.send('design', { parts: partsOf(lineage), hue: lineage.hue, children: 0, name: lineage.name });
+        editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
       }
       const ownGenome = self.tier === 2 ? self.genome2 : self.genome;
       const genes = cat.NAMES.filter((g) => cat.hasGene(ownGenome, g))

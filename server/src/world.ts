@@ -2,7 +2,7 @@
 // so the headless balancing sim (P3f) can drive them directly.
 import {
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
-  T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER1, TIER2, type Catalog, massCapOf,
+  T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   EVOLVE_DNA, STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
@@ -62,8 +62,6 @@ function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: 
   return p;
 }
 
-/** The part catalog a lineage designs with at its tier. */
-const catalogOf = (l: Lineage) => (l.tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
 
 /** A player founds a new species: starter design, library and reserve, first individual. */
 export function foundSpecies(state: PoolState, id: string) {
@@ -105,14 +103,14 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   const name = cleanName(rawName);
   if (!name) return 'bad name';
   if (typeof evolve !== 'boolean') return 'bad evolve';
-  if (evolve && l.tier >= 2) return 'cannot evolve further yet';
+  if (evolve && l.tier >= MAX_TIER) return 'cannot evolve further yet';
   if (evolve && l.lifetimeDna < EVOLVE_DNA) return 'not ready to evolve';
   if (!Array.isArray(parts) || parts.length > MAX_PARTS) return 'bad parts';
   if (typeof hue !== 'number' || !(hue >= 0 && hue < 1)) return 'bad hue';
   if (typeof children !== 'number' || !Number.isInteger(children) || children < 0 || l.children + children > MAX_CHILDREN) {
     return 'bad children';
   }
-  const cat = catalogOf(l);
+  const cat = catalogFor(l.tier);
   let genome = 0;
   const placed: Part[] = [];
   for (const part of parts as unknown[]) {

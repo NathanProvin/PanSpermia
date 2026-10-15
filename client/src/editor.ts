@@ -1,11 +1,12 @@
 import {
-  CHILD_PRICE, EVOLVE_DNA, GENES, GENE_NAMES, NAME_MAX, cleanName, type Gene, type Lineage, MAX_CHILDREN, MAX_PARTS, type Placement, copiesOf, priceOf,
-  upkeepOf, withCopies,
+  CHILD_PRICE, EVOLVE_DNA, type Catalog, type Lineage, MAX_CHILDREN, MAX_PARTS, MAX_TIER, NAME_MAX, type Placement, TIER_NAMES,
+  catalogFor, cleanName,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
 
-// Spore-like cell editor, open while your cell sits in its division cyst. Drag parts from the palette
+// Spore-like cell editor, open while your cell sits in its division cyst. One editor for every tier: the
+// tier's part catalog (palette, prices, copies, slots, default spots) is picked when it opens. Drag parts from the palette
 // onto the body (membrane parts snap to the rim, internal ones float inside, coats toggle), drag
 // placed parts to move them, drag off the body or right-click to remove (refunded), wheel to resize.
 // Symmetry: axial mirrors across the forward axis, radial repeats around the centre; a placement on
@@ -13,8 +14,8 @@ import { createCellView } from './scene/cells.ts';
 
 type Symmetry = 'axial' | 'radial';
 /** One placement as the player made it: a master part plus how it repeats. */
-interface Group { gene: Gene; x: number; y: number; angle: number; scale: number; repeat: 'single' | 'axial' | 'radial'; n: number }
-export interface Design { parts: Placement[]; hue: number; children: number; name: string; evolve?: boolean }
+interface Group { gene: string; x: number; y: number; angle: number; scale: number; repeat: 'single' | 'axial' | 'radial'; n: number }
+export interface Design { parts: Placement<string>[]; hue: number; children: number; name: string; evolve?: boolean }
 
 const VIEW_HALF = 2.4; // cell radii visible above and below the centre
 const AXIS_SNAP = 0.12; // radii: this close to the axis (or the centre) is "on" it
@@ -23,7 +24,7 @@ const INTERIOR = 0.6; // internal parts stay this far inside
 const FORWARD = Math.PI / 2; // the editor shows the cell swimming up the screen
 
 /** Every copy a group stands for, in the body frame (x forward, y left). */
-function expand(g: Group): Omit<Placement, 'group'>[] {
+function expand(g: Group): Omit<Placement<string>, 'group'>[] {
   const master = { gene: g.gene, x: g.x, y: g.y, angle: g.angle, scale: g.scale };
   if (g.repeat === 'axial') return [master, { ...master, y: -g.y, angle: -g.angle }];
   if (g.repeat === 'radial') {
@@ -35,14 +36,14 @@ function expand(g: Group): Omit<Placement, 'group'>[] {
   return [master];
 }
 const placementsOf = (groups: Group[]) => groups.flatMap((g, group) => expand(g).map((p) => ({ ...p, group })));
-const genomeOf = (groups: Group[]) =>
-  groups.reduce((genome, g) => withCopies(genome, g.gene, copiesOf(genome, g.gene) + expand(g).length), 0);
+const genomeOf = (cat: Catalog, groups: Group[]) =>
+  groups.reduce((genome, g) => cat.withCopies(genome, g.gene, cat.copiesOf(genome, g.gene) + expand(g).length), 0);
 
 /** Rebuild the player's groups from a saved design (parts sharing a group number came from one placement). */
-function groupsOf(lineage: Lineage): Group[] {
-  const byGroup = new Map<number, Placement[]>();
+function groupsOf(cat: Catalog, lineage: Lineage): Group[] {
+  const byGroup = new Map<number, Placement<string>[]>();
   for (const p of lineage.parts) {
-    const part = { gene: GENE_NAMES[p.gene]!, x: p.x, y: p.y, angle: p.angle, scale: p.scale, group: p.group };
+    const part = { gene: cat.NAMES[p.gene]!, x: p.x, y: p.y, angle: p.angle, scale: p.scale, group: p.group };
     byGroup.set(p.group, [...(byGroup.get(p.group) ?? []), part]);
   }
   return [...byGroup.values()].map(([master, ...copies]) => ({
@@ -53,13 +54,13 @@ function groupsOf(lineage: Lineage): Group[] {
 }
 
 /** Where a part dropped at body-frame (bx, by) goes, given the symmetry and the copies still allowed. */
-function placeAt(gene: Gene, bx: number, by: number, symmetry: Symmetry, available: number): Group | undefined {
+function placeAt(cat: Catalog, gene: string, bx: number, by: number, symmetry: Symmetry, available: number): Group | undefined {
   if (available < 1) return undefined;
   let x: number;
   let y: number;
   let angle = 0;
   let onAxis: boolean;
-  if (GENES[gene].slot === 'membrane') {
+  if (cat.GENES[gene]!.slot === 'membrane') {
     angle = Math.atan2(by, bx);
     onAxis = symmetry === 'axial' && Math.abs(Math.sin(angle)) < AXIS_SNAP;
     if (onAxis) angle = Math.cos(angle) > 0 ? 0 : Math.PI;
@@ -120,20 +121,21 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   let evolveArmed = false;
 
   let lineage: Lineage | undefined;
+  let cat = catalogFor(1);
   let groups: Group[] = [];
   let children = 0;
   let hue = 0;
   let symmetry: Symmetry = 'axial';
   let submitted = false;
   /** A part being dragged: a new one from the palette, or a placed group lifted off the body. */
-  let drag: { gene: Gene; group?: Group; at?: Group } | undefined;
+  let drag: { gene: string; group?: Group; at?: Group } | undefined;
   let message = '';
   let submit: (design: Design, final: boolean) => void = () => {};
   let draftTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const cost = (gs: Group[]) => priceOf(genomeOf(gs)) - priceOf(lineage!.genome) + children * CHILD_PRICE;
+  const cost = (gs: Group[]) => cat.priceOf(genomeOf(cat, gs)) - cat.priceOf(lineage!.genome) + children * CHILD_PRICE;
   const working = () => (drag?.at ? [...groups, drag.at] : groups);
-  const available = (gene: Gene) => GENES[gene].maxCopies - copiesOf(genomeOf(groups), gene);
+  const available = (gene: string) => cat.GENES[gene]!.maxCopies - cat.copiesOf(genomeOf(cat, groups), gene);
 
   /** Body-frame coordinates (cell radii, x forward) under a pointer event. */
   const toBody = (e: PointerEvent | WheelEvent) => {
@@ -146,7 +148,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     let best = -1;
     let bestD = PICK;
     for (const [i, g] of groups.entries()) {
-      if (GENES[g.gene].slot === 'coat') continue; // coats are toggled from the palette
+      if (cat.GENES[g.gene]!.slot === 'coat') continue; // coats are toggled from the palette
       for (const p of expand(g)) {
         const d = Math.hypot(p.x - bx, p.y - by);
         if (d < bestD) [best, bestD] = [i, d];
@@ -164,26 +166,26 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     groups = next;
     message = '';
   };
-  const placeDefault = (gene: Gene) => {
-    const { slot, at } = GENES[gene];
+  const placeDefault = (gene: string) => {
+    const { slot, at } = cat.GENES[gene]!;
     if (slot === 'coat') {
       const i = groups.findIndex((g) => g.gene === gene);
       if (i >= 0) groups.splice(i, 1);
       else commit({ gene, x: 0, y: 0, angle: 0, scale: 1, repeat: 'single', n: 1 });
-    } else if (slot === 'membrane') commit(placeAt(gene, Math.cos(at as number), Math.sin(at as number), symmetry, available(gene)));
-    else commit(placeAt(gene, ...(at as readonly [number, number]), symmetry, available(gene)));
+    } else if (slot === 'membrane') commit(placeAt(cat, gene, Math.cos(at as number), Math.sin(at as number), symmetry, available(gene)));
+    else commit(placeAt(cat, gene, ...(at as readonly [number, number]), symmetry, available(gene)));
     render();
   };
 
   /** Palette buttons are built once per opening (the library only grows between divisions). */
   const buildPalette = () => {
-    palette.replaceChildren(...GENE_NAMES.map((gene) => {
+    palette.replaceChildren(...cat.NAMES.map((gene) => {
       const button = document.createElement('button');
       button.type = 'button';
-      const unlocked = (lineage!.library & GENES[gene].bit) !== 0;
+      const unlocked = (lineage!.library & cat.GENES[gene]!.bit) !== 0;
       button.disabled = !unlocked;
       button.dataset.gene = gene;
-      const { label, slot } = GENES[gene];
+      const { label, slot } = cat.GENES[gene]!;
       button.innerHTML = unlocked ? `<span>${label}</span><small></small>` : '<span>???</span><small>find its DNA</small>';
       if (unlocked) button.title = slot === 'coat' ? 'Click to toggle' : 'Drag onto the cell, or click to place';
       return button;
@@ -191,18 +193,18 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   };
   const render = () => {
     const gs = working();
-    const genome = genomeOf(gs);
+    const genome = genomeOf(cat, gs);
     const left = lineage!.dna - cost(gs);
     for (const button of palette.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')) {
-      const gene = button.dataset.gene as Gene;
-      const { price, maxCopies, slot } = GENES[gene];
-      button.querySelector('small')!.textContent = `${price} DNA · ${copiesOf(genome, gene)}/${maxCopies}${slot === 'coat' ? ' · coat' : ''}`;
+      const gene = button.dataset.gene!;
+      const { price, maxCopies, slot } = cat.GENES[gene]!;
+      button.querySelector('small')!.textContent = `${price} DNA · ${cat.copiesOf(genome, gene)}/${maxCopies}${slot === 'coat' ? ' · coat' : ''}`;
     }
     const spend = cost(gs);
     $('.dna').textContent = `DNA ${Math.floor(left)} left (${spend >= 0 ? 'spending' : 'refunding'} ${Math.abs(Math.round(spend))})`;
     $('.dna').classList.toggle('short', left < 0);
     $('.children').textContent = `${lineage!.children} + ${children}`;
-    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${upkeepOf(genome).toFixed(3)} mass/s`;
+    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(3)} mass/s`;
     $('.message').textContent = message;
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) b.setAttribute('aria-pressed', String(b.dataset.sym === symmetry));
     const named = cleanName(name);
@@ -211,7 +213,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const ready = lineage!.lifetimeDna >= EVOLVE_DNA;
     $<HTMLProgressElement>('.evolution progress').value = Math.min(EVOLVE_DNA, lineage!.lifetimeDna);
     evolveButton.disabled = submitted || left < 0 || !named || !ready;
-    evolveButton.textContent = evolveArmed ? 'Evolve to eukaryote? Click again' : ready ? 'Evolve' : `Evolve (${Math.floor(lineage!.lifetimeDna)}/${EVOLVE_DNA} DNA)`;
+    const next = TIER_NAMES[lineage!.tier + 1]?.toLowerCase();
+    evolveButton.hidden = $<HTMLElement>('.evolution').hidden = lineage!.tier >= MAX_TIER;
+    evolveButton.textContent = evolveArmed ? `Evolve to ${next}? Click again` : ready ? 'Evolve' : `Evolve (${Math.floor(lineage!.lifetimeDna)}/${EVOLVE_DNA} DNA)`;
     // Keep the server's draft current (debounced), so the timer running out keeps these edits.
     clearTimeout(draftTimer);
     if (!submitted && left >= 0 && !drag && named) draftTimer = setTimeout(() => submit(design(), false), 250);
@@ -219,11 +223,11 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   // Palette: press to drag a new part; a press released without dragging places it at its default spot.
   palette.addEventListener('pointerdown', (e) => {
-    const gene = (e.target as Element).closest<HTMLButtonElement>('button:not(:disabled)')?.dataset.gene as Gene | undefined;
-    if (gene && GENES[gene].slot !== 'coat') drag = { gene };
+    const gene = (e.target as Element).closest<HTMLButtonElement>('button:not(:disabled)')?.dataset.gene;
+    if (gene && cat.GENES[gene]!.slot !== 'coat') drag = { gene };
   });
   palette.addEventListener('click', (e) => {
-    const gene = (e.target as Element).closest<HTMLButtonElement>('button')?.dataset.gene as Gene | undefined;
+    const gene = (e.target as Element).closest<HTMLButtonElement>('button')?.dataset.gene;
     if (gene && !drag?.at) placeDefault(gene); // keyboard, or a click without a drag
     drag = undefined;
   });
@@ -244,7 +248,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   /** Where the dragged part would land under this pointer; off the body (undefined) means removal. */
   const dropAt = (e: PointerEvent, d: NonNullable<typeof drag>) => {
     const { bx, by } = toBody(e);
-    const g = Math.hypot(bx, by) > 1.6 ? undefined : placeAt(d.gene, bx, by, symmetry, available(d.gene));
+    const g = Math.hypot(bx, by) > 1.6 ? undefined : placeAt(cat, d.gene, bx, by, symmetry, available(d.gene));
     return g && { ...g, scale: d.group?.scale ?? 1 };
   };
   const onMove = (e: PointerEvent) => {
@@ -305,7 +309,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     /** Open on the lineage's current design; `onSubmit` sends it to the server (final, or a draft). */
     open(l: Lineage, onSubmit: (design: Design, final: boolean) => void) {
       lineage = l;
-      groups = groupsOf(l);
+      cat = catalogFor(l.tier);
+      groups = groupsOf(cat, l);
       children = 0;
       hue = l.hue;
       hueInput.value = String(hue);
@@ -334,7 +339,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       camera.updateProjectionMatrix();
       const gs = working();
       cell.update({ x: 0, y: 0, heading: FORWARD, tumble: 0, spore: 0, cyst: 0 }, 1,
-        { genome: genomeOf(gs), parts: placementsOf(gs), hue }, time, dt);
+        { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue }, time, dt);
       $('.timer').textContent = `Dividing — ${Math.ceil(secondsLeft)} s left`;
       return { scene, camera };
     },

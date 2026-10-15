@@ -84,7 +84,7 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
 ### Milestone B — Full evolution
 - [ ] P7+P8 Tier 2 Eukaryote in the same pool (design: DECISIONS 2026-10-15 "Tier 2 forks"), sliced:
   - [x] P8a (2026-10-15) Eukaryotes exist: Player.tier + genome2 (tier-2 catalog, tier-1 rules untouched), tier-2 scale (spawn 120 → cap 1000 mass, own speed/metabolism/health), steering movement (cilia, flagellum), mouths set diet (filter: algae + dissolved; jaw: debris, chunks, engulf cells ≤ ½ mass incl. bacteria; both = omnivore), algae + meat chunks, Evolve → next generation hatches as tier 2 (stage-up zoom), bigger pool, bacteria flee jaws, phages ignore eukaryotes. Done; tier-2 cells are plain bodies and divide with an unchanged design until P8b; pool 1500 → 2200 (rates ×2.15, 40 bots); bot sim: generations 1.4–5.4 min, ≤ 1.4 lives/gen
-  - [ ] P8b Tier-2 editor (catalog-aware) + Spore-cell visuals (mouths, cilia, eyes, nucleus) in pool and editor
+  - [x] P8b (2026-10-15) Universal editor + Spore-cell visuals: one editor/renderer/validator for every tier via `catalogFor(tier)` (palette, prices, copies, slots, symmetry, drafts, Evolve hidden at MAX_TIER); eukaryote body with nucleus, nucleolus and vacuoles; cilia comb, filter funnel mouth, jaw mandibles, shorter eukaryote flagellum; cards and dev gene keys tier-aware (eyes moved to P8c)
   - [ ] P8c Weapons (spike, poison, electric), jet dash, eyes
   - [ ] P8d Endosymbiosis: engulfing specific bacteria unlocks organelles (mitochondrion, chloroplast) + a photosynthetic tier-1 bot species
   - [ ] P8e Tier-2 bots, hazard (parasites/viruses of eukaryotes), balance pass

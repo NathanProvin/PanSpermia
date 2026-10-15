@@ -1,4 +1,4 @@
-import { GENES, type Placement, type Player, SIDEROPHORE_REACH, hasGene, radiusOf } from '@panspermia/shared';
+import { GENES, type Placement, type Player, SIDEROPHORE_REACH, TIER2, catalogFor, hasGene, radiusOf } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
 
@@ -11,6 +11,7 @@ const QUAD_HALF = 1.9;
 // the absorption reach, the warm exoenzyme halo. Placed parts are separate quads (see PART_FRAGMENT).
 // A phage infection darkens the cytoplasm and fills it with new virions; a division cyst pinches the
 // cell across its axis around two separating nucleoids; an endospore is a hard pale husk.
+// Eukaryotes (uTier = 1) carry a true nucleus (envelope + nucleolus) and a few vacuoles instead of a nucleoid.
 const VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -31,6 +32,7 @@ uniform float uWall;
 uniform float uSpore;
 uniform float uInfect;
 uniform float uCyst;
+uniform float uTier;
 varying vec2 vUv;
 ${NOISE}
 void main() {
@@ -54,7 +56,21 @@ void main() {
   // Two daughter nucleoids drifting apart along the axis while dividing.
   float twins = max(1.0 - smoothstep(0.0, 0.35, length(p - fwd * 0.42)), 1.0 - smoothstep(0.0, 0.35, length(p + fwd * 0.42)));
   nucleoid = mix(nucleoid, twins, uCyst);
-  vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid);
+  vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid * (1.0 - uTier));
+  // Eukaryote: a nucleus behind the middle (envelope, darker nucleoplasm, bright nucleolus) and vacuoles.
+  vec2 nucleusAt = -fwd * 0.18 + 0.05 * vec2(sin(t * 0.2), cos(t * 0.23));
+  float nd = length(p - nucleusAt) - 0.34;
+  float nucleus = uTier * (1.0 - smoothstep(0.0, 0.02, nd));
+  float envelope = uTier * (1.0 - smoothstep(0.0, 0.025, abs(nd + 0.015)));
+  float nucleolus = uTier * exp(-dot(p - nucleusAt - vec2(0.08, 0.06), p - nucleusAt - vec2(0.08, 0.06)) * 120.0);
+  float vacuoles = 0.0;
+  for (int i = 0; i < 3; i++) {
+    vec2 at = 0.5 * vec2(cos(float(i) * 2.1 + uSeed * 9.0 + t * 0.05), sin(float(i) * 2.1 + uSeed * 9.0 + t * 0.05));
+    vacuoles += 1.0 - smoothstep(0.1, 0.13, length(p - at));
+  }
+  vacuoles *= uTier;
+  cyto = mix(cyto, uColor * 0.35 + 0.05, nucleus * 0.7);
+  cyto += (uColor * 0.4 + 0.25) * vacuoles * 0.35;
   float furrow = uCyst * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside;
   cyto *= 1.0 - 0.6 * furrow;
   float cytoAlpha = inside * (0.6 + 0.35 * shell);
@@ -92,11 +108,15 @@ void main() {
 
   // Premultiplied alpha.
   vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.55 + haloCol * halo * 0.6
+    + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.8 * inside
     + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(0.86, 0.8, 1.0) * virions * 1.2;
   float alpha = clamp(cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
 }
 `;
+
+/** Part kinds: a tier-1 gene's catalog index, or KIND2 + a tier-2 gene's index. */
+const KIND2 = 16;
 
 // Placed parts, one quad each in the cell's frame. In the quad, +x points away from the body (the
 // membrane normal for membrane parts), so every shape grows outward from its base at x = -1. The
@@ -164,6 +184,36 @@ void main() {
   } else if (k == ${GENES.effluxPump.index}) { // orange pump beads
     a = dots(p, vec2(-0.2, -0.35), 0.24) + dots(p, vec2(-0.2, 0.35), 0.24);
     col = vec3(1.0, 0.6, 0.2) * 1.4;
+  } else if (k == ${KIND2 + TIER2.GENES.cilia.index}) { // a comb of short cilia beating in a travelling wave
+    for (int i = 0; i < 9; i++) {
+      float fi = float(i) - 4.0;
+      float beat = sin(t * 9.0 - fi * 0.9);
+      vec2 base = vec2(-0.85, fi * 0.2);
+      vec2 tip = base + 0.9 * vec2(cos(beat * 0.5), sin(beat * 0.5));
+      a = max(a, (1.0 - smoothstep(0.025, 0.06, segment(p, base, tip))));
+    }
+    col = uColor * 0.7 + 0.3;
+  } else if (k == ${KIND2 + TIER2.GENES.filter.index}) { // a frilled funnel mouth, bristles combing the water
+    float rr = length(p - vec2(-0.1, 0.0));
+    float ang = atan(p.y, p.x + 0.1);
+    float funnel = (1.0 - smoothstep(0.42, 0.5, rr)) * smoothstep(0.18, 0.32, rr);
+    float bristles = step(0.45, rr) * (1.0 - smoothstep(0.7, 0.9, rr))
+      * smoothstep(0.6, 0.9, sin(ang * 14.0 + sin(t * 3.0) * 0.6)) * step(-0.6, p.x);
+    float gullet = 1.0 - smoothstep(0.12, 0.2, rr);
+    a = max(max(funnel, bristles * 0.9), gullet * 0.8);
+    col = mix(vec3(0.75, 1.0, 0.55), vec3(0.15, 0.25, 0.1), gullet);
+  } else if (k == ${KIND2 + TIER2.GENES.jaw.index}) { // two hooked mandibles snapping open and shut
+    float open = 0.28 + 0.16 * sin(t * 4.0);
+    for (int side = -1; side <= 1; side += 2) {
+      float s = float(side);
+      vec2 base = vec2(-0.8, s * 0.22);
+      vec2 mid = base + 0.9 * vec2(cos(s * open), sin(s * open));
+      vec2 tip = mid + 0.5 * vec2(cos(-s * 0.9), sin(-s * 0.9)); // hooked inward
+      float d = min(segment(p, base, mid), segment(p, mid, tip));
+      float w = 0.13 - 0.08 * smoothstep(-0.8, 0.8, p.x);
+      a = max(a, 1.0 - smoothstep(w - 0.03, w + 0.02, d));
+    }
+    col = vec3(1.0, 0.86, 0.68);
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -173,8 +223,12 @@ void main() {
   gl_FragColor = vec4(col * a, a); // premultiplied
 }
 `;
+const kindOf = (tier: number, gene: string) => (tier === 2 ? KIND2 : 0) + catalogFor(tier).GENES[gene]!.index;
 /** Quad size (cell radii) and how far its centre sits outward from the attachment point (in sizes). */
 const PART_SHAPE: Record<number, { size: number; out: number }> = {
+  [KIND2 + TIER2.GENES.cilia.index]: { size: 0.7, out: 0.25 },
+  [KIND2 + TIER2.GENES.filter.index]: { size: 0.55, out: 0.2 },
+  [KIND2 + TIER2.GENES.jaw.index]: { size: 0.6, out: 0.4 },
   [GENES.pili.index]: { size: 0.6, out: 0.35 },
   [GENES.chemoreceptor.index]: { size: 0.32, out: 0 },
   [GENES.transporters.index]: { size: 0.36, out: 0 },
@@ -210,7 +264,7 @@ void main() {
   gl_FragColor = vec4((uColor * 0.9 + 0.05) * a, a); // premultiplied
 }
 `;
-const FLAGELLUM_LENGTH = 3.2; // cell radii
+const FLAGELLUM_LENGTH = [0, 3.2, 2.2]; // cell radii, per tier (a eukaryote's whip is shorter relative to its body)
 const BEAT_RUN = 22; // rad/s of wave phase
 const BEAT_TUMBLE = 5; // motor reversal during a tumble: the bundle flails slowly
 
@@ -220,7 +274,7 @@ const bodyGeometry = new THREE.PlaneGeometry(2 * QUAD_HALF, 2 * QUAD_HALF);
 const bodyMaterial = material(VERTEX, FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() }, uHeading: { value: 0 },
   uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 },
-  uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 },
+  uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uTier: { value: 0 },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -238,8 +292,8 @@ export function hashId(id: string) {
 
 /** Rendered (predicted or smoothed) pose of a cell. */
 export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number }
-/** What a cell looks like: its expressed genome, where its parts sit, its species hue. */
-export interface Look { genome: number; parts: readonly Placement[]; hue: number }
+/** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
+export interface Look { tier: number; genome: number; parts: readonly Placement<string>[]; hue: number }
 
 type ShaderMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
@@ -255,21 +309,21 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   let partsKey = '';
   let parts: { mesh: ShaderMesh; flagellum: boolean }[] = [];
 
-  const rebuild = (placements: readonly Placement[]) => {
+  const rebuild = (placements: readonly Placement<string>[], tier: number) => {
     for (const { mesh } of parts) {
       frame.remove(mesh);
       mesh.material.dispose();
     }
     parts = [];
     for (const [i, pl] of placements.entries()) {
-      const kind = GENES[pl.gene].index;
+      const kind = kindOf(tier, pl.gene);
       if (pl.gene === 'flagellum') {
         const mesh: ShaderMesh = new THREE.Mesh(flagellumGeometry, flagellumMaterial.clone());
         mesh.material.uniforms.uColor!.value = color;
         mesh.material.uniforms.uBeat!.value = seed * 100 + i * 1.7;
         mesh.position.set(pl.x * 0.92, pl.y * 0.92, 0);
         mesh.rotation.z = pl.angle;
-        mesh.scale.set(FLAGELLUM_LENGTH * pl.scale, pl.scale, 1);
+        mesh.scale.set(FLAGELLUM_LENGTH[tier]! * pl.scale, pl.scale, 1);
         mesh.renderOrder = 9;
         frame.add(mesh);
         parts.push({ mesh, flagellum: true });
@@ -295,10 +349,10 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   return {
     body,
     update(pose: Pose, radius: number, look: Look, time: number, dt: number) {
-      const key = look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
+      const key = look.tier + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
         partsKey = key;
-        rebuild(look.parts);
+        rebuild(look.parts, look.tier);
       }
       color.setHSL(look.hue, 0.8, 0.42);
       body.position.set(pose.x, pose.y, 0);
@@ -309,12 +363,14 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const dormant = pose.spore > 0 || pose.cyst > 0;
       frame.visible = pose.spore === 0; // a spore coat hides every part; a dividing cell keeps them
       const u = body.material.uniforms;
+      const g1 = look.tier === 1 ? look.genome : 0; // whole-body features are tier-1 genes
       u.uTime!.value = time;
       u.uHeading!.value = pose.heading;
-      u.uSidero!.value = hasGene(look.genome, 'siderophores') ? 1 : 0;
-      u.uExo!.value = hasGene(look.genome, 'exoenzymes') ? 1 : 0;
-      u.uCapsule!.value = hasGene(look.genome, 'capsule') ? 1 : 0;
-      u.uWall!.value = hasGene(look.genome, 'thickWall') ? 1 : 0;
+      u.uTier!.value = look.tier === 2 ? 1 : 0;
+      u.uSidero!.value = hasGene(g1, 'siderophores') ? 1 : 0;
+      u.uExo!.value = hasGene(g1, 'exoenzymes') ? 1 : 0;
+      u.uCapsule!.value = hasGene(g1, 'capsule') ? 1 : 0;
+      u.uWall!.value = hasGene(g1, 'thickWall') ? 1 : 0;
       u.uSpore!.value = pose.spore > 0 ? 1 : 0;
       u.uCyst!.value = pose.cyst > 0 ? 1 : 0;
       for (const { mesh, flagellum } of parts) {
@@ -329,7 +385,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       frame.scale.multiplyScalar(k);
     },
     dispose() {
-      rebuild([]);
+      rebuild([], 1);
       parent.remove(body, frame);
       body.material.dispose();
     },

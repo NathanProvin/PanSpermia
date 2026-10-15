@@ -1,5 +1,4 @@
-import { MAX_PARTS, type Catalog, TIER1, TIER2, cleanName } from '@panspermia/shared';
-import type { Placement } from '@panspermia/shared';
+import { MAX_PARTS, TIER_NAMES, catalogFor, cleanName } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
 
@@ -9,7 +8,7 @@ import { createCellView } from './scene/cells.ts';
 
 /** A placed part by name in its tier's catalog (the card doesn't care which tier's type it is). */
 interface CardPart { gene: string; x: number; y: number; angle: number; scale: number; group: number }
-const catalogOf = (tier: number) => (tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
+const catalogOf = catalogFor;
 
 export interface CardData {
   name: string;
@@ -72,10 +71,8 @@ function renderCell(d: CardData, size: number) {
   const scene = new THREE.Scene();
   const half = 2.3; // cell radii shown around the centre: room for flagella
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
-  // ponytail: eukaryote parts aren't drawn until P8b, so a tier-2 card shows the bare body.
-  const t1 = d.tier === 1 ? (d.parts as Placement[]) : [];
   createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
-    { genome: TIER1.genomeOf(t1.map((p) => p.gene)), parts: t1, hue: d.hue }, 1.7, 0);
+    { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue }, 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;
@@ -112,7 +109,7 @@ export function renderCard(d: CardData) {
   g.fillText(d.name, x, 150, 520);
   g.fillStyle = '#9fe7e0';
   g.font = '24px system-ui, sans-serif';
-  g.fillText(d.tier === 2 ? 'Tier 2 · Eukaryote' : 'Tier 1 · Bacterium', x, 195);
+  g.fillText(`Tier ${d.tier} · ${TIER_NAMES[d.tier]}`, x, 195);
   const fate = { evolved: '✦ Evolved into eukaryotes', extinct: '✝ Extinct', living: '● Still dividing' }[d.fate];
   g.fillStyle = d.fate === 'evolved' ? '#ffd678' : d.fate === 'extinct' ? '#ff9a8a' : '#9fe7e0';
   g.font = '600 26px system-ui, sans-serif';

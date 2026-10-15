@@ -519,6 +519,7 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   eu.cyst = CYST_TIME;
   const parts = lineage.parts.map((p) => ({ ...p.toJSON(), gene: TIER2.NAMES[p.gene] }));
   expect(submitDesign(state, 'p', { ...evolve, parts })).toBe('cannot evolve further yet');
+  expect(submitDesign(state, 'p', { ...evolve, parts: keep, evolve: false })).toBe('unknown part'); // tier-1 'pili' isn't a eukaryote part
   expect(submitDesign(state, 'p', { ...evolve, parts, evolve: false })).toBeUndefined(); // tier-2 parts validate
   expect(state.players.get('p')!.tier).toBe(2);
 });
