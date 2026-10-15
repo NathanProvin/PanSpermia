@@ -65,6 +65,7 @@ test('dead bots are reborn as their own species', () => {
   const reborn = state.players.get(id)!;
   expect(reborn).not.toBe(bot);
   expect(reborn.genome).toBe(genomeOf(BOT_SPECIES[brain.species]!.genes));
+  expect(reborn.name).toBe('Murus armatus');
   expect(bots.get(id)!.species).toBe(species('Murus armatus'));
 });
 

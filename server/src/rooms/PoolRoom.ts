@@ -71,7 +71,8 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       submitDesign(this.state, client.sessionId, design, false);
     });
     this.onMessage('newSpecies', (client) => {
-      if (this.state.lineages.get(client.sessionId)?.extinct) foundSpecies(this.state, client.sessionId);
+      const l = this.state.lineages.get(client.sessionId);
+      if (l?.extinct || l?.evolved) foundSpecies(this.state, client.sessionId);
     });
 
     if (options.dev) {
@@ -97,7 +98,10 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       });
       this.onMessage('dev:dna', (client) => {
         const l = this.state.lineages.get(client.sessionId);
-        if (l) l.dna += 100;
+        if (l) {
+          l.dna += 100;
+          l.lifetimeDna += 100; // counts as earned, so Evolve can be tested too
+        }
       });
       this.onMessage('dev:die', (client) => {
         const p = this.state.players.get(client.sessionId);
@@ -106,10 +110,10 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
     }
   }
 
-  /** Who did it, for the death screen. Player species get names in P5. */
+  /** Who did it, for the death screen: the killer's species name (its cell may already be a successor). */
   private speciesName(id: string) {
     const bot = this.bots.get(id);
-    return bot ? BOT_SPECIES[bot.species]!.name : 'a rival species';
+    return bot ? BOT_SPECIES[bot.species]!.name : this.state.lineages.get(id)?.name ?? 'a rival species';
   }
 
   override onJoin(client: Client) {

@@ -4,7 +4,9 @@ import {
   TICK_DT, TOXINS, copiesOf, defaultParts, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
+import { type CardData, decodeCard, showCard } from './card.ts';
 import { createEditor } from './editor.ts';
+import { createLabels } from './labels.ts';
 import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
 import { createMeteor } from './scene/meteor.ts';
@@ -15,6 +17,9 @@ import { createPost } from './scene/post.ts';
 
 const hud = document.getElementById('hud')!;
 const extinctScreen = document.getElementById('extinct')!;
+const cardScreen = document.getElementById('card')!;
+const stageup = document.getElementById('stageup')!;
+const labels = createLabels(document.getElementById('labels')!, document.getElementById('leaders') as HTMLOListElement);
 const endpoint = import.meta.env.VITE_SERVER_URL ?? `${location.protocol}//${location.hostname}:${SERVER_PORT}`;
 
 const renderer = new THREE.WebGLRenderer({ antialias: false }); // MSAA lives on the composer's HDR target
@@ -94,6 +99,28 @@ let knownLibrary = -1;
 let knownLineage: Lineage | undefined;
 /** The dividing individual the editor was opened for (one design per cyst). */
 let designedFor: Player | undefined;
+/** When our species evolved (the slice's ending: zoom out, then the species card), or 0. */
+let evolvedAt = 0;
+let evolvedCardShown = false;
+const EVOLVE_CINEMATIC = 5000; // ms of zooming out before the card
+/** Camera height that frames the whole pool for the stage-up zoom-out. */
+const STAGEUP_HEIGHT = 4200;
+
+/** A shared card link opens the card alone; Play drops the fragment and starts the game. */
+const sharedCard = location.hash.startsWith('#card=') ? decodeCard(location.hash.slice('#card='.length)) : undefined;
+if (sharedCard) {
+  hud.textContent = '';
+  showCard(cardScreen, sharedCard, { label: 'Play Panspermia', action: () => {
+    history.replaceState(null, '', location.pathname);
+    location.reload();
+  } });
+  await new Promise(() => {}); // park: a card viewer never joins a room
+}
+
+const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: GENE_NAMES[part.gene]! }));
+const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
+  name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
+});
 
 try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
@@ -105,9 +132,18 @@ try {
     extinctScreen.hidden = false;
     extinctScreen.querySelector('button')!.focus();
   });
-  extinctScreen.querySelector('button')!.addEventListener('click', () => {
+  const newSpecies = () => {
     extinctScreen.hidden = true;
+    evolvedAt = 0;
+    evolvedCardShown = false;
     room.send('newSpecies');
+  };
+  extinctScreen.querySelector('.found')!.addEventListener('click', newSpecies);
+  extinctScreen.querySelector('.show-card')!.addEventListener('click', () => {
+    const l = room.state.lineages.get(room.sessionId);
+    if (!l) return;
+    extinctScreen.hidden = true;
+    showCard(cardScreen, cardOf(l, 'extinct'), { label: 'Found a new species', action: newSpecies });
   });
   room.onMessage('designRefused', (reason: string) => (editor.isOpen ? editor.refused(reason) : say(`Design refused: ${reason}`)));
 
@@ -115,9 +151,7 @@ try {
   const lookOf = (id: string, p: Player): Look => {
     const l = room.state.lineages.get(id);
     if (!l) return { genome: p.genome, parts: defaultParts(p.genome), hue: hashId(id) };
-    const parts = p.genome === l.genome
-      ? [...l.parts].map((part) => ({ ...part.toJSON(), gene: GENE_NAMES[part.gene]! }))
-      : defaultParts(p.genome);
+    const parts = p.genome === l.genome ? partsOf(l) : defaultParts(p.genome);
     return { genome: p.genome, parts, hue: l.hue };
   };
 
@@ -233,12 +267,38 @@ try {
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
         self.cyst > 0 ? 'DIVIDING' : '',
       ].filter(Boolean).join(' · ');
-      hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome)}`
+      hud.textContent = `${lineage.name} · mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome)}`
         + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
         + ` · DNA ${Math.floor(lineage.dna)} · children ${lineage.children} · gen ${lineage.generation} · ${players.size} cell${players.size === 1 ? '' : 's'}`
         + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
+    } else hud.textContent = now < noticeUntil ? notice : ''; // extinct or evolved: no cell to report on
+
+    // The slice's ending: our species evolved. Zoom out to the whole pool (Spore's stage-up), then the card.
+    const ours = room.state.lineages.get(room.sessionId);
+    if (ours?.evolved && !evolvedAt) {
+      evolvedAt = now;
+      const subtitle = document.createElement('small');
+      subtitle.textContent = 'A new stage of life begins. Tier 2 arrives in a later update.';
+      stageup.replaceChildren(`${ours.name} evolved into eukaryotes`, subtitle);
+      stageup.classList.add('on');
     }
+    if (evolvedAt) {
+      camera.position.x *= 0.98;
+      camera.position.y *= 0.98;
+      camera.position.z += (STAGEUP_HEIGHT - camera.position.z) * 0.015;
+      if (!evolvedCardShown && now - evolvedAt > EVOLVE_CINEMATIC && ours) {
+        evolvedCardShown = true;
+        stageup.classList.remove('on');
+        showCard(cardScreen, cardOf(ours, 'evolved'), { label: 'Found a new species', action: newSpecies });
+      }
+    }
+
+    labels.update(players, room.sessionId, camera, (id) => {
+      const body = cells.get(id)?.body;
+      return body && { x: body.position.x, y: body.position.y, r: body.scale.x };
+    }, !editor.isOpen && !evolvedAt && !meteor.active);
+    labels.leaderboard(players, room.sessionId, !editor.isOpen && !evolvedAt);
 
     const focus = camera.position.z; // distance to the gameplay plane
     pool.update(time);

@@ -93,3 +93,5 @@ export const STARTER_CHILDREN = 2; // reserve lives of a new species
 export const CYST_TIME = 60; // s; when it runs out the cell hatches with its old design
 export const MAX_PARTS = 24; // placements per design
 export const MAX_CHILDREN = 9; // reserve cap
+/** Lifetime DNA a species must earn before it can evolve to the next tier (Spore's "Grow legs?"). */
+export const EVOLVE_DNA = 250;

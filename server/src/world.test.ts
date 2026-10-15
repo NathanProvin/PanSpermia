@@ -1,6 +1,6 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
-  CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EVOLVE_DNA, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
@@ -387,7 +387,7 @@ test('kills pay the killer DNA; deaths spend a child, then the species goes exti
   Object.assign(player, { mass: 40, health: 0.1 });
   const deaths = run(state, 0.2);
   expect(deaths).toEqual([{ id: 'p', by: 'k' }]);
-  expect(state.lineages.get('k')!.dna).toBeGreaterThanOrEqual(40 * KILL_DNA_SHARE);
+  expect(state.lineages.get('k')!.dna).toBeGreaterThan(40 * KILL_DNA_SHARE * 0.99); // the victim burned a little mass first
   expect(lineage.children).toBe(STARTER_CHILDREN - 1);
   expect(state.players.get('p')!.genome).toBe(lineage.genome);
 
@@ -418,7 +418,7 @@ test('reaching the cap starts a shielded division cyst; timing out hatches the o
 test('a design submission is validated, priced, refunds removed parts and hatches', () => {
   const { state, player, lineage } = species();
   const part = (gene: string, x = 1) => ({ gene, x, y: 0, angle: 0, scale: 1, group: 0 });
-  const design = (parts: unknown[], children = 0, hue = 0.5) => ({ parts, hue, children });
+  const design = (parts: unknown[], children = 0, hue = 0.5) => ({ parts, hue, children, name: 'Testus primus' });
   expect(submitDesign(state, 'p', design([]))).toBe('not dividing');
   player.cyst = CYST_TIME;
   lineage.dna = 50;
@@ -462,7 +462,7 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
   const { state, player, lineage } = species();
   player.cyst = CYST_TIME;
   lineage.dna = 100;
-  const draft = { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.2, children: 1 };
+  const draft = { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.2, children: 1, name: 'Draftus' };
   expect(submitDesign(state, 'p', draft, false)).toBeUndefined();
   expect(submitDesign(state, 'p', { ...draft, children: 99 }, false)).toBe('bad children'); // keeps the valid one
   expect(state.players.get('p')).toBe(player); // a draft doesn't hatch
@@ -470,4 +470,45 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
   expect([lineage.genome, lineage.hue, lineage.children, lineage.generation])
     .toEqual([GENES.flagellum.bit, 0.2, STARTER_CHILDREN + 1, 2]);
   expect(lineage.dna).toBe(100 - (GENES.flagellum.price - GENES.pili.price) - CHILD_PRICE);
+});
+
+// --- Names, kills, evolution ----------------------------------------------------------------------
+
+test('species names: generated, validated, carried by every individual', () => {
+  expect(cleanName('  Vibrio   magnus ')).toBe('Vibrio magnus');
+  expect(cleanName("Ö'stra-lis")).toBe("Ö'stra-lis");
+  for (const bad of ['x', '<script>', 'a'.repeat(30), '1abc', 42, null, 'ab\u0000c']) expect(cleanName(bad)).toBeUndefined();
+  for (let i = 0; i < 50; i++) expect(cleanName(randomSpeciesName())).toBeDefined();
+
+  const { state, player, lineage } = species();
+  expect(player.name).toBe(lineage.name);
+  player.cyst = CYST_TIME;
+  const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
+  expect(submitDesign(state, 'p', { parts: keep, hue: 0.1, children: 0, name: '<b>' })).toBe('bad name');
+  expect(submitDesign(state, 'p', { parts: keep, hue: 0.1, children: 0, name: 'Nova gens' })).toBeUndefined();
+  expect([lineage.name, state.players.get('p')!.name]).toEqual(['Nova gens', 'Nova gens']);
+});
+
+test('kills are counted for the killer species', () => {
+  const { state, player, lineage } = species();
+  foundSpecies(state, 'k');
+  Object.assign(state.players.get('k')!, { x: player.x + 10, y: player.y, genome: GENES.t6ss.bit, graceUntil: 0 });
+  player.health = 0.1;
+  run(state, 0.2);
+  expect(state.lineages.get('k')!.kills).toBe(1);
+  expect(lineage.kills).toBe(0);
+});
+
+test('evolving needs the lifetime DNA, ends the slice for that species, and can be refounded', () => {
+  const { state, player, lineage } = species();
+  player.cyst = CYST_TIME;
+  const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
+  const evolve = { parts: keep, hue: 0.1, children: 0, name: lineage.name, evolve: true };
+  lineage.lifetimeDna = EVOLVE_DNA - 1;
+  expect(submitDesign(state, 'p', evolve)).toBe('not ready to evolve');
+  submitDesign(state, 'p', evolve, false); // a draft never evolves on timeout
+  lineage.lifetimeDna = EVOLVE_DNA;
+  expect(submitDesign(state, 'p', evolve)).toBeUndefined();
+  expect(lineage.evolved).toBe(true);
+  expect(state.players.has('p')).toBe(false);
 });

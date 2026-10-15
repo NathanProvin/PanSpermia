@@ -1,6 +1,8 @@
 import { schema, t, type SchemaType } from '@colyseus/schema';
 
 export const Player = schema({
+  /** Species name, shown above the cell and on the leaderboard (a copy of the lineage's, or the bot species'). */
+  name: t.string().default(''),
   x: t.number(),
   y: t.number(),
   /** Swim direction, radians. Flagellated cells keep it between tumbles. */
@@ -88,6 +90,7 @@ export type Part = SchemaType<typeof Part>;
 
 /** A human player's species across individuals: design, unlocked parts, DNA, reserve lives. */
 export const Lineage = schema({
+  name: t.string(),
   /** Copy counts of the current design (what each new individual expresses). */
   genome: t.uint32(),
   parts: t.array(Part),
@@ -98,6 +101,9 @@ export const Lineage = schema({
   lifetimeDna: t.number(),
   children: t.uint8(),
   generation: t.uint16().default(1),
+  kills: t.uint16().default(0),
+  /** The species evolved past tier 1: the slice's happy ending (P5); its cells left the pool. */
+  evolved: t.boolean().default(false),
   /** No individual left: the species is extinct (game over until a new species). */
   extinct: t.boolean().default(false),
 }, 'Lineage');

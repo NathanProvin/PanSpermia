@@ -1,5 +1,5 @@
 import {
-  CHILD_PRICE, GENES, GENE_NAMES, type Gene, type Lineage, MAX_CHILDREN, MAX_PARTS, type Placement, copiesOf, priceOf,
+  CHILD_PRICE, EVOLVE_DNA, GENES, GENE_NAMES, NAME_MAX, cleanName, type Gene, type Lineage, MAX_CHILDREN, MAX_PARTS, type Placement, copiesOf, priceOf,
   upkeepOf, withCopies,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -14,7 +14,7 @@ import { createCellView } from './scene/cells.ts';
 type Symmetry = 'axial' | 'radial';
 /** One placement as the player made it: a master part plus how it repeats. */
 interface Group { gene: Gene; x: number; y: number; angle: number; scale: number; repeat: 'single' | 'axial' | 'radial'; n: number }
-export interface Design { parts: Placement[]; hue: number; children: number }
+export interface Design { parts: Placement[]; hue: number; children: number; name: string; evolve?: boolean }
 
 const VIEW_HALF = 2.4; // cell radii visible above and below the centre
 const AXIS_SNAP = 0.12; // radii: this close to the axis (or the centre) is "on" it
@@ -92,6 +92,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     <section class="panel" id="palette" aria-label="Parts"><h2>Parts</h2><div class="parts"></div></section>
     <section class="panel" id="editor-side" aria-label="Design">
       <p class="timer" role="timer"></p>
+      <label>Species name <input type="text" class="name" maxlength="${NAME_MAX}" autocomplete="off" spellcheck="false"></label>
       <p class="dna"></p>
       <fieldset><legend>Symmetry</legend>
         <button type="button" data-sym="axial" aria-pressed="true">Axial</button>
@@ -106,10 +107,17 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       <p class="stats"></p>
       <p class="message" role="status"></p>
       <button type="button" class="hatch">Divide</button>
+      <label class="evolution">Evolution <progress max="${EVOLVE_DNA}"></progress></label>
+      <button type="button" class="evolve" title="Earn ${EVOLVE_DNA} lifetime DNA to evolve">Evolve</button>
     </section>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
   const palette = $<HTMLElement>('.parts');
   const hueInput = $<HTMLInputElement>('.hue');
+  const nameInput = $<HTMLInputElement>('.name');
+  const evolveButton = $<HTMLButtonElement>('.evolve');
+  let name = '';
+  /** Evolving is final for this tier: the first click arms the button, the second commits. */
+  let evolveArmed = false;
 
   let lineage: Lineage | undefined;
   let groups: Group[] = [];
@@ -197,10 +205,16 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${upkeepOf(genome).toFixed(3)} mass/s`;
     $('.message').textContent = message;
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) b.setAttribute('aria-pressed', String(b.dataset.sym === symmetry));
-    $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0;
+    const named = cleanName(name);
+    if (!named && !message) $('.message').textContent = 'Name: 2–24 letters, spaces, hyphens or apostrophes.';
+    $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
+    const ready = lineage!.lifetimeDna >= EVOLVE_DNA;
+    $<HTMLProgressElement>('.evolution progress').value = Math.min(EVOLVE_DNA, lineage!.lifetimeDna);
+    evolveButton.disabled = submitted || left < 0 || !named || !ready;
+    evolveButton.textContent = evolveArmed ? 'Evolve to eukaryote? Click again' : ready ? 'Evolve' : `Evolve (${Math.floor(lineage!.lifetimeDna)}/${EVOLVE_DNA} DNA)`;
     // Keep the server's draft current (debounced), so the timer running out keeps these edits.
     clearTimeout(draftTimer);
-    if (!submitted && left >= 0 && !drag) draftTimer = setTimeout(() => submit({ parts: placementsOf(groups), hue, children }, false), 250);
+    if (!submitted && left >= 0 && !drag && named) draftTimer = setTimeout(() => submit(design(), false), 250);
   };
 
   // Palette: press to drag a new part; a press released without dragging places it at its default spot.
@@ -270,14 +284,21 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     else children++;
     render();
   });
-  const send = () => {
-    if (submitted || !lineage || lineage.dna - cost(groups) < 0) return;
+  const design = (): Design => ({ parts: placementsOf(groups), hue, children, name: cleanName(name) ?? '' });
+  const send = (evolve = false) => {
+    if (submitted || !lineage || lineage.dna - cost(groups) < 0 || !cleanName(name)) return;
     submitted = true;
     clearTimeout(draftTimer);
-    submit({ parts: placementsOf(groups), hue, children }, true);
+    submit({ ...design(), evolve }, true);
     render();
   };
-  $('.hatch').addEventListener('click', send);
+  $('.hatch').addEventListener('click', () => send());
+  evolveButton.addEventListener('click', () => {
+    if (evolveArmed) return send(true);
+    evolveArmed = true;
+    render();
+  });
+  nameInput.addEventListener('input', () => { name = nameInput.value; render(); });
 
   return {
     get isOpen() { return !root.hidden; },
@@ -288,6 +309,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       children = 0;
       hue = l.hue;
       hueInput.value = String(hue);
+      name = l.name;
+      nameInput.value = name;
+      evolveArmed = false;
       submitted = false;
       message = '';
       drag = undefined;

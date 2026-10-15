@@ -2,7 +2,7 @@
 // so the headless balancing sim (P3f) can drive them directly.
 import {
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
-  STARTER_CHILDREN, STARTER_LIBRARY, copiesOf, defaultParts, priceOf, stack, withCopies,
+  EVOLVE_DNA, STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
   PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
@@ -52,7 +52,9 @@ function earn(state: PoolState, id: string, dna: number) {
 
 /** A player founds a new species: starter design, library and reserve, first individual. */
 export function foundSpecies(state: PoolState, id: string) {
+  const name = randomSpeciesName();
   state.lineages.set(id, new Lineage({
+    name,
     genome: STARTER_GENOME,
     parts: defaultParts(STARTER_GENOME).map((p) => new Part({ ...p, gene: GENES[p.gene].index })),
     hue: Math.random(),
@@ -61,7 +63,9 @@ export function foundSpecies(state: PoolState, id: string) {
     lifetimeDna: 0,
     children: STARTER_CHILDREN,
   }));
-  state.players.set(id, spawnPlayer(state.tick));
+  const first = spawnPlayer(state.tick);
+  first.name = name;
+  state.players.set(id, first);
 }
 
 /** Fission done: a child with the lineage's current design takes over where the parent divided. */
@@ -72,11 +76,11 @@ export function hatch(state: PoolState, id: string) {
   drafts.delete(l);
   l.generation++;
   const child = spawnPlayer(state.tick);
-  Object.assign(child, { x: parent.x, y: parent.y, heading: parent.heading, genome: l.genome });
+  Object.assign(child, { x: parent.x, y: parent.y, heading: parent.heading, genome: l.genome, name: l.name });
   state.players.set(id, child);
 }
 
-interface Design { genome: number; placed: Part[]; hue: number; children: number; cost: number }
+interface Design { genome: number; placed: Part[]; hue: number; children: number; name: string; evolve: boolean; cost: number }
 /** The latest valid draft per lineage, applied if the cyst times out (server-only, never synced). */
 const drafts = new WeakMap<Lineage, Design>();
 
@@ -86,7 +90,11 @@ const drafts = new WeakMap<Lineage, Design>();
  */
 function parseDesign(l: Lineage, design: unknown): Design | string {
   if (typeof design !== 'object' || design === null) return 'bad design';
-  const { parts, hue, children } = design as Record<string, unknown>;
+  const { parts, hue, children, name: rawName, evolve = false } = design as Record<string, unknown>;
+  const name = cleanName(rawName);
+  if (!name) return 'bad name';
+  if (typeof evolve !== 'boolean') return 'bad evolve';
+  if (evolve && l.lifetimeDna < EVOLVE_DNA) return 'not ready to evolve';
   if (!Array.isArray(parts) || parts.length > MAX_PARTS) return 'bad parts';
   if (typeof hue !== 'number' || !(hue >= 0 && hue < 1)) return 'bad hue';
   if (typeof children !== 'number' || !Number.isInteger(children) || children < 0 || l.children + children > MAX_CHILDREN) {
@@ -111,7 +119,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   }
   const cost = priceOf(genome) - priceOf(l.genome) + children * CHILD_PRICE;
   if (cost > l.dna) return 'not enough DNA';
-  return { genome, placed, hue, children, cost };
+  return { genome, placed, hue, children, name, evolve, cost };
 }
 
 /**
@@ -125,11 +133,15 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
   const d = parseDesign(l, design);
   if (typeof d === 'string') return d;
   if (!final) {
-    drafts.set(l, d);
+    drafts.set(l, { ...d, evolve: false }); // evolving is a deliberate click, never a timeout
     return undefined;
   }
   apply(l, d);
-  hatch(state, id);
+  if (d.evolve) {
+    // The slice's ending: this design is the species' last tier-1 form; its cells leave the pool.
+    l.evolved = true;
+    state.players.delete(id);
+  } else hatch(state, id);
   return undefined;
 }
 
@@ -139,6 +151,7 @@ function apply(l: Lineage, d: Design) {
   l.parts.clear();
   l.parts.push(...d.placed);
   l.hue = d.hue;
+  l.name = d.name;
   l.children += d.children;
 }
 
@@ -373,7 +386,11 @@ export function stepWorld(state: PoolState): Death[] {
     for (let k = Math.floor((p.mass * DEBRIS_SHARE) / DEBRIS_MASS); k > 0; k--) spill(NutrientKind.debris);
     for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
     if (p.infection > 0) for (let k = 0; k < PHAGE_BURST; k++) spill(NutrientKind.phage);
-    if (death.by) earn(state, death.by, p.mass * KILL_DNA_SHARE);
+    if (death.by) {
+      earn(state, death.by, p.mass * KILL_DNA_SHARE);
+      const killer = state.lineages.get(death.by);
+      if (killer) killer.kills++;
+    }
     const l = state.lineages.get(death.id);
     if (l && l.children === 0) {
       l.extinct = death.extinct = true;
@@ -384,6 +401,7 @@ export function stepWorld(state: PoolState): Death[] {
     if (l) {
       l.children--;
       born.genome = l.genome;
+      born.name = l.name;
     }
     state.players.set(death.id, born);
   }

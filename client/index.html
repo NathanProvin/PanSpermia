@@ -35,14 +35,50 @@
       #editor .short { color: #ff8a7a; }
       #editor .hatch { font-size: 16px; padding: 10px; background: rgb(159 231 224 / 0.25); }
       @media (max-width: 640px) { #editor .panel { width: 46%; } }
+      #editor input[type="text"] { font: inherit; color: inherit; background: rgb(159 231 224 / 0.08);
+        border: 1px solid rgb(159 231 224 / 0.35); border-radius: 6px; padding: 6px 8px; }
+      #editor progress { width: 100%; accent-color: #9fe7e0; }
+      #editor .evolve:not(:disabled) { background: rgb(255 214 120 / 0.25); border-color: #ffd678; color: #ffe6a8; }
+      #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      #labels div { position: absolute; left: 0; top: 0; font: 12px system-ui, sans-serif; color: rgb(220 245 240 / 0.8);
+        white-space: nowrap; text-shadow: 0 1px 3px #000; will-change: transform; }
+      #labels .self { color: #fff; font-weight: 600; }
+      #leaders { position: fixed; top: 12px; right: 16px; margin: 0; padding: 8px 12px 8px 30px; min-width: 150px;
+        font: 13px system-ui, sans-serif; color: #9fe7e0; background: rgb(2 18 26 / 0.55); border-radius: 8px; pointer-events: none; }
+      #leaders li { white-space: nowrap; }
+      #leaders .self { color: #fff; font-weight: 600; }
+      #stageup { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none;
+        font: 600 34px system-ui, sans-serif; color: #ffe6a8; text-shadow: 0 2px 12px #000; opacity: 0; transition: opacity 1.5s; }
+      #stageup small { display: block; font-size: 17px; font-weight: 400; color: #9fe7e0; margin-top: 8px; }
+      #stageup.on { opacity: 1; }
+      #card { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; padding: 16px;
+        background: rgb(2 18 26 / 0.8); font: 15px system-ui, sans-serif; color: #9fe7e0; }
+      #card[hidden] { display: none; }
+      #card img { width: min(900px, 92vw); border-radius: 12px; box-shadow: 0 8px 40px #000; }
+      #card .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+      #card button, #card a { font: inherit; color: inherit; text-decoration: none; padding: 9px 16px; cursor: pointer;
+        border: 1px solid #9fe7e0; border-radius: 6px; background: transparent; }
+      #card button:focus-visible, #card a:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     </style>
   </head>
   <body>
     <div id="hud" role="status">Connecting…</div>
+    <div id="labels" aria-hidden="true"></div>
+    <ol id="leaders" aria-label="Biggest cells"></ol>
     <div id="editor" hidden></div>
+    <div id="stageup" role="status"></div>
+    <div id="card" role="dialog" aria-label="Species card" hidden>
+      <img alt="">
+      <div class="actions">
+        <a class="download" download="species-card.png">Download image</a>
+        <button type="button" class="copy">Copy link</button>
+        <button type="button" class="primary"></button>
+      </div>
+    </div>
     <div id="extinct" role="alertdialog" aria-labelledby="extinct-why" hidden>
       <p id="extinct-why"></p>
-      <button type="button">Found a new species</button>
+      <button type="button" class="found">Found a new species</button>
+      <button type="button" class="show-card">Species card</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

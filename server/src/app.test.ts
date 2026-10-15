@@ -220,7 +220,7 @@ test('a draft sent over the wire is what a timed-out division hatches with', asy
   authority.players.get(room.sessionId)!.mass = MASS_CAP; // the next tick starts the division cyst
   await vi.waitFor(() => expect(authority.players.get(room.sessionId)!.cyst).toBeGreaterThan(0));
 
-  room.send('draft', { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.3, children: 1 });
+  room.send('draft', { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.3, children: 1, name: 'Wire draft' });
   await sleep(150);
   authority.players.get(room.sessionId)!.cyst = 0.1; // fast-forward to the editor timing out
   await vi.waitFor(() => expect(lineage.generation).toBe(2));
