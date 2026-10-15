@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node --watch src/index.ts --dev",
     "start": "node src/index.ts",
+    "balance": "node src/balance.ts",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

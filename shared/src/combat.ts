@@ -26,7 +26,7 @@ export const cloudRadius = (kind: ToxinKind, age: number) => {
 export const cloudDps = (kind: ToxinKind, age: number) => TOXINS[kind]!.dps * (1 - fraction(kind, age));
 
 /** T6SS: a contact-dependent molecular syringe; damage per second while touching. */
-export const T6SS_DPS = 20;
+export const T6SS_DPS = 12;
 /** Health regenerates only this long after the last hit. */
 export const REGEN_DELAY = 3; // s
 export const ENDOSPORE_TIME = 5; // s dormant: invulnerable, no swimming, eating or metabolism

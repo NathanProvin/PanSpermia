@@ -155,3 +155,8 @@ Decision: fragments, plasmids and phages are new `NutrientKind`s in the existing
 Why: zero new sync/render/drift code paths; ~30 phages + a few plasmids cost nothing extra on the wire.
 Numbers (first guesses for P3f): TRANSFORM_CHANCE 0.5, PLASMID_RATE 1/15 s, PHAGE_RATE 0.5/s, clearance 200, latent 5 s × 10 dps, burst 8, capsule blocks 0.6. Gained genes show as a client-side genome diff ("New gene: …"), no server message.
 Note: `Encoder.BUFFER_SIZE` raised to NUTRIENT_CAP·24 bytes: the join snapshot of ~1000 packets overflowed the 8 KB default (warning since P3b).
+
+## 2026-10-15 — P3f bots = players with a brain
+Decision: bots are ordinary `Player` entries (ids `botN`) driven by `server/src/bots.ts` (pure functions over PoolState + a brain map): think every 4 ticks (5 Hz), then `stepCell` + `secrete` exactly like a human input. Species catalog is shared data (`BOT_SPECIES`, genes + archetype), assigned round-robin; dead bots are reborn as their own species (genes gained by transfer are lost). Rooms fill to BOT_FILL (30) cells; `bots` is an explicit room option (tests run with 0).
+Why: one rule set means the headless sim's numbers transfer to humans; the same functions run in the room and in `server/src/balance.ts`.
+Tuning pass 1 (20-min runs, 30 bots): before — 28.6 kills/min, lives ~1 min, Murus armatus (wall + T6SS) dominant, seep camping gave ~1.4 mass/s (5× design). After T6SS 20→12, SEEP_RATE 1.5→0.8, hunters chase only smaller prey: ~15 deaths/min, lives ~2 min, time to cap 1.6–2.6 min for the cells that make it. Cap counted at mass ≥ MASS_CAP − 1 (metabolism shaves the clamp in the same tick; P4's mate call must use the same rule).

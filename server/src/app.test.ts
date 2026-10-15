@@ -9,7 +9,7 @@ import { createServer } from './app.ts';
 import type { PoolRoom } from './rooms/PoolRoom.ts';
 
 const PORT = 2599;
-const server = createServer(); // production config: no dev cheats
+const server = createServer({ bots: 0 }); // production config (no dev cheats), minus bots so counts are exact
 const sdk = new Client(`http://localhost:${PORT}`);
 const join = (): Promise<Room<any, PoolState>> => sdk.joinOrCreate(ROOM_NAME, {}, PoolState);
 const serverRoom = (room: Room) => matchMaker.getLocalRoomById(room.roomId) as PoolRoom;

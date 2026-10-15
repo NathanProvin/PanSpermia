@@ -46,7 +46,7 @@ export const HEALTH_REGEN = 5;
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
 export const SEEP_COUNT = 7;
-export const SEEP_RATE = 1.5; // packets/s per seep
+export const SEEP_RATE = 0.8; // packets/s per seep
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
 export const BACKGROUND_RATE = 6; // packets/s scattered over the whole pool
@@ -74,3 +74,6 @@ export const PHAGE_LATENT = 5; // s of damage per infecting phage
 export const PHAGE_DPS = 10;
 export const PHAGE_BURST = 8; // phages released by a cell dying infected
 export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors a phage binds to
+
+/** Bots top a room up to this many cells (humans + bots); humans displace them as they join. */
+export const BOT_FILL = 30;
