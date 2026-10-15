@@ -7,10 +7,20 @@
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #02121a; }
       #hud { position: fixed; top: 12px; left: 16px; font: 14px system-ui, sans-serif; color: #9fe7e0; pointer-events: none; }
+      #extinct { position: fixed; inset: 0; display: grid; place-content: center; gap: 16px; text-align: center;
+        background: rgb(2 18 26 / 0.7); font: 18px system-ui, sans-serif; color: #9fe7e0; }
+      #extinct[hidden] { display: none; }
+      #extinct button { justify-self: center; font: inherit; padding: 10px 20px; border: 1px solid #9fe7e0; border-radius: 6px;
+        background: transparent; color: inherit; cursor: pointer; }
+      #extinct button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     </style>
   </head>
   <body>
     <div id="hud" role="status">Connecting…</div>
+    <div id="extinct" role="alertdialog" aria-labelledby="extinct-why" hidden>
+      <p id="extinct-why"></p>
+      <button type="button">Found a new species</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

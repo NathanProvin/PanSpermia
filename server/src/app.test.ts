@@ -30,7 +30,9 @@ test('clients share one pool room and see each other spawn and leave', async () 
   await vi.waitFor(() => expect(a.state.players.size).toBe(2));
   for (const p of a.state.players.values()) {
     expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(WORLD_RADIUS);
-    expect(p.mass).toBeCloseTo(SPAWN_MASS, 1); // a tick of metabolism may already have run
+    // A tick of metabolism may already have run, or a spawn inside a plume may have absorbed a packet.
+    expect(p.mass).toBeGreaterThan(SPAWN_MASS - 0.1);
+    expect(p.mass).toBeLessThan(SPAWN_MASS + 5);
     expect(p.genome).toBe(STARTER_GENOME);
   }
   expect(a.state.seeps.length).toBe(SEEP_COUNT);
@@ -196,7 +198,7 @@ test('a starved player is told why and respawns as a fresh instance', async () =
   serverPlayer.mass = MIN_MASS;
   serverPlayer.health = 0.01;
 
-  expect(await died).toEqual({ cause: 'starvation' });
+  expect(await died).toEqual({ cause: 'starvation', extinct: false });
   const reborn = await readded;
   expect(reborn.mass).toBeCloseTo(SPAWN_MASS, 1);
   expect(reborn.health).toBe(HEALTH_MAX);

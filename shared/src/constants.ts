@@ -79,3 +79,17 @@ export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors 
 export const BOT_FILL = 30;
 /** New cells can't be hurt or infected, and bots don't hunt them, for this long (covers the meteor intro). */
 export const SPAWN_GRACE = 5; // s
+
+// Extra flagella add thrust with diminishing returns: ×1, ×1.2, ×1.3 on SWIM_FLAGELLUM.
+export const FLAGELLUM_STACK = 0.4;
+
+// Lineage (P4). DNA buys parts and children in the editor; it comes from food, kills and DNA packets.
+export const DNA_PER_MASS = 1; // per unit of mass absorbed
+export const KILL_DNA_SHARE = 0.25; // of the victim's mass, to the killer
+export const PACKET_DNA = 3; // per DNA fragment or plasmid absorbed
+export const CHILD_PRICE = 30; // DNA per extra child (fixed)
+export const STARTER_CHILDREN = 2; // reserve lives of a new species
+/** Reaching the size cap starts binary fission: a shielded division cyst while the editor is open. */
+export const CYST_TIME = 60; // s; when it runs out the cell hatches with its old design
+export const MAX_PARTS = 24; // placements per design
+export const MAX_CHILDREN = 9; // reserve cap

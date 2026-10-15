@@ -2,7 +2,7 @@
 //   npm run balance -w server -- [minutes=20] [bots=30]
 // Targets (ROADMAP "Numbers"): ~4 min from spawn to the tier-1 cap; kills and phages should matter
 // without wiping the pool; no species should dominate or starve out.
-import { BOT_SPECIES, GENE_NAMES, MASS_CAP, PoolState, TICK_RATE, genomeOf, hasGene } from '@panspermia/shared';
+import { BOT_SPECIES, MASS_CAP, PoolState, TICK_RATE } from '@panspermia/shared';
 import { type Bots, fillBots, rebirth, stepBots } from './bots.ts';
 import { PHAGE_KILLER, initPool, stepWorld } from './world.ts';
 
@@ -16,15 +16,12 @@ fillBots(state, bots, count);
 
 const rows = BOT_SPECIES.map((s) => ({
   species: s.name, archetype: s.archetype, lives: 0, kills: 0, lysed: 0, phage: 0, starved: 0,
-  capped: 0, capMin: 0, lifeMin: 0, genesGained: 0, massNow: 0, topKiller: '',
+  capped: 0, capMin: 0, lifeMin: 0, massNow: 0, topKiller: '',
 }));
 const killedBy = BOT_SPECIES.map(() => BOT_SPECIES.map(() => 0)); // [victim][killer]
 const speciesOf = (id: string) => bots.get(id)!.species;
 for (const b of bots.values()) rows[b.species]!.lives++;
 const cappedAt = new Map<string, number>(); // id → tick its current life hit the cap
-const gained = new Map<string, number>(); // id → genes picked up this life
-const extraGenes = (genome: number, species: number) =>
-  GENE_NAMES.filter((g) => hasGene(genome & ~genomeOf(BOT_SPECIES[species]!.genes), g)).length;
 const lifeMin = new Map<number, number[]>(); // species → lifetimes, minutes
 let infections = 0;
 
@@ -47,18 +44,15 @@ for (let t = 0; t < ticks; t++) {
         killedBy[s]![speciesOf(by)]!++;
       }
     } else row.starved++;
-    row.genesGained += gained.get(id) ?? 0;
     const life = (state.tick - bots.get(id)!.born) / TICK_RATE / 60;
     lifeMin.set(s, [...(lifeMin.get(s) ?? []), life]);
     cappedAt.delete(id);
-    gained.delete(id);
     row.lives++;
   }
   rebirth(state, bots, deaths);
 
   for (const [id, b] of bots) {
     const p = state.players.get(id)!;
-    gained.set(id, extraGenes(p.genome, b.species));
     if (p.mass >= MASS_CAP - 1 && !cappedAt.has(id)) { // metabolism shaves the clamp within the same tick
       cappedAt.set(id, state.tick);
       const row = rows[b.species]!;

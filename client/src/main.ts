@@ -1,6 +1,6 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, ACTION_TOXIN, GENES, GENE_NAMES, Input, PoolState, ROOM_NAME, SERVER_PORT, TICK_DT, TOXINS, hasGene,
+  ACTION_SPORE, ACTION_TOXIN, CHILD_PRICE, GENES, GENE_NAMES, type Lineage, MAX_CHILDREN, type Player, copiesOf, Input, PoolState, ROOM_NAME, SERVER_PORT, TICK_DT, TOXINS, hasGene,
   healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -13,6 +13,7 @@ import { createPool } from './scene/pool.ts';
 import { createPost } from './scene/post.ts';
 
 const hud = document.getElementById('hud')!;
+const extinctScreen = document.getElementById('extinct')!;
 const endpoint = import.meta.env.VITE_SERVER_URL ?? `${location.protocol}//${location.hostname}:${SERVER_PORT}`;
 
 const renderer = new THREE.WebGLRenderer({ antialias: false }); // MSAA lives on the composer's HDR target
@@ -86,16 +87,27 @@ const say = (text: string) => {
   notice = text;
   noticeUntil = performance.now() + 4000;
 };
-/** Genome last seen on our cell, to announce genes picked up from DNA (P4 turns this into the editor). */
-let knownGenome = -1;
+/** Library last seen on our lineage, to announce parts unlocked by gene transfer. */
+let knownLibrary = -1;
+let knownLineage: Lineage | undefined;
+/** The dividing individual we already answered (one design per cyst). */
+let designedFor: Player | undefined;
 
 try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
   room.onLeave(() => { hud.textContent = 'Disconnected'; });
-  room.onMessage('died', ({ cause }: { cause: string }) => {
-    const how = { starvation: 'You starved', phage: 'Phages burst you open' }[cause] ?? 'Lysed by a rival';
-    say(`${how}. A new cell drifts in…`);
+  room.onMessage('died', ({ cause, killer, extinct }: { cause: string; killer?: string; extinct: boolean }) => {
+    const how = { starvation: 'You starved', phage: 'Phages burst you open' }[cause] ?? `Lysed by ${killer}`;
+    if (!extinct) return say(`${how}. Your next child takes over…`);
+    extinctScreen.querySelector('p')!.textContent = `${how}. No children were left: your species is extinct.`;
+    extinctScreen.hidden = false;
+    extinctScreen.querySelector('button')!.focus();
   });
+  extinctScreen.querySelector('button')!.addEventListener('click', () => {
+    extinctScreen.hidden = true;
+    room.send('newSpecies');
+  });
+  room.onMessage('designRefused', (reason: string) => say(`Design refused: ${reason}`));
 
   const input = room.input({ type: Input, mode: 'reliable' });
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
@@ -113,7 +125,6 @@ try {
   let me: Reconciler | undefined;
   callbacks.onAdd('players', (player, id) => {
     if (id !== room.sessionId) return;
-    knownGenome = -1; // a new individual: its starter genes aren't news
     if (!introPlayed) {
       introPlayed = true;
       meteor.start();
@@ -133,13 +144,15 @@ try {
 
   if (import.meta.env.DEV) {
     // Dev cheats (server must run with --dev, else it kicks us): these keys toggle genes in catalog
-    // order; P drops a plasmid, V a phage, onto the cell.
+    // order; P drops a plasmid, V a phage, onto the cell; G grows to the cap, K kills the cell.
     const DEV_KEYS = '1234567890-=[';
     addEventListener('keydown', (e) => {
       const gene = GENE_NAMES[DEV_KEYS.indexOf(e.key)];
       if (gene) room.send('dev:toggleGene', gene);
       if (e.key === 'p') room.send('dev:spawn', 'plasmid');
       if (e.key === 'v') room.send('dev:spawn', 'phage');
+      if (e.key === 'g') room.send('dev:grow');
+      if (e.key === 'k') room.send('dev:die');
     });
   }
 
@@ -149,7 +162,8 @@ try {
   renderer.setAnimationLoop((now) => {
     // Send the due inputs before reading any predicted value (see Predict.tick).
     for (let due = predict.tick(now); due > 0; due--) {
-      const steer = meteor.active ? 0 : 1; // the hatchling waits for the intro to end
+      // The hatchling waits for the intro; a dividing cell can't act (the server ignores it too).
+      const steer = meteor.active || (room.state.players.get(room.sessionId)?.cyst ?? 0) > 0 ? 0 : 1;
       input.data.dirX = (pointer.x / throttleScale()) * steer;
       input.data.dirY = (pointer.y / throttleScale()) * steer;
       input.data.actions = takeActions() * steer;
@@ -169,7 +183,7 @@ try {
 
     cells.update(players, room.sessionId, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
-      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'),
+      tumble: predict.value(p, 'tumble'), spore: Math.max(predict.value(p, 'spore'), p.cyst), // cyst: husk until P4c
     }));
     const self = players.get(room.sessionId);
     const selfMesh = cells.get(room.sessionId);
@@ -177,24 +191,40 @@ try {
       // Follow the cell; zoom out as it grows.
       const targetZ = 140 + 12 * radiusOf(self.mass); // spawn ≈ 290, cap ≈ 620
       camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
-      const { hatch, shake } = meteor.update(dt, time, camera.position.z, selfMesh.position.x, selfMesh.position.y);
-      selfMesh.scale.multiplyScalar(hatch);
-      camera.position.x += (Math.random() - 0.5) * shake;
-      camera.position.y += (Math.random() - 0.5) * shake;
-      if (knownGenome >= 0 && self.genome & ~knownGenome) {
-        const gained = GENE_NAMES.filter((g) => hasGene(self.genome & ~knownGenome, g)).map((g) => GENES[g].label);
-        say(`New gene: ${gained.join(', ')}`);
+    }
+    // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
+    const impact = selfMesh?.position ?? camera.position;
+    const { hatch, shake } = meteor.update(dt, time, camera.position.z, impact.x, impact.y);
+    selfMesh?.scale.multiplyScalar(hatch);
+    camera.position.x += (Math.random() - 0.5) * shake;
+    camera.position.y += (Math.random() - 0.5) * shake;
+    if (self && selfMesh) {
+      const lineage = room.state.lineages.get(room.sessionId)!;
+      if (lineage !== knownLineage) [knownLineage, knownLibrary] = [lineage, lineage.library]; // a new species
+      if (lineage.library & ~knownLibrary) {
+        const found = GENE_NAMES.filter((g) => hasGene(lineage.library & ~knownLibrary, g)).map((g) => GENES[g].label);
+        say(`Part unlocked: ${found.join(', ')}`);
       }
-      knownGenome = self.genome;
-      const genes = GENE_NAMES.filter((g) => hasGene(self.genome, g)).map((g) => GENES[g].label).join(', ') || 'no genes';
+      knownLibrary = lineage.library;
+      if (self.cyst > 0 && designedFor !== self) {
+        // ponytail: stub until the P4b editor — keep the design, spend spare DNA on children.
+        designedFor = self;
+        const parts = [...lineage.parts].map((p) => ({ gene: GENE_NAMES[p.gene], x: p.x, y: p.y, angle: p.angle, scale: p.scale }));
+        const children = Math.min(MAX_CHILDREN - lineage.children, Math.floor(lineage.dna / CHILD_PRICE));
+        room.send('design', { parts, hue: lineage.hue, children });
+      }
+      const genes = GENE_NAMES.filter((g) => hasGene(self.genome, g))
+        .map((g) => GENES[g].label + (copiesOf(self.genome, g) > 1 ? ` ×${copiesOf(self.genome, g)}` : '')).join(', ') || 'no genes';
       const ready = (s: number) => (s > 0 ? `${s.toFixed(1)}s` : 'ready');
       const abilities = [
         TOXINS.some((t) => hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
         hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
+        self.cyst > 0 ? 'DIVIDING' : '',
       ].filter(Boolean).join(' · ');
       hud.textContent = `mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome)}`
-        + (abilities ? ` · ${abilities}` : '') + ` · ${genes} · ${players.size} cell${players.size === 1 ? '' : 's'}`
+        + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
+        + ` · DNA ${Math.floor(lineage.dna)} · children ${lineage.children} · gen ${lineage.generation} · ${players.size} cell${players.size === 1 ? '' : 's'}`
         + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
     }

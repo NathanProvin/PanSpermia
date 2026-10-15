@@ -1,6 +1,6 @@
 // Hand-made tier-1 bot species: a genome plus a behaviour archetype. Shared so clients can name them
 // (death screen, P4) and the headless balancing sim reads the same catalog as the server.
-import { GENES, type Gene } from './genes.ts';
+import type { Gene } from './genes.ts';
 
 /**
  * grazer: feeds, dodges armed cells. hunter: chases smaller cells, attacks in range.
@@ -22,5 +22,3 @@ export const BOT_SPECIES: readonly Species[] = [
   { name: 'Fuga timida', archetype: 'coward', genes: ['flagellum', 'endospore', 'capsule'] },
   { name: 'Grex acidus', archetype: 'swarm', genes: ['pili', 'poreFormer', 'transporters'] },
 ];
-
-export const genomeOf = (genes: readonly Gene[]) => genes.reduce((g, gene) => g | GENES[gene].bit, 0);

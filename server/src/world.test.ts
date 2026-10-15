@@ -1,13 +1,22 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
-  NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
+  CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  STARTER_LIBRARY, copiesOf, stack, NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
-  PHAGE_KILLER, initPool, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf,
+  PHAGE_KILLER, foundSpecies, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf,
 } from './world.ts';
 
+/** A human species 'p' with its first individual, unshielded so tests can hurt it. */
+const species = () => {
+  const state = new PoolState();
+  foundSpecies(state, 'p');
+  const player = state.players.get('p')!;
+  player.graceUntil = 0;
+  return { state, player, lineage: state.lineages.get('p')! };
+};
 const worldWith = (player = spawnPlayer()) => {
   const state = new PoolState();
   state.players.set('p', player);
@@ -255,25 +264,27 @@ test('dead cells spill one DNA fragment per expressed gene', () => {
   Object.assign(player, { x: 0, y: 0, genome: GENES.flagellum.bit | GENES.t6ss.bit, health: -1 });
   stepWorld(state);
   expect(ofKind(state, NutrientKind.fragment).map((n) => n.gene).sort()).toEqual([GENES.flagellum.bit, GENES.t6ss.bit]);
-  expect(ofKind(state, NutrientKind.phage)).toEqual([]); // not infected
+  // Not infected: no phages burst here (wild ones may spawn elsewhere in the pool).
+  expect(ofKind(state, NutrientKind.phage).filter((n) => Math.hypot(n.x0, n.y0) < 50)).toEqual([]);
 });
 
-test('DNA is not food; plasmids always add their gene, fragments sometimes do', () => {
+test('DNA is not food; plasmids always unlock their part, fragments sometimes do; both pay DNA', () => {
   expect(yieldOf(NutrientKind.fragment, 0)).toBe(0);
   expect(yieldOf(NutrientKind.plasmid, 0)).toBe(0);
 
-  const { state, player } = worldWith();
-  player.genome = 0;
+  const { state, player, lineage } = species();
   foodAt(state, player.x, player.y, NutrientKind.plasmid, GENES.capsule.bit);
   stepWorld(state);
-  expect(player.genome).toBe(GENES.capsule.bit);
+  expect(lineage.library & GENES.capsule.bit).toBeTruthy();
+  expect(player.genome).toBe(STARTER_GENOME); // unlocked for the editor, not expressed
+  expect(lineage.dna).toBe(PACKET_DNA);
 
   // 40 fragments at TRANSFORM_CHANCE 0.5: missing the gene every time is a 1e-12 fluke.
-  for (let i = 0; i < 40 && !(player.genome & GENES.flagellum.bit); i++) {
-    foodAt(state, player.x, player.y, NutrientKind.fragment, GENES.flagellum.bit);
+  for (let i = 0; i < 40 && !(lineage.library & GENES.t6ss.bit); i++) {
+    foodAt(state, player.x, player.y, NutrientKind.fragment, GENES.t6ss.bit);
     stepWorld(state);
   }
-  expect(player.genome).toBe(GENES.capsule.bit | GENES.flagellum.bit);
+  expect(lineage.library & GENES.t6ss.bit).toBeTruthy();
 });
 
 // --- Phages ---------------------------------------------------------------------------------------
@@ -341,4 +352,98 @@ test('new cells are shielded from lysis and phages for the spawn grace', () => {
   expect(fresh.infection).toBe(0);
   run(state, 1);
   expect(fresh.health).toBeLessThan(healthMaxOf(fresh.genome));
+});
+
+// --- Lineage --------------------------------------------------------------------------------------
+
+test('copies stack with diminishing returns', () => {
+  expect([0, 1, 2, 3].map(stack)).toEqual([0, 1, 1.5, 1.75]);
+  const two = GENES.transporters.bit * 2; // two copies in the packed genome
+  expect(copiesOf(two, 'transporters')).toBe(2);
+  expect(yieldOf(NutrientKind.dissolved, two)).toBeCloseTo(NUTRIENT_MASS * (1 + (TRANSPORTER_YIELD - 1) * 1.5), 10);
+  const { state, attacker, target } = duel(GENES.t6ss.bit * 2);
+  attacker.genome = GENES.t6ss.bit * 2 | GENES.pili.bit;
+  target.x = 20;
+  stepWorld(state);
+  expect(healthMaxOf(target.genome) - target.health).toBeCloseTo((T6SS_DPS * 1.5) / TICK_RATE, 6);
+});
+
+test('a new species: starter design, library, reserve; food pays DNA', () => {
+  const { state, player, lineage } = species();
+  expect([lineage.genome, lineage.library, lineage.children, lineage.generation])
+    .toEqual([STARTER_GENOME, STARTER_LIBRARY, STARTER_CHILDREN, 1]);
+  expect(lineage.parts.length).toBe(1);
+  foodAt(state, player.x, player.y);
+  stepWorld(state);
+  expect(lineage.dna).toBeCloseTo(NUTRIENT_MASS * DNA_PER_MASS, 10);
+  expect(lineage.lifetimeDna).toBe(lineage.dna);
+});
+
+test('kills pay the killer DNA; deaths spend a child, then the species goes extinct', () => {
+  const { state, player, lineage } = species();
+  foundSpecies(state, 'k');
+  const killer = state.players.get('k')!;
+  Object.assign(killer, { x: player.x + 10, y: player.y, genome: GENES.t6ss.bit, graceUntil: 0 });
+  Object.assign(player, { mass: 40, health: 0.1 });
+  const deaths = run(state, 0.2);
+  expect(deaths).toEqual([{ id: 'p', by: 'k' }]);
+  expect(state.lineages.get('k')!.dna).toBeGreaterThanOrEqual(40 * KILL_DNA_SHARE);
+  expect(lineage.children).toBe(STARTER_CHILDREN - 1);
+  expect(state.players.get('p')!.genome).toBe(lineage.genome);
+
+  lineage.children = 0;
+  state.players.get('p')!.health = -1;
+  expect(stepWorld(state)).toEqual([{ id: 'p', by: '', extinct: true }]);
+  expect(state.players.has('p')).toBe(false);
+  expect(lineage.extinct).toBe(true);
+});
+
+test('reaching the cap starts a shielded division cyst; timing out hatches the old design', () => {
+  const { state, player, lineage } = species();
+  player.mass = MASS_CAP;
+  stepWorld(state);
+  expect(player.cyst).toBe(CYST_TIME);
+  player.health = 1;
+  foodAt(state, player.x, player.y, NutrientKind.phage);
+  run(state, CYST_TIME - 1);
+  expect(player.health).toBe(1); // dormant: no metabolism, no infection
+  expect(player.infection).toBe(0);
+  run(state, 1.1);
+  const child = state.players.get('p')!;
+  expect(child).not.toBe(player);
+  expect(child.mass).toBeCloseTo(SPAWN_MASS, 1); // hatched ~0.1 s ago
+  expect([child.genome, lineage.generation]).toEqual([STARTER_GENOME, 2]);
+});
+
+test('a design submission is validated, priced, refunds removed parts and hatches', () => {
+  const { state, player, lineage } = species();
+  const part = (gene: string, x = 1) => ({ gene, x, y: 0, angle: 0, scale: 1 });
+  const design = (parts: unknown[], children = 0, hue = 0.5) => ({ parts, hue, children });
+  expect(submitDesign(state, 'p', design([]))).toBe('not dividing');
+  player.cyst = CYST_TIME;
+  lineage.dna = 50;
+  expect(submitDesign(state, 'p', null)).toBe('bad design');
+  expect(submitDesign(state, 'p', design([part('capsule')]))).toBe('part not unlocked');
+  expect(submitDesign(state, 'p', design([part('nope')]))).toBe('unknown part');
+  expect(submitDesign(state, 'p', design([part('pili', 9)]))).toBe('bad placement');
+  expect(submitDesign(state, 'p', design([{ ...part('pili'), scale: Number.NaN }]))).toBe('bad placement');
+  expect(submitDesign(state, 'p', design(Array(4).fill(part('pili'))))).toBe('too many copies');
+  expect(submitDesign(state, 'p', design([], MAX_CHILDREN))).toBe('bad children');
+  expect(submitDesign(state, 'p', design([], 0.5))).toBe('bad children');
+  expect(submitDesign(state, 'p', design([], 0, 1))).toBe('bad hue');
+  // Two flagella (2 × 20) + one child (30) = 70, minus the refunded pili (8) = 62 > 50.
+  const twoFlagella = [part('flagellum'), part('flagellum', -1)];
+  expect(submitDesign(state, 'p', design(twoFlagella, 1))).toBe('not enough DNA');
+  expect(submitDesign(state, 'p', design(twoFlagella))).toBeUndefined();
+  expect(lineage.dna).toBe(50 - (2 * GENES.flagellum.price - GENES.pili.price));
+  expect(lineage.genome).toBe(GENES.flagellum.bit * 2);
+  expect(lineage.parts.length).toBe(2);
+  const child = state.players.get('p')!;
+  expect(child).not.toBe(player);
+  expect([child.genome, child.cyst, lineage.generation]).toEqual([GENES.flagellum.bit * 2, 0, 2]);
+
+  child.cyst = CYST_TIME;
+  lineage.dna = CHILD_PRICE;
+  expect(submitDesign(state, 'p', design(twoFlagella, 1))).toBeUndefined();
+  expect([lineage.dna, lineage.children]).toEqual([0, STARTER_CHILDREN + 1]);
 });

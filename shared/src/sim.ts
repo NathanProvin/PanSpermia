@@ -1,14 +1,14 @@
 // Movement rules shared by the server (authority) and the client (prediction + replay).
 // Keep them pure and deterministic: both sides must compute the same step from the same input.
 import {
-  DRIFT_PILI, RADIUS_PER_SQRT_MASS, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
+  DRIFT_PILI, FLAGELLUM_STACK, RADIUS_PER_SQRT_MASS, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
 import {
   ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
 } from './combat.ts';
 import { currentAt } from './current.ts';
-import { hasGene } from './genes.ts';
+import { copiesOf, hasGene, stack } from './genes.ts';
 
 /**
  * Clamp a steering input to throttle ≤ 1 keeping its heading; non-finite → no input.
@@ -54,8 +54,8 @@ export interface CellBody {
 const flow = { x: 0, y: 0 };
 
 /**
- * Advance a cell one step: sporulate on request, swim per its motility genes, drift with the current
- * at `time`, stay in the pool. Microbes live at low Reynolds number: no inertia, velocity follows
+ * Advance a cell one step: sporulate on request, swim per its motility genes (copies stack), drift with
+ * the current at `time`, stay in the pool. Microbes live at low Reynolds number: no inertia, velocity follows
  * propulsion instantly. Inputs must already be sanitized (throttle = |dir| ≤ 1).
  */
 export function stepCell(
@@ -74,13 +74,15 @@ export function stepCell(
     b.sporeCooldown = ENDOSPORE_COOLDOWN;
   }
 
+  const flagella = copiesOf(genome, 'flagellum');
   if (b.spore > 0) {
     // dormant: no swimming, tumbles frozen
-  } else if (hasGene(genome, 'flagellum')) {
+  } else if (flagella) {
     if (b.tumble > 0) {
       b.tumble = Math.max(0, b.tumble - dt - 1e-9); // epsilon: exact 0 after the last step despite float dt
       if (b.tumble === 0) {
-        const error = hasGene(genome, 'chemoreceptor') ? TUMBLE_ERROR_CHEMO : TUMBLE_ERROR;
+        const chemo = copiesOf(genome, 'chemoreceptor');
+        const error = chemo ? TUMBLE_ERROR_CHEMO / stack(chemo) : TUMBLE_ERROR;
         b.heading = wrapAngle((throttle > 0 ? want : b.heading) + (2 * random(b) - 1) * error);
       }
     } else if (throttle > 0) {
@@ -89,7 +91,7 @@ export function stepCell(
         b.tumble = TUMBLE_TIME;
       } else {
         b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), RUN_TURN_RATE * dt));
-        swim = SWIM_FLAGELLUM * throttle;
+        swim = SWIM_FLAGELLUM * (1 + FLAGELLUM_STACK * (stack(flagella) - 1)) * throttle;
       }
     }
   } else if (throttle > 0) {
@@ -99,7 +101,8 @@ export function stepCell(
 
   const v = swim * speedOf(mass)
     * (hasGene(genome, 'capsule') ? CAPSULE_SWIM : 1) * (hasGene(genome, 'thickWall') ? WALL_SWIM : 1);
-  const drift = hasGene(genome, 'pili') ? DRIFT_PILI : 1;
+  const pili = copiesOf(genome, 'pili');
+  const drift = pili ? DRIFT_PILI ** stack(pili) : 1;
   currentAt(b.x, b.y, time, flow);
   b.x += (Math.cos(b.heading) * v + flow.x * drift) * dt;
   b.y += (Math.sin(b.heading) * v + flow.y * drift) * dt;

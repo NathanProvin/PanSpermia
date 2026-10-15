@@ -118,7 +118,7 @@ function think(state: PoolState, bots: Bots, id: string, p: Player, b: Brain) {
       continue;
     }
     const gap = d - r - radiusOf(o.mass);
-    if (archetype === 'hunter' && o.spore === 0 && state.tick >= o.graceUntil && o.mass < p.mass && d < (prey?.d ?? Infinity)) {
+    if (archetype === 'hunter' && o.spore === 0 && o.cyst === 0 && state.tick >= o.graceUntil && o.mass < p.mass && d < (prey?.d ?? Infinity)) {
       prey = { d, x: dx / d, y: dy / d };
     }
     const fear = archetype === 'coward' ? 250 : archetype === 'grazer' && armed(o.genome) && o.mass > p.mass * 0.7 ? 150 : 0;

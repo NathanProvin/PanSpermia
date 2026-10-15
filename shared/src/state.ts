@@ -18,6 +18,8 @@ export const Player = schema({
   sporeCooldown: t.number().default(0),
   /** Seconds until toxins can be secreted again. */
   toxinCooldown: t.number().default(0),
+  /** Seconds left in the division cyst (0 = active). */
+  cyst: t.number().default(0),
   /** Seconds of phage lysis left (0 = healthy). */
   infection: t.number().default(0),
   // Server-side kill attribution and regen gating, never sent.
@@ -64,11 +66,40 @@ export const Cloud = schema({
   tick0: t.uint32(),
   kind: t.uint8(),
   owner: t.string(),
+  /** Damage multiplier from the owner's toxin copies (server-side). */
+  power: t.number().noSync().default(1),
   x: t.number().noSync(),
   y: t.number().noSync(),
   tick: t.uint32().noSync(),
 }, 'Cloud');
 export type Cloud = SchemaType<typeof Cloud>;
+
+/** One placed part of a species design: which gene, where on the body (cell radii), how it sits. */
+export const Part = schema({
+  gene: t.uint8(), // index into GENE_NAMES
+  x: t.float32(),
+  y: t.float32(),
+  angle: t.float32(),
+  scale: t.float32(),
+}, 'Part');
+export type Part = SchemaType<typeof Part>;
+
+/** A human player's species across individuals: design, unlocked parts, DNA, reserve lives. */
+export const Lineage = schema({
+  /** Copy counts of the current design (what each new individual expresses). */
+  genome: t.uint32(),
+  parts: t.array(Part),
+  hue: t.float32(),
+  /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */
+  library: t.uint32(),
+  dna: t.number(),
+  lifetimeDna: t.number(),
+  children: t.uint8(),
+  generation: t.uint16().default(1),
+  /** No individual left: the species is extinct (game over until a new species). */
+  extinct: t.boolean().default(false),
+}, 'Lineage');
+export type Lineage = SchemaType<typeof Lineage>;
 
 export const PoolState = schema({
   /** Simulation clock in fixed ticks (time = tick · TICK_DT); integer, so exact on every side forever. */
@@ -77,6 +108,8 @@ export const PoolState = schema({
   nutrients: t.map(Nutrient),
   seeps: t.array(Seep),
   clouds: t.map(Cloud),
+  /** Keyed by session id; bots have none. */
+  lineages: t.map(Lineage),
 }, 'PoolState');
 export type PoolState = SchemaType<typeof PoolState>;
 
