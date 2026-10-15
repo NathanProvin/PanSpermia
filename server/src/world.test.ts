@@ -796,3 +796,18 @@ test('a bacterium with adhesins drains the eukaryote it clings to', () => {
   run(state, 1);
   expect(host1 - e.mass).toBeLessThan(1);
 });
+
+test('an animal species designs its body: plan and segment sizes are validated, then kept', () => {
+  const { state, player, lineage } = species();
+  lineage.tier = 3;
+  lineage.genome = 0;
+  lineage.parts.clear();
+  Object.assign(player, { tier: 3, genome: 0, genome3: 0, mass: T3_SPAWN_MASS, cyst: CYST_TIME });
+  const base = { parts: [], hue: 0.2, children: 0, name: lineage.name };
+  expect(submitDesign(state, 'p', { ...base, plan: 2, radii: [0.5, 0.5] })).toBe('bad plan');
+  expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.5] })).toBe('bad segments');
+  expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.5, 1.5] })).toBe('bad segments');
+  expect(submitDesign(state, 'p', { ...base, plan: 1, radii: Array(7).fill(0.5) })).toBe('bad segments');
+  expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.6, 0.4, 0.4, 0.4] })).toBeUndefined();
+  expect([lineage.plan, [...lineage.radii].map((r) => Math.round(r * 10) / 10)]).toEqual([1, [0.6, 0.4, 0.4, 0.4]]);
+});

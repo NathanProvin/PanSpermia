@@ -1,4 +1,6 @@
-import { MAX_PARTS, TIER_NAMES, catalogFor, cleanName } from '@panspermia/shared';
+import {
+  DEFAULT_RADII, MAX_PARTS, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN, TIER_NAMES, catalogFor, cleanName, segmentsOf,
+} from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
 
@@ -16,6 +18,9 @@ export interface CardData {
   tier: number;
   shape: number;
   parts: CardPart[];
+  /** Animals: body plan and segment sizes. */
+  plan: number;
+  radii: number[];
   generation: number;
   dna: number;
   kills: number;
@@ -28,7 +33,7 @@ const round = (x: number) => Math.round(x * 100) / 100;
 /** Compact URL-safe text: JSON → UTF-8 → base64url. */
 export function encodeCard(d: CardData) {
   const json = JSON.stringify([d.name, round(d.hue), d.generation, Math.round(d.dna), d.kills, FATES.indexOf(d.fate),
-    d.parts.map((p) => [catalogOf(d.tier).GENES[p.gene]!.index, round(p.x), round(p.y), round(p.angle), round(p.scale)]), d.tier, d.shape]);
+    d.parts.map((p) => [catalogOf(d.tier).GENES[p.gene]!.index, round(p.x), round(p.y), round(p.angle), round(p.scale)]), d.tier, d.shape, d.plan, d.radii.map(round)]);
   const bytes = new TextEncoder().encode(json);
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
@@ -36,8 +41,11 @@ export function encodeCard(d: CardData) {
 export function decodeCard(text: string): CardData | undefined {
   try {
     const bytes = Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
-    const [rawName, hue, generation, dna, kills, fate, parts, rawTier = 1, shape = 0] = JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
-    if (rawTier !== 1 && rawTier !== 2) return undefined;
+    const [rawName, hue, generation, dna, kills, fate, parts, rawTier = 1, shape = 0, plan = 0, radii = DEFAULT_RADII] =
+      JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
+    if (rawTier !== 1 && rawTier !== 2 && rawTier !== 3) return undefined;
+    if (typeof plan !== 'number' || !PLAN_NAMES[plan] || !Array.isArray(radii) || radii.length < MIN_SEGMENTS
+      || radii.length > MAX_SEGMENTS || !radii.every((r) => typeof r === 'number' && r >= SEGMENT_MIN && r <= SEGMENT_MAX)) return undefined;
     if (shape !== 0 && shape !== 1 && shape !== 2) return undefined;
     const tier = rawTier;
     const name = cleanName(rawName);
@@ -56,7 +64,7 @@ export function decodeCard(text: string): CardData | undefined {
       if (!name || Math.hypot(x!, y!) > 1.5 || scale! < 0.5 || scale! > 2) return undefined;
       placed.push({ gene: name, x: x!, y: y!, angle: angle!, scale: scale!, group: 0 });
     }
-    return { name, hue, tier, shape, parts: placed, generation: g, dna: d, kills: k, fate: f };
+    return { name, hue, tier, shape, plan, radii: radii as number[], parts: placed, generation: g, dna: d, kills: k, fate: f };
   } catch {
     return undefined;
   }
@@ -74,7 +82,8 @@ function renderCell(d: CardData, size: number) {
   const half = 2.3; // cell radii shown around the centre: room for flagella
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
   createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
-    { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.shape }, 1.7, 0);
+    { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.shape,
+      segments: d.tier === 3 ? segmentsOf(d.plan, d.radii) : undefined }, 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;

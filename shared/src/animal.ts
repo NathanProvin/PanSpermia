@@ -19,17 +19,54 @@ export const STARTER_GENOME3 = TIER3.genomeOf(['paddle', 'paddle', 'filterComb',
 export const STARTER_LIBRARY3 = TIER3.GENES.paddle.bit | TIER3.GENES.tail.bit | TIER3.GENES.filterComb.bit
   | TIER3.GENES.mandible.bit | TIER3.GENES.eye.bit;
 
+/** Body plans: segments in a chain along the spine (worms, larvae, crustaceans), or lobes around a centre. */
+export const PLAN_NAMES = ['Spine', 'Radial'] as const;
+export const MIN_SEGMENTS = 2;
+export const MAX_SEGMENTS = 6;
+/** Relative segment sizes the editor allows (the body is then fitted to the cell, so only proportions matter). */
+export const SEGMENT_MIN = 0.3;
+export const SEGMENT_MAX = 1;
+/** A head, a thorax, an abdomen. */
+export const DEFAULT_RADII: readonly number[] = [0.45, 0.75, 0.5];
+
+export type Segment = readonly [x: number, y: number, r: number];
+
 /**
- * Body segments of the default animal (canonical body frame: x forward, cell radii; [x, y, r]): a head,
- * a thorax, an abdomen. P9b lets the editor change them (spine or radial plan).
+ * Lay out a body (canonical body frame: x forward, in cell radii). Spine: radii[0] is the head, each next
+ * segment overlaps the one before it toward the back. Radial: radii[0] is the centre, the others are lobes
+ * evenly around it from the front. Then centred and scaled so the body spans about the cell's circle.
  */
-export const DEFAULT_SEGMENTS: readonly (readonly [number, number, number])[] = [[0.55, 0, 0.45], [0, 0, 0.75], [-0.55, 0, 0.5]];
+export function segmentsOf(plan: number, radii: readonly number[]): Segment[] {
+  let segs: [number, number, number][];
+  if (plan === 1) {
+    const [centre = 0.6, ...lobes] = radii;
+    segs = [[0, 0, centre], ...lobes.map((r, k): [number, number, number] => {
+      const a = (2 * Math.PI * k) / lobes.length;
+      const d = centre + r * 0.35;
+      return [Math.cos(a) * d, Math.sin(a) * d, r];
+    })];
+  } else {
+    let x = 0;
+    segs = radii.map((r, i): [number, number, number] => {
+      if (i > 0) x -= 0.75 * (radii[i - 1]! + r);
+      return [x, 0, r];
+    });
+    const shift = (segs[0]![0] + segs[0]![2] + segs.at(-1)![0] - segs.at(-1)![2]) / 2; // centre the chain
+    for (const seg of segs) seg[0] -= shift;
+  }
+  const extent = Math.max(...segs.map(([x, y, r]) => Math.max(Math.abs(x), Math.abs(y)) + r));
+  const k = (plan === 1 ? 1.05 : 1.3) / extent;
+  return segs.map(([x, y, r]) => [x * k, y * k, r * k] as const);
+}
+
+/** The default animal body (bots, a newly evolved species). */
+export const DEFAULT_SEGMENTS = segmentsOf(0, DEFAULT_RADII);
 
 /** Blend radius (cell radii) of the smooth union that joins segments into one body. */
 export const SEGMENT_BLEND = 0.12;
 
 /** Signed distance (cell radii) from a canonical point to the segmented body, < 0 inside (as the body shader). */
-export function animalSdf(x: number, y: number, segments = DEFAULT_SEGMENTS) {
+export function animalSdf(x: number, y: number, segments: readonly Segment[] = DEFAULT_SEGMENTS) {
   let d = Infinity;
   for (const [sx, sy, r] of segments) {
     const di = Math.hypot(x - sx, y - sy) - r;
@@ -43,7 +80,7 @@ export function animalSdf(x: number, y: number, segments = DEFAULT_SEGMENTS) {
 }
 
 /** Distance from the body centre to the outline along a canonical direction: where membrane parts sit. */
-export function animalRim(angle: number, segments = DEFAULT_SEGMENTS) {
+export function animalRim(angle: number, segments: readonly Segment[] = DEFAULT_SEGMENTS) {
   let lo = 0;
   let hi = 2;
   for (let i = 0; i < 20; i++) { // bisection: the centre is inside, 2 radii out is outside

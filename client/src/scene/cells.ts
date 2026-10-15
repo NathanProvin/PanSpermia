@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, type Segment, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
   deform, hasGene, radiusOf, shapeUniform,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -453,7 +453,11 @@ export function hashId(id: string) {
 /** Rendered (predicted or smoothed) pose of a cell. */
 export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
-export interface Look { tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number }
+export interface Look {
+  tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number;
+  /** An animal's body (segmentsOf); the default body when absent. */
+  segments?: readonly Segment[];
+}
 
 type ShaderMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
@@ -470,7 +474,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   let parts: { mesh: ShaderMesh; flagellum: boolean }[] = [];
   let beat = 1;
 
-  const rebuild = (placements: readonly Placement<string>[], tier: number, form: number) => {
+  const rebuild = (placements: readonly Placement<string>[], tier: number, form: number, segments: readonly Segment[]) => {
     for (const { mesh } of parts) {
       frame.remove(mesh);
       mesh.material.dispose();
@@ -480,7 +484,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
     for (const [i, raw] of placements.entries()) {
       const kind = kindOf(tier, raw.gene);
       // An animal's membrane parts sit on its segmented outline, not the unit circle.
-      const onRim = tier === 3 && catalogFor(3).GENES[raw.gene]!.slot === 'membrane' ? animalRim(raw.angle) : 1;
+      const onRim = tier === 3 && catalogFor(3).GENES[raw.gene]!.slot === 'membrane' ? animalRim(raw.angle, segments) : 1;
       const pl = { ...raw, x: raw.x * onRim, y: raw.y * onRim };
       if (pl.gene === 'flagellum' || pl.gene === 'tail') {
         const mesh: ShaderMesh = new THREE.Mesh(flagellumGeometry, flagellumMaterial.clone());
@@ -517,10 +521,14 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
     body,
     update(pose: Pose, radius: number, look: Look, time: number, dt: number) {
       const form = look.shape ?? 0;
-      const key = `${look.tier}/${form}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
+      const segments = look.segments ?? DEFAULT_SEGMENTS;
+      const key = `${look.tier}/${form}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
         partsKey = key;
-        rebuild(look.parts, look.tier, form);
+        rebuild(look.parts, look.tier, form, segments);
+        const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
+        for (const [i, v] of seg.entries()) v.set(...(segments[i] ?? [0, 0, 0]));
+        body.material.uniforms.uSegN!.value = segments.length;
         const s = shapeUniform(form);
         body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend);
         body.material.uniforms.uCentre!.value = s.centre;
@@ -561,7 +569,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       frame.scale.multiplyScalar(k);
     },
     dispose() {
-      rebuild([], 1, 0);
+      rebuild([], 1, 0, DEFAULT_SEGMENTS);
       parent.remove(body, frame);
       body.material.dispose();
     },

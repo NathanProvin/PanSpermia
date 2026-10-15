@@ -111,6 +111,9 @@ export const Lineage = schema({
   parts: t.array(Part),
   hue: t.float32(),
   shape: t.uint8().default(0),
+  /** Animals (tier 3): body plan (PLAN_NAMES index) and relative segment sizes (see segmentsOf). */
+  plan: t.uint8().default(0),
+  radii: t.array('float32'),
   /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */
   library: t.uint32(),
   dna: t.number(),
