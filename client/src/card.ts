@@ -1,4 +1,5 @@
-import { GENES, GENE_NAMES, MAX_PARTS, type Placement, cleanName, copiesOf, genomeOf } from '@panspermia/shared';
+import { MAX_PARTS, type Catalog, TIER1, TIER2, cleanName } from '@panspermia/shared';
+import type { Placement } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
 
@@ -6,10 +7,15 @@ import { createCellView } from './scene/cells.ts';
 // that carries the design itself in the URL fragment — no server storage. Opening the link shows the
 // card with a Play button. Link data is untrusted: `decodeCard` validates every field.
 
+/** A placed part by name in its tier's catalog (the card doesn't care which tier's type it is). */
+interface CardPart { gene: string; x: number; y: number; angle: number; scale: number; group: number }
+const catalogOf = (tier: number) => (tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
+
 export interface CardData {
   name: string;
   hue: number;
-  parts: Placement[];
+  tier: number;
+  parts: CardPart[];
   generation: number;
   dna: number;
   kills: number;
@@ -22,7 +28,7 @@ const round = (x: number) => Math.round(x * 100) / 100;
 /** Compact URL-safe text: JSON → UTF-8 → base64url. */
 export function encodeCard(d: CardData) {
   const json = JSON.stringify([d.name, round(d.hue), d.generation, Math.round(d.dna), d.kills, FATES.indexOf(d.fate),
-    d.parts.map((p) => [GENES[p.gene].index, round(p.x), round(p.y), round(p.angle), round(p.scale)])]);
+    d.parts.map((p) => [catalogOf(d.tier).GENES[p.gene]!.index, round(p.x), round(p.y), round(p.angle), round(p.scale)]), d.tier]);
   const bytes = new TextEncoder().encode(json);
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
@@ -30,7 +36,9 @@ export function encodeCard(d: CardData) {
 export function decodeCard(text: string): CardData | undefined {
   try {
     const bytes = Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
-    const [rawName, hue, generation, dna, kills, fate, parts] = JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
+    const [rawName, hue, generation, dna, kills, fate, parts, rawTier = 1] = JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
+    if (rawTier !== 1 && rawTier !== 2) return undefined;
+    const tier = rawTier;
     const name = cleanName(rawName);
     const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1e6 ? v : undefined);
     if (!name || typeof hue !== 'number' || !(hue >= 0 && hue < 1) || !Array.isArray(parts) || parts.length > MAX_PARTS) return undefined;
@@ -39,15 +47,15 @@ export function decodeCard(text: string): CardData | undefined {
     const k = count(kills);
     const f = FATES[fate as number];
     if (g === undefined || d === undefined || k === undefined || !f) return undefined;
-    const placed: Placement[] = [];
+    const placed: CardPart[] = [];
     for (const part of parts) {
       if (!Array.isArray(part) || part.length !== 5 || !part.every((v) => typeof v === 'number' && Number.isFinite(v))) return undefined;
       const [gene, x, y, angle, scale] = part as number[];
-      const name = GENE_NAMES[gene!];
+      const name = catalogOf(tier).NAMES[gene!];
       if (!name || Math.hypot(x!, y!) > 1.5 || scale! < 0.5 || scale! > 2) return undefined;
       placed.push({ gene: name, x: x!, y: y!, angle: angle!, scale: scale!, group: 0 });
     }
-    return { name, hue, parts: placed, generation: g, dna: d, kills: k, fate: f };
+    return { name, hue, tier, parts: placed, generation: g, dna: d, kills: k, fate: f };
   } catch {
     return undefined;
   }
@@ -64,9 +72,10 @@ function renderCell(d: CardData, size: number) {
   const scene = new THREE.Scene();
   const half = 2.3; // cell radii shown around the centre: room for flagella
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
-  const genome = genomeOf(d.parts.map((p) => p.gene));
+  // ponytail: eukaryote parts aren't drawn until P8b, so a tier-2 card shows the bare body.
+  const t1 = d.tier === 1 ? (d.parts as Placement[]) : [];
   createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
-    { genome, parts: d.parts, hue: d.hue }, 1.7, 0);
+    { genome: TIER1.genomeOf(t1.map((p) => p.gene)), parts: t1, hue: d.hue }, 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;
@@ -103,7 +112,7 @@ export function renderCard(d: CardData) {
   g.fillText(d.name, x, 150, 520);
   g.fillStyle = '#9fe7e0';
   g.font = '24px system-ui, sans-serif';
-  g.fillText('Tier 1 · Bacterium', x, 195);
+  g.fillText(d.tier === 2 ? 'Tier 2 · Eukaryote' : 'Tier 1 · Bacterium', x, 195);
   const fate = { evolved: '✦ Evolved into eukaryotes', extinct: '✝ Extinct', living: '● Still dividing' }[d.fate];
   g.fillStyle = d.fate === 'evolved' ? '#ffd678' : d.fate === 'extinct' ? '#ff9a8a' : '#9fe7e0';
   g.font = '600 26px system-ui, sans-serif';
@@ -114,9 +123,10 @@ export function renderCard(d: CardData) {
   const stats = [`Generation ${d.generation}`, `${d.dna} DNA gathered`, `${d.kills} rival${d.kills === 1 ? '' : 's'} lysed`];
   stats.forEach((line, i) => g.fillText(line, x, 315 + i * 36));
 
-  const genome = genomeOf(d.parts.map((p) => p.gene));
-  const parts = GENE_NAMES.filter((gene) => copiesOf(genome, gene))
-    .map((gene) => GENES[gene].label + (copiesOf(genome, gene) > 1 ? ` ×${copiesOf(genome, gene)}` : ''));
+  const cat = catalogOf(d.tier);
+  const genome = cat.genomeOf(d.parts.map((p) => p.gene));
+  const parts = cat.NAMES.filter((gene) => cat.copiesOf(genome, gene))
+    .map((gene) => cat.GENES[gene]!.label + (cat.copiesOf(genome, gene) > 1 ? ` ×${cat.copiesOf(genome, gene)}` : ''));
   g.fillStyle = '#9fe7e0';
   g.font = '19px system-ui, sans-serif';
   let line = '';

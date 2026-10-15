@@ -4,8 +4,9 @@ import { createSprites } from './sprites.ts';
 // Drifting packets in the focal plane. Dissolved food: green motes (Spore's plant food); debris: ragged
 // red chunks (its meat); DNA fragments: short cyan double helices; plasmids: golden rings of circular
 // DNA (the rare prize); phages: pale icosahedral heads on a tail with splayed fibres (the hazard);
-// seeps: soft glows just below the plane where plumes rise. Bright cores bloom.
-// Kind rides in the integer part of aSeed (5 = seep), the per-sprite random seed in the fraction.
+// algae: little green cells packed with chloroplasts (tier-2 plant food); meat chunks: big ragged red
+// pieces of a dead eukaryote; seeps: soft glows just below the plane where plumes rise. Bright cores bloom.
+// Kind rides in the integer part of aSeed (7 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
 varying vec2 vUv;
@@ -54,6 +55,19 @@ void main() {
     d = min(d, min(segment(q, vec2(0.0, -0.4), vec2(-0.12, -0.78)), segment(q, vec2(0.0, -0.4), vec2(0.12, -0.78))));
     float fill = (1.0 - smoothstep(-0.02, 0.0, head)) * 0.25; // packed genome inside the capsid
     color = vec3(0.86, 0.8, 1.0) * (exp(-pow(d / 0.035, 2.0)) * 1.5 + fill);
+  } else if (kind < 5.5) {
+    vec2 q = rotate(p, seed * 6.2831);
+    float body = length(q * vec2(1.0, 1.25));
+    float cell = 1.0 - smoothstep(0.62, 0.7, body);
+    float rim = cell * smoothstep(0.45, 0.68, body);
+    float plastids = smoothstep(0.55, 0.85, sin(q.x * 9.0 + seed * 20.0) * sin(q.y * 8.0 - seed * 11.0)) * cell;
+    color = vec3(0.25, 0.75, 0.2) * (cell * 0.35 + rim * 0.8) + vec3(0.6, 1.0, 0.3) * plastids * 0.9;
+  } else if (kind < 6.5) {
+    float a = atan(p.y, p.x);
+    float edge = 0.55 + 0.1 * sin(a * 4.0 + seed * 40.0) + 0.07 * sin(a * 9.0 - seed * 17.0);
+    float chunk = 1.0 - smoothstep(edge - 0.06, edge, sqrt(r2));
+    float inner = smoothstep(edge - 0.25, edge - 0.05, sqrt(r2));
+    color = vec3(0.75, 0.16, 0.12) * chunk * (0.5 + 0.9 * inner) + vec3(1.0, 0.4, 0.3) * exp(-r2 * 5.0) * 0.15;
   } else {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.35, 0.9, 0.55) * exp(-r2 * 3.5) * 0.22 * breathe;
@@ -63,7 +77,7 @@ void main() {
 `;
 const SIZE: Record<number, number> = {
   [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 20, [NutrientKind.plasmid]: 30,
-  [NutrientKind.phage]: 26,
+  [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42,
 };
 const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
@@ -106,7 +120,7 @@ export function createNutrients() {
         sprites.offsets[i * 3 + 1] = seep.y;
         sprites.offsets[i * 3 + 2] = SEEP_DEPTH;
         sprites.sizes[i] = SEEP_SIZE;
-        sprites.seeds[i] = 5 + (s++ * 0.37) % 1;
+        sprites.seeds[i] = 7 + (s++ * 0.37) % 1;
         i++;
       }
       sprites.commit(i);

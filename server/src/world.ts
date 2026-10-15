@@ -1,6 +1,8 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
+  ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
+  T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER1, TIER2, type Catalog, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   EVOLVE_DNA, STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
@@ -50,6 +52,19 @@ function earn(state: PoolState, id: string, dna: number) {
   l.lifetimeDna += dna;
 }
 
+/** The lineage's next individual: its tier, design and name — where the parent divided, or anywhere. */
+function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: number }) {
+  const p = spawnPlayer(tick);
+  if (l.tier === 2) Object.assign(p, { tier: 2, genome: 0, genome2: l.genome, mass: T2_SPAWN_MASS, health: T2_HEALTH_MAX });
+  else p.genome = l.genome;
+  p.name = l.name;
+  if (at) Object.assign(p, at);
+  return p;
+}
+
+/** The part catalog a lineage designs with at its tier. */
+const catalogOf = (l: Lineage) => (l.tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
+
 /** A player founds a new species: starter design, library and reserve, first individual. */
 export function foundSpecies(state: PoolState, id: string) {
   const name = randomSpeciesName();
@@ -63,9 +78,7 @@ export function foundSpecies(state: PoolState, id: string) {
     lifetimeDna: 0,
     children: STARTER_CHILDREN,
   }));
-  const first = spawnPlayer(state.tick);
-  first.name = name;
-  state.players.set(id, first);
+  state.players.set(id, nextOf(state.lineages.get(id)!, state.tick));
 }
 
 /** Fission done: a child with the lineage's current design takes over where the parent divided. */
@@ -75,9 +88,7 @@ export function hatch(state: PoolState, id: string) {
   if (!parent || !l) return;
   drafts.delete(l);
   l.generation++;
-  const child = spawnPlayer(state.tick);
-  Object.assign(child, { x: parent.x, y: parent.y, heading: parent.heading, genome: l.genome, name: l.name });
-  state.players.set(id, child);
+  state.players.set(id, nextOf(l, state.tick, { x: parent.x, y: parent.y, heading: parent.heading }));
 }
 
 interface Design { genome: number; placed: Part[]; hue: number; children: number; name: string; evolve: boolean; cost: number }
@@ -94,30 +105,32 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   const name = cleanName(rawName);
   if (!name) return 'bad name';
   if (typeof evolve !== 'boolean') return 'bad evolve';
+  if (evolve && l.tier >= 2) return 'cannot evolve further yet';
   if (evolve && l.lifetimeDna < EVOLVE_DNA) return 'not ready to evolve';
   if (!Array.isArray(parts) || parts.length > MAX_PARTS) return 'bad parts';
   if (typeof hue !== 'number' || !(hue >= 0 && hue < 1)) return 'bad hue';
   if (typeof children !== 'number' || !Number.isInteger(children) || children < 0 || l.children + children > MAX_CHILDREN) {
     return 'bad children';
   }
+  const cat = catalogOf(l);
   let genome = 0;
   const placed: Part[] = [];
   for (const part of parts as unknown[]) {
     const { gene, x, y, angle, scale, group } = (part ?? {}) as Record<string, unknown>;
-    if (typeof gene !== 'string' || !Object.hasOwn(GENES, gene)) return 'unknown part';
-    const g = gene as Gene;
-    if (!(l.library & GENES[g].bit)) return 'part not unlocked';
+    if (typeof gene !== 'string' || !Object.hasOwn(cat.GENES, gene)) return 'unknown part';
+    const g = cat.GENES[gene]!;
+    if (!(l.library & g.bit)) return 'part not unlocked';
     if (typeof x !== 'number' || typeof y !== 'number' || typeof angle !== 'number' || typeof scale !== 'number'
       || !Number.isFinite(angle) || !(Math.hypot(x, y) <= 1.5) || !(scale >= 0.5 && scale <= 2)
       || typeof group !== 'number' || !Number.isInteger(group) || group < 0 || group > 255) {
       return 'bad placement';
     }
-    const n = copiesOf(genome, g) + 1;
-    if (n > GENES[g].maxCopies) return 'too many copies';
-    genome = withCopies(genome, g, n);
-    placed.push(new Part({ gene: GENES[g].index, x, y, angle, scale, group }));
+    const n = cat.copiesOf(genome, gene) + 1;
+    if (n > g.maxCopies) return 'too many copies';
+    genome = cat.withCopies(genome, gene, n);
+    placed.push(new Part({ gene: g.index, x, y, angle, scale, group }));
   }
-  const cost = priceOf(genome) - priceOf(l.genome) + children * CHILD_PRICE;
+  const cost = cat.priceOf(genome) - cat.priceOf(l.genome) + children * CHILD_PRICE;
   if (cost > l.dna) return 'not enough DNA';
   return { genome, placed, hue, children, name, evolve, cost };
 }
@@ -137,12 +150,18 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
     return undefined;
   }
   apply(l, d);
-  if (d.evolve) {
-    // The slice's ending: this design is the species' last tier-1 form; its cells leave the pool.
-    l.evolved = true;
-    state.players.delete(id);
-  } else hatch(state, id);
+  if (d.evolve) evolve(l);
+  hatch(state, id);
   return undefined;
+}
+
+/** Spore's "Grow legs?": from the next generation on, the species is a tier-2 starter eukaryote. */
+function evolve(l: Lineage) {
+  l.tier = 2;
+  l.genome = STARTER_GENOME2;
+  l.parts.clear();
+  l.parts.push(...TIER2.defaultParts(STARTER_GENOME2).map((p) => new Part({ ...p, gene: TIER2.GENES[p.gene].index })));
+  l.library = STARTER_LIBRARY2; // tier-1 parts mean nothing to a eukaryote
 }
 
 function apply(l: Lineage, d: Design) {
@@ -172,11 +191,16 @@ export function initPool(state: PoolState) {
   for (let i = 0; i < NUTRIENT_LIFETIME * TICK_RATE; i++) stepWorld(state);
 }
 
-/** Burn mass (metabolism + gene upkeep) down to MIN_MASS; starve at the floor, else regenerate if allowed. */
-export function metabolize(p: { mass: number; health: number; genome: number }, dt: number, regen = true) {
-  p.mass = Math.max(MIN_MASS, p.mass - (METABOLISM_BASE + METABOLISM_RATE * p.mass + upkeepOf(p.genome)) * dt);
-  if (p.mass <= MIN_MASS) p.health -= STARVE_DPS * dt;
-  else if (regen) p.health = Math.min(healthMaxOf(p.genome), p.health + HEALTH_REGEN * dt);
+/** Burn mass (metabolism + part upkeep, per tier) down to the floor; starve there, else regenerate if allowed. */
+export function metabolize(p: { mass: number; health: number; genome: number; genome2?: number; tier?: number }, dt: number, regen = true) {
+  const t2 = p.tier === 2;
+  const floor = t2 ? T2_MIN_MASS : MIN_MASS;
+  const burn = t2
+    ? T2_METABOLISM_BASE + T2_METABOLISM_RATE * p.mass + TIER2.upkeepOf(p.genome2 ?? 0)
+    : METABOLISM_BASE + METABOLISM_RATE * p.mass + upkeepOf(p.genome);
+  p.mass = Math.max(floor, p.mass - burn * dt);
+  if (p.mass <= floor) p.health -= STARVE_DPS * dt;
+  else if (regen) p.health = Math.min(healthMaxOf(p.genome, p.tier), p.health + HEALTH_REGEN * dt);
 }
 
 let nextCloudId = 0;
@@ -215,9 +239,10 @@ export interface Death {
 /** A multiplier gene's effect with `copies` stacked: 1 + (base − 1)·stack(copies). */
 const boost = (base: number, copies: number) => 1 + (base - 1) * stack(copies);
 
-/** What one packet is worth to this genome, in mass. DNA and phages aren't food. */
+/** What one packet is worth to a bacterium with this genome, in mass. DNA, phages and algae aren't its food. */
 export function yieldOf(kind: number, genome: number) {
   if (kind === NutrientKind.debris) return DEBRIS_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes'));
+  if (kind === NutrientKind.chunk) return CHUNK_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes')); // decomposers
   if (kind === NutrientKind.dissolved) return NUTRIENT_MASS * boost(TRANSPORTER_YIELD, copiesOf(genome, 'transporters'));
   return 0;
 }
@@ -225,8 +250,23 @@ export function yieldOf(kind: number, genome: number) {
 export const reachOf = (mass: number, genome: number) =>
   radiusOf(mass) * boost(SIDEROPHORE_REACH, copiesOf(genome, 'siderophores'));
 
-// Spatial hash for feeding lookups. Cells are wider than any reach (≈ 76 at cap with 2 siderophores),
-// so a 3×3 neighbourhood always covers it.
+/**
+ * What one packet is worth to a eukaryote, by mouth: a filter takes plant food (dissolved, algae), a jaw
+ * takes meat (debris, chunks); 0 means it can't take it in.
+ */
+export function yield2Of(kind: number, genome2: number) {
+  if (TIER2.hasGene(genome2, 'filter')) {
+    if (kind === NutrientKind.algae) return ALGAE_MASS;
+    if (kind === NutrientKind.dissolved) return NUTRIENT_MASS;
+  }
+  if (TIER2.hasGene(genome2, 'jaw')) {
+    if (kind === NutrientKind.chunk) return CHUNK_MASS;
+    if (kind === NutrientKind.debris) return DEBRIS_MASS;
+  }
+  return 0;
+}
+
+// Spatial hash for feeding lookups: a reach of r scans ⌈r / GRID⌉ cells around the eater's.
 const GRID = 80;
 const cellKey = (ix: number, iy: number) => (ix + 1024) * 2048 + (iy + 1024);
 
@@ -248,6 +288,14 @@ export function stepWorld(state: PoolState): Death[] {
       const jitter = randomInDisc(SEEP_SPREAD);
       spawnNutrient(state, seep.x + jitter.x, seep.y + jitter.y, NutrientKind.dissolved);
     }
+    if (Math.random() < SEEP_ALGAE * TICK_DT) { // algae bloom on the seeps' nutrients
+      const jitter = randomInDisc(SEEP_SPREAD * 4);
+      spawnNutrient(state, seep.x + jitter.x, seep.y + jitter.y, NutrientKind.algae);
+    }
+  }
+  if (Math.random() < ALGAE_RATE * TICK_DT) {
+    const at = randomInDisc(WORLD_RADIUS);
+    spawnNutrient(state, at.x, at.y, NutrientKind.algae);
   }
   if (Math.random() < BACKGROUND_RATE * TICK_DT) {
     const at = randomInDisc(WORLD_RADIUS);
@@ -293,16 +341,26 @@ export function stepWorld(state: PoolState): Death[] {
   for (const [id, p] of state.players) {
     if (dormant(p)) continue;
     const r = radiusOf(p.mass);
-    const reach = reachOf(p.mass, p.genome);
+    const t2 = p.tier === 2;
+    const reach = t2 ? r * 1.05 : reachOf(p.mass, p.genome);
+    const span = Math.ceil(reach / GRID);
     const ix = Math.floor(p.x / GRID);
     const iy = Math.floor(p.y / GRID);
-    for (let gx = ix - 1; gx <= ix + 1; gx++) {
-      for (let gy = iy - 1; gy <= iy + 1; gy++) {
+    for (let gx = ix - span; gx <= ix + span; gx++) {
+      for (let gy = iy - span; gy <= iy + span; gy++) {
         for (const nid of grid.get(cellKey(gx, gy)) ?? []) {
           const n = state.nutrients.get(nid);
           if (!n) continue; // gone: eaten this tick
           const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
-          if (n.kind === NutrientKind.phage) {
+          if (t2) {
+            // Eukaryotes eat by mouth; phages (bacteria-only viruses) and DNA packets drift past.
+            const food = d2 < reach * reach ? yield2Of(n.kind, p.genome2) : 0;
+            if (!food) continue;
+            p.mass = Math.min(massCapOf(2), p.mass + food);
+            earn(state, id, food * DNA_PER_MASS);
+          } else if (n.kind === NutrientKind.algae) {
+            continue; // too big for a bacterium to take in
+          } else if (n.kind === NutrientKind.phage) {
             // Phages bind the cell itself (siderophores don't reach them); a capsule may mask the receptor.
             if (d2 >= r * r || tick < p.graceUntil) continue;
             if (!(hasGene(p.genome, 'capsule') && Math.random() < CAPSULE_PHAGE_BLOCK)) p.infection += PHAGE_LATENT;
@@ -319,6 +377,23 @@ export function stepWorld(state: PoolState): Death[] {
           state.nutrients.delete(nid);
         }
       }
+    }
+  }
+
+  // Phagocytosis: a jaw swallows any cell at most ENGULF_RATIO of the eater's mass whose centre it
+  // covers — bacteria are snacks. Endospores resist digestion; cysts and newborns are shielded.
+  // ponytail: O(players²), fine at 50; use a grid when tier-2 bots raise counts.
+  for (const [eid, e] of state.players) {
+    if (e.tier !== 2 || dormant(e) || e.engulfedBy || !TIER2.hasGene(e.genome2, 'jaw')) continue;
+    const mouth = radiusOf(e.mass) * 0.9;
+    for (const [vid, v] of state.players) {
+      if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || v.mass > e.mass * ENGULF_RATIO) continue;
+      if ((v.x - e.x) ** 2 + (v.y - e.y) ** 2 >= mouth * mouth) continue;
+      v.engulfedBy = eid;
+      hurt(v, v.health + 1, eid, tick);
+      const food = v.mass * ENGULF_SHARE;
+      e.mass = Math.min(massCapOf(2), e.mass + food);
+      earn(state, eid, food * DNA_PER_MASS);
     }
   }
 
@@ -363,7 +438,7 @@ export function stepWorld(state: PoolState): Death[] {
     if (p.health <= 0) {
       deaths.push({ id, by: recentlyHit ? p.lastHitBy : '' });
       dead.push(p);
-    } else if (p.mass >= MASS_CAP - 1 && state.lineages.has(id)) {
+    } else if (p.mass >= massCapOf(p.tier) - 1 && state.lineages.has(id)) {
       p.cyst = CYST_TIME; // binary fission: shielded while the player edits the next generation
     }
   }
@@ -374,8 +449,9 @@ export function stepWorld(state: PoolState): Death[] {
     hatch(state, id);
   }
 
-  // The dead burst where they fell into debris, one DNA fragment per gene, and the phages that
-  // lysed them if infected; the killer earns DNA; then the next child takes over, or the species ends.
+  // The dead burst where they fell into debris (a eukaryote falls apart into meat chunks), one DNA
+  // fragment per gene, and the phages that lysed them if infected — unless they were swallowed whole.
+  // The killer earns DNA; then the next child takes over, or the species ends.
   for (const [i, p] of dead.entries()) {
     const death = deaths[i]!;
     const r = radiusOf(p.mass);
@@ -383,9 +459,12 @@ export function stepWorld(state: PoolState): Death[] {
       const at = randomInDisc(r);
       spawnNutrient(state, p.x + at.x, p.y + at.y, kind, gene);
     };
-    for (let k = Math.floor((p.mass * DEBRIS_SHARE) / DEBRIS_MASS); k > 0; k--) spill(NutrientKind.debris);
-    for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
-    if (p.infection > 0) for (let k = 0; k < PHAGE_BURST; k++) spill(NutrientKind.phage);
+    if (!p.engulfedBy) {
+      const [kind, size] = p.tier === 2 ? [NutrientKind.chunk, CHUNK_MASS] : [NutrientKind.debris, DEBRIS_MASS];
+      for (let k = Math.floor((p.mass * DEBRIS_SHARE) / size); k > 0; k--) spill(kind);
+      for (const g of GENE_NAMES) if (hasGene(p.genome, g)) spill(NutrientKind.fragment, GENES[g].bit);
+      if (p.infection > 0) for (let k = 0; k < PHAGE_BURST; k++) spill(NutrientKind.phage);
+    }
     if (death.by) {
       earn(state, death.by, p.mass * KILL_DNA_SHARE);
       const killer = state.lineages.get(death.by);
@@ -397,13 +476,8 @@ export function stepWorld(state: PoolState): Death[] {
       state.players.delete(death.id);
       continue;
     }
-    const born = spawnPlayer(tick);
-    if (l) {
-      l.children--;
-      born.genome = l.genome;
-      born.name = l.name;
-    }
-    state.players.set(death.id, born);
+    if (l) l.children--;
+    state.players.set(death.id, l ? nextOf(l, tick) : spawnPlayer(tick));
   }
   return deaths;
 }

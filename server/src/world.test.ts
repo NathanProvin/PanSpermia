@@ -1,7 +1,8 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
+  ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EVOLVE_DNA, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
-  STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
+  STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
@@ -466,7 +467,8 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
   expect(submitDesign(state, 'p', draft, false)).toBeUndefined();
   expect(submitDesign(state, 'p', { ...draft, children: 99 }, false)).toBe('bad children'); // keeps the valid one
   expect(state.players.get('p')).toBe(player); // a draft doesn't hatch
-  run(state, CYST_TIME + 0.1);
+  // Step exactly until the hatch: afterwards the child may eat, which would move the DNA asserted below.
+  for (let i = 0; i < (CYST_TIME + 1) * TICK_RATE && lineage.generation === 1; i++) stepWorld(state);
   expect([lineage.genome, lineage.hue, lineage.children, lineage.generation])
     .toEqual([GENES.flagellum.bit, 0.2, STARTER_CHILDREN + 1, 2]);
   expect(lineage.dna).toBe(100 - (GENES.flagellum.price - GENES.pili.price) - CHILD_PRICE);
@@ -477,8 +479,8 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
 test('species names: generated, validated, carried by every individual', () => {
   expect(cleanName('  Vibrio   magnus ')).toBe('Vibrio magnus');
   expect(cleanName("Ö'stra-lis")).toBe("Ö'stra-lis");
-  for (const bad of ['x', '<script>', 'a'.repeat(30), '1abc', 42, null, 'ab\u0000c']) expect(cleanName(bad)).toBeUndefined();
-  for (let i = 0; i < 50; i++) expect(cleanName(randomSpeciesName())).toBeDefined();
+  for (const bad of ['x', '<script>', 'a'.repeat(29), '1abc', 42, null, 'ab\u0000c']) expect(cleanName(bad)).toBeUndefined();
+  for (let i = 0; i < 500; i++) expect(cleanName(randomSpeciesName())).toBeDefined();
 
   const { state, player, lineage } = species();
   expect(player.name).toBe(lineage.name);
@@ -499,7 +501,7 @@ test('kills are counted for the killer species', () => {
   expect(lineage.kills).toBe(0);
 });
 
-test('evolving needs the lifetime DNA, ends the slice for that species, and can be refounded', () => {
+test('evolving needs the lifetime DNA, then the next generation hatches as a eukaryote', () => {
   const { state, player, lineage } = species();
   player.cyst = CYST_TIME;
   const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
@@ -508,7 +510,89 @@ test('evolving needs the lifetime DNA, ends the slice for that species, and can 
   expect(submitDesign(state, 'p', evolve)).toBe('not ready to evolve');
   submitDesign(state, 'p', evolve, false); // a draft never evolves on timeout
   lineage.lifetimeDna = EVOLVE_DNA;
+  Object.assign(player, { x: 321, y: -45 });
   expect(submitDesign(state, 'p', evolve)).toBeUndefined();
-  expect(lineage.evolved).toBe(true);
-  expect(state.players.has('p')).toBe(false);
+  const eu = state.players.get('p')!;
+  expect([eu.tier, eu.genome, eu.genome2, eu.mass, eu.x]).toEqual([2, 0, STARTER_GENOME2, T2_SPAWN_MASS, 321]);
+  expect(healthMaxOf(eu.genome, eu.tier)).toBe(eu.health);
+  expect([lineage.tier, lineage.genome, lineage.library]).toEqual([2, STARTER_GENOME2, STARTER_LIBRARY2]);
+  eu.cyst = CYST_TIME;
+  const parts = lineage.parts.map((p) => ({ ...p.toJSON(), gene: TIER2.NAMES[p.gene] }));
+  expect(submitDesign(state, 'p', { ...evolve, parts })).toBe('cannot evolve further yet');
+  expect(submitDesign(state, 'p', { ...evolve, parts, evolve: false })).toBeUndefined(); // tier-2 parts validate
+  expect(state.players.get('p')!.tier).toBe(2);
+});
+
+// --- Tier 2: eukaryotes ---------------------------------------------------------------------------
+
+/** A tier-2 eukaryote 'e' (unshielded) with the given parts, in an otherwise empty pool. */
+const eukaryote = (genome2 = STARTER_GENOME2, mass = 300) => {
+  const state = new PoolState();
+  const e = spawnPlayer();
+  Object.assign(e, { tier: 2, genome: 0, genome2, mass, health: 300, x: 0, y: 0 });
+  state.players.set('e', e);
+  return { state, e };
+};
+
+test('mouths set the diet: filter takes plant food, jaw takes meat, bacteria leave algae alone', () => {
+  const filter = TIER2.GENES.filter.bit;
+  const jaw = TIER2.GENES.jaw.bit;
+  for (const [genome2, kind, eaten] of [
+    [filter, NutrientKind.algae, true], [filter, NutrientKind.dissolved, true], [filter, NutrientKind.chunk, false],
+    [jaw, NutrientKind.chunk, true], [jaw, NutrientKind.debris, true], [jaw, NutrientKind.algae, false],
+    [jaw, NutrientKind.phage, false], [jaw | filter, NutrientKind.plasmid, false],
+  ] as const) {
+    const { state, e } = eukaryote(genome2);
+    const id = foodAt(state, 5, 5, kind);
+    stepWorld(state);
+    expect(state.nutrients.has(id)).toBe(!eaten);
+    expect(e.infection).toBe(0); // phages are bacteria-only viruses
+  }
+  const { state, e } = eukaryote(filter);
+  const before = e.mass;
+  foodAt(state, 0, 0, NutrientKind.algae);
+  stepWorld(state);
+  expect(e.mass).toBeGreaterThan(before + ALGAE_MASS - 1);
+
+  const { state: s2, player } = worldWith();
+  const algae = foodAt(s2, player.x, player.y, NutrientKind.algae);
+  stepWorld(s2);
+  expect(s2.nutrients.has(algae)).toBe(true);
+});
+
+test('a jaw engulfs smaller cells whole; spores, newborns and big cells escape', () => {
+  const { state, e } = eukaryote(TIER2.GENES.jaw.bit);
+  const prey = (id: string, over: Partial<Player>) => {
+    const b = spawnPlayer();
+    Object.assign(b, { x: 10, y: 0, mass: 30, ...over });
+    state.players.set(id, b);
+    return b;
+  };
+  const snack = prey('snack', {});
+  prey('spore', { spore: 5 });
+  prey('newborn', { graceUntil: 10_000 });
+  prey('far', { x: 200 });
+  const big = spawnPlayer();
+  Object.assign(big, { tier: 2, genome: 0, genome2: 0, mass: 200, health: 300, x: -10, y: 0 }); // > half the eater
+  state.players.set('big', big);
+  const before = e.mass;
+  const deaths = stepWorld(state);
+  expect(deaths).toEqual([{ id: 'snack', by: 'e' }]);
+  expect(e.mass).toBeCloseTo(before + snack.mass * ENGULF_SHARE, 0);
+  expect(ofKind(state, NutrientKind.debris).filter((n) => Math.hypot(n.x0 - 10, n.y0) < 30)).toEqual([]); // swallowed whole
+  for (const id of ['spore', 'newborn', 'far', 'big']) expect(state.players.get(id)!.health).toBeGreaterThan(0);
+});
+
+test('a dead eukaryote falls apart into meat chunks; tier-2 cells divide at the tier-2 cap', () => {
+  const { state, e } = eukaryote(STARTER_GENOME2, 401); // metabolism trims a little before death
+  e.health = -1;
+  stepWorld(state);
+  expect(ofKind(state, NutrientKind.chunk).length).toBe(Math.floor((400 * 0.5) / CHUNK_MASS));
+  expect(ofKind(state, NutrientKind.debris).filter((n) => Math.hypot(n.x0, n.y0) < 80)).toEqual([]);
+
+  const { state: s2, player, lineage } = species();
+  lineage.tier = 2;
+  Object.assign(player, { tier: 2, genome: 0, genome2: STARTER_GENOME2, mass: T2_MASS_CAP, health: 300 });
+  stepWorld(s2);
+  expect(player.cyst).toBe(CYST_TIME);
 });

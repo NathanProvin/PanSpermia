@@ -75,15 +75,20 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] P4c (2026-10-15) Placed parts rendered in the pool (multiple flagella, parts where placed), species colour. Done: one quad per placed part in a body frame that turns with the heading (`createCellView`), shared by the pool and the editor; bots/dev-toggled cells use `defaultParts`; division cyst drawn as a pinching furrow with two nucleoids
   - [x] P4d (2026-10-15) Bots get copy-count designs; balancing pass with the sim (time per generation, lives used). Done: stacked bot designs; bots divide at the cap (instant, no editor); sim reports gens, genMin, livesPerGen; hunters only chase cells < 0.7× their mass and only while < 70 mass, fire only at prey or in self-defence; grazers flee armed cells ≥ 0.5× their mass within 200; spawn weights grazer 3 / coward 2 / swarm 2 / hunter 1; SEEP_RATE 0.8 → 1.1. Result (20 min, 30 bots): ~3 deaths/min (was 16), generations ~1.2–5 min, < 1 life per generation for most species
 - [x] P5 Virality (2026-10-15): species name on cell, live leaderboard, shareable species card (render + link), slice ends at "evolved to eukaryote" moment. Done: generated Latin binomial names (rename in the editor, `cleanName` gate), DOM labels over cells, top-8 mass leaderboard, Evolve button at EVOLVE_DNA 250 lifetime DNA (two-click confirm) → zoom-out stage-up → card; species card 1200×630 PNG rendered with the game shaders + link carrying the design in the URL fragment (no server storage, validated on decode), viewer mode with Play; extinction screen also offers the card; death screen names human killer species. Dev key N now also counts as lifetime DNA.
-- [ ] P6 Ship (deploy plan: DECISIONS 2026-10-15 "Deployment path"), sliced:
+- [ ] P6 Ship — b/c/d deferred (2026-10-15, user): gameplay development first (deploy plan: DECISIONS 2026-10-15 "Deployment path"), sliced:
   - [x] P6a (2026-10-15) Stage 1 playtests from the dev PC: production server serves the built client (one origin) + `/health`; production client connects to its own origin; `npm run play`, `npm run tunnel` (Cloudflare quick tunnel); README playtest steps
   - [ ] P6b Stage 2 public alpha: VPS (Oracle Always Free on pay-as-you-go, or Hetzner ~€4/mo), Caddy TLS, systemd, Cloudflare DNS/proxy, firewall, deploy script; stale-client version check
   - [ ] P6c Bot-driven 50-player load test (measure bandwidth per client), basic analytics (Cloudflare Web Analytics + own events in SQLite: session length, restarts, card shares)
   - [ ] P6d First public playtest
 
 ### Milestone B — Full evolution
-- [ ] P7 Multi-scale room: cross-tier zoom/layers, ±1 tier interaction, filter-feeding giants.
-- [ ] P8 Tier 2 Eukaryote (body plan, parts, engulf + endosymbiosis, hazards).
+- [ ] P7+P8 Tier 2 Eukaryote in the same pool (design: DECISIONS 2026-10-15 "Tier 2 forks"), sliced:
+  - [x] P8a (2026-10-15) Eukaryotes exist: Player.tier + genome2 (tier-2 catalog, tier-1 rules untouched), tier-2 scale (spawn 120 → cap 1000 mass, own speed/metabolism/health), steering movement (cilia, flagellum), mouths set diet (filter: algae + dissolved; jaw: debris, chunks, engulf cells ≤ ½ mass incl. bacteria; both = omnivore), algae + meat chunks, Evolve → next generation hatches as tier 2 (stage-up zoom), bigger pool, bacteria flee jaws, phages ignore eukaryotes. Done; tier-2 cells are plain bodies and divide with an unchanged design until P8b; pool 1500 → 2200 (rates ×2.15, 40 bots); bot sim: generations 1.4–5.4 min, ≤ 1.4 lives/gen
+  - [ ] P8b Tier-2 editor (catalog-aware) + Spore-cell visuals (mouths, cilia, eyes, nucleus) in pool and editor
+  - [ ] P8c Weapons (spike, poison, electric), jet dash, eyes
+  - [ ] P8d Endosymbiosis: engulfing specific bacteria unlocks organelles (mitochondrion, chloroplast) + a photosynthetic tier-1 bot species
+  - [ ] P8e Tier-2 bots, hazard (parasites/viruses of eukaryotes), balance pass
+  - [ ] P7 rest: filter-feeding giants drifting blurred below (tier 3+ teaser), generic ±1 tier rules
 - [ ] P9 Tier 3 Multicellular + egg protection.
 - [ ] P10 Tier 4 Arthropod/insect/mollusk + cocoon, ink eject.
 - [ ] P11 Tier 5 Chordate + womb.

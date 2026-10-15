@@ -1,6 +1,7 @@
 export * from './combat.ts';
 export * from './constants.ts';
 export * from './current.ts';
+export * from './eukaryote.ts';
 export * from './genes.ts';
 export * from './names.ts';
 export * from './sim.ts';

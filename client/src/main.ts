@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, GENES, GENE_NAMES, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  TICK_DT, TOXINS, copiesOf, defaultParts, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  TICK_DT, TIER1, TIER2, TOXINS, type Catalog, defaultParts, hasGene, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -103,11 +103,10 @@ let knownLineage: Lineage | undefined;
 /** The dividing individual the editor was opened for (one design per cyst). */
 let designedFor: Player | undefined;
 /** When our species evolved (the slice's ending: zoom out, then the species card), or 0. */
-let evolvedAt = 0;
-let evolvedCardShown = false;
-const EVOLVE_CINEMATIC = 5000; // ms of zooming out before the card
-/** Camera height that frames the whole pool for the stage-up zoom-out. */
-const STAGEUP_HEIGHT = 4200;
+/** Our species' tier as last seen: a rise is the stage-up moment. */
+let knownTier = 0;
+const STAGEUP_MS = 4500;
+let stageupUntil = 0;
 
 /** A shared card link opens the card alone; Play drops the fragment and starts the game. */
 const sharedCard = location.hash.startsWith('#card=') ? decodeCard(location.hash.slice('#card='.length)) : undefined;
@@ -120,9 +119,12 @@ if (sharedCard) {
   await new Promise(() => {}); // park: a card viewer never joins a room
 }
 
-const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: GENE_NAMES[part.gene]! }));
+/** The part catalog a lineage designs with at its tier. */
+const catalogOf = (l: Lineage) => (l.tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
+const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogOf(l).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
+  tier: l.tier,
 });
 
 try {
@@ -135,10 +137,16 @@ try {
     extinctScreen.hidden = false;
     extinctScreen.querySelector('button')!.focus();
   });
+  /** Spore's stage-up: the title card while the camera zooms out to the bigger body (the follow zoom does it). */
+  const stageUp = (l: Lineage) => {
+    const subtitle = document.createElement('small');
+    subtitle.textContent = 'Engulf smaller cells with a jaw, graze algae with a filter mouth. Bacteria are food now.';
+    stageup.replaceChildren(`${l.name} evolved into eukaryotes`, subtitle);
+    stageup.classList.add('on');
+    stageupUntil = performance.now() + STAGEUP_MS;
+  };
   const newSpecies = () => {
     extinctScreen.hidden = true;
-    evolvedAt = 0;
-    evolvedCardShown = false;
     room.send('newSpecies');
   };
   extinctScreen.querySelector('.found')!.addEventListener('click', newSpecies);
@@ -153,8 +161,10 @@ try {
   /** A player's cell wears its species design (unless dev cheats changed its genes); bots get the default layout. */
   const lookOf = (id: string, p: Player): Look => {
     const l = room.state.lineages.get(id);
+    // ponytail: eukaryotes are plain bodies until P8b draws their parts.
+    if (p.tier === 2) return { genome: 0, parts: [], hue: l?.hue ?? hashId(id) };
     if (!l) return { genome: p.genome, parts: defaultParts(p.genome), hue: hashId(id) };
-    const parts = p.genome === l.genome ? partsOf(l) : defaultParts(p.genome);
+    const parts = p.genome === l.genome ? (partsOf(l) as Look['parts']) : defaultParts(p.genome);
     return { genome: p.genome, parts, hue: l.hue };
   };
 
@@ -186,7 +196,8 @@ try {
       // Mass, genome and the sim clock are server-driven; replay reads their latest values and
       // smoothing absorbs the tiny resulting drift (currents change slowly).
       step: (ctx, state, cmd) =>
-        stepCell(state, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
+        stepCell(state, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT,
+          player.tier, player.genome2),
       warnOnDivergence: import.meta.env.DEV ? 1 : undefined, // console warning if client and server sims drift apart
     });
   });
@@ -252,17 +263,26 @@ try {
     if (self && selfMesh) {
       const lineage = room.state.lineages.get(room.sessionId)!;
       if (lineage !== knownLineage) [knownLineage, knownLibrary] = [lineage, lineage.library]; // a new species
+      const cat = catalogOf(lineage);
+      if (lineage.tier !== knownTier) { // a new species, or a stage-up: the library starts over
+        if (knownTier && lineage.tier > knownTier) stageUp(lineage);
+        knownTier = lineage.tier;
+        knownLibrary = lineage.library;
+      }
       if (lineage.library & ~knownLibrary) {
-        const found = GENE_NAMES.filter((g) => hasGene(lineage.library & ~knownLibrary, g)).map((g) => GENES[g].label);
+        const found = cat.NAMES.filter((g) => cat.hasGene(lineage.library & ~knownLibrary, g)).map((g) => cat.GENES[g]!.label);
         say(`Part unlocked: ${found.join(', ')}`);
       }
       knownLibrary = lineage.library;
       if (self.cyst > 0 && designedFor !== self) {
         designedFor = self;
-        editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
+        if (lineage.tier === 1) editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
+        // ponytail: stub until the tier-2 editor (P8b) — divide with the same design.
+        else room.send('design', { parts: partsOf(lineage), hue: lineage.hue, children: 0, name: lineage.name });
       }
-      const genes = GENE_NAMES.filter((g) => hasGene(self.genome, g))
-        .map((g) => GENES[g].label + (copiesOf(self.genome, g) > 1 ? ` ×${copiesOf(self.genome, g)}` : '')).join(', ') || 'no genes';
+      const ownGenome = self.tier === 2 ? self.genome2 : self.genome;
+      const genes = cat.NAMES.filter((g) => cat.hasGene(ownGenome, g))
+        .map((g) => cat.GENES[g]!.label + (cat.copiesOf(ownGenome, g) > 1 ? ` ×${cat.copiesOf(ownGenome, g)}` : '')).join(', ') || 'no genes';
       const ready = (s: number) => (s > 0 ? `${s.toFixed(1)}s` : 'ready');
       const abilities = [
         TOXINS.some((t) => hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
@@ -270,38 +290,23 @@ try {
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
         self.cyst > 0 ? 'DIVIDING' : '',
       ].filter(Boolean).join(' · ');
-      hud.textContent = `${lineage.name} · mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome)}`
+      hud.textContent = `${lineage.name} · mass ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome, self.tier)}`
         + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
         + ` · DNA ${Math.floor(lineage.dna)} · children ${lineage.children} · gen ${lineage.generation} · ${players.size} cell${players.size === 1 ? '' : 's'}`
         + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
     } else hud.textContent = now < noticeUntil ? notice : ''; // extinct or evolved: no cell to report on
 
-    // The slice's ending: our species evolved. Zoom out to the whole pool (Spore's stage-up), then the card.
-    const ours = room.state.lineages.get(room.sessionId);
-    if (ours?.evolved && !evolvedAt) {
-      evolvedAt = now;
-      const subtitle = document.createElement('small');
-      subtitle.textContent = 'A new stage of life begins. Tier 2 arrives in a later update.';
-      stageup.replaceChildren(`${ours.name} evolved into eukaryotes`, subtitle);
-      stageup.classList.add('on');
-    }
-    if (evolvedAt) {
-      camera.position.x *= 0.98;
-      camera.position.y *= 0.98;
-      camera.position.z += (STAGEUP_HEIGHT - camera.position.z) * 0.015;
-      if (!evolvedCardShown && now - evolvedAt > EVOLVE_CINEMATIC && ours) {
-        evolvedCardShown = true;
-        stageup.classList.remove('on');
-        showCard(cardScreen, cardOf(ours, 'evolved'), { label: 'Found a new species', action: newSpecies });
-      }
+    if (stageupUntil && now > stageupUntil) {
+      stageupUntil = 0;
+      stageup.classList.remove('on');
     }
 
     labels.update(players, room.sessionId, camera, (id) => {
       const body = cells.get(id)?.body;
       return body && { x: body.position.x, y: body.position.y, r: body.scale.x };
-    }, !editor.isOpen && !evolvedAt && !meteor.active);
-    labels.leaderboard(players, room.sessionId, !editor.isOpen && !evolvedAt);
+    }, !editor.isOpen && !meteor.active);
+    labels.leaderboard(players, room.sessionId, !editor.isOpen);
 
     const focus = camera.position.z; // distance to the gameplay plane
     pool.update(time);

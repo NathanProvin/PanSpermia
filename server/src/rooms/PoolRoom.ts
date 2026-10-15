@@ -1,6 +1,6 @@
 import { Room, type Client } from '@colyseus/core';
 import {
-  ACTION_TOXIN, BOT_FILL, MASS_CAP, BOT_SPECIES, GENES, copiesOf, withCopies, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
+  ACTION_TOXIN, BOT_FILL, massCapOf, BOT_SPECIES, GENES, copiesOf, withCopies, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
   stepCell,
 } from '@panspermia/shared';
 import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
@@ -40,7 +40,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
           if (!p) continue;
           // A division cyst can't swim or act: its inputs step as no-ops (honest clients send zeros).
           const live = p.cyst > 0 ? 0 : 1;
-          stepCell(p, p.mass, p.genome, cmd.dirX * live, cmd.dirY * live, cmd.actions * live, ctx.dt, time);
+          stepCell(p, p.mass, p.genome, cmd.dirX * live, cmd.dirY * live, cmd.actions * live, ctx.dt, time, p.tier, p.genome2);
           if (cmd.actions & ACTION_TOXIN) secrete(this.state, id);
           steps++;
         }
@@ -49,7 +49,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         // the grace absorbs network jitter so bursty-but-live clients never get unpredicted steps.
         const idle = steps ? 0 : (this.idleTicks.get(id) ?? 0) + 1;
         this.idleTicks.set(id, idle);
-        if (idle > IDLE_GRACE_TICKS) stepCell(p, p.mass, p.genome, 0, 0, 0, ctx.dt, time);
+        if (idle > IDLE_GRACE_TICKS) stepCell(p, p.mass, p.genome, 0, 0, 0, ctx.dt, time, p.tier, p.genome2);
       }
       stepBots(this.state, this.bots);
       const deaths = stepWorld(this.state);
@@ -94,7 +94,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       // Jump to the size cap (fission) or die on the spot (children, extinction).
       this.onMessage('dev:grow', (client) => {
         const p = this.state.players.get(client.sessionId);
-        if (p) p.mass = MASS_CAP;
+        if (p) p.mass = massCapOf(p.tier);
       });
       this.onMessage('dev:dna', (client) => {
         const l = this.state.lineages.get(client.sessionId);

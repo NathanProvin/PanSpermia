@@ -9,7 +9,7 @@ const pick = <T>(xs: readonly T[]) => xs[Math.floor(Math.random() * xs.length)]!
 
 export const randomSpeciesName = () => `${pick(GENUS_HEAD)}${pick(GENUS_TAIL)} ${pick(EPITHETS)}`;
 
-export const NAME_MAX = 24;
+export const NAME_MAX = 28; // the longest generated name ("Streptobacillus peregrina") is 25
 /** A displayable species name from untrusted input (trimmed, single spaces, letters/'/-), or undefined. */
 export function cleanName(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;

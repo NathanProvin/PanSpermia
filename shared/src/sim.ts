@@ -1,13 +1,15 @@
 // Movement rules shared by the server (authority) and the client (prediction + replay).
 // Keep them pure and deterministic: both sides must compute the same step from the same input.
 import {
-  DRIFT_PILI, FLAGELLUM_STACK, RADIUS_PER_SQRT_MASS, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
+  DRIFT_PILI, FLAGELLUM_STACK, MASS_CAP, MIN_MASS, RADIUS_PER_SQRT_MASS, SPAWN_MASS, T2_DRIFT, T2_MASS_CAP,
+  T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
 import {
   ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
 } from './combat.ts';
 import { currentAt } from './current.ts';
+import { TIER2 } from './eukaryote.ts';
 import { copiesOf, hasGene, stack } from './genes.ts';
 
 /**
@@ -33,7 +35,11 @@ export function sanitizeInput(input: { dirX: number; dirY: number; actions: numb
 }
 
 export const radiusOf = (mass: number) => RADIUS_PER_SQRT_MASS * Math.sqrt(mass);
-export const speedOf = (mass: number) => SPEED_COEF * mass ** SPEED_EXP;
+export const speedOf = (mass: number, tier = 1) => (tier === 2 ? T2_SPEED_COEF : SPEED_COEF) * mass ** SPEED_EXP;
+// Per-tier body scale: where a newborn starts, the starvation floor, the size that triggers division.
+export const spawnMassOf = (tier: number) => (tier === 2 ? T2_SPAWN_MASS : SPAWN_MASS);
+export const minMassOf = (tier: number) => (tier === 2 ? T2_MIN_MASS : MIN_MASS);
+export const massCapOf = (tier: number) => (tier === 2 ? T2_MASS_CAP : MASS_CAP);
 
 /** Angle wrapped to (-π, π]. */
 export const wrapAngle = (a: number) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
@@ -60,9 +66,11 @@ const flow = { x: 0, y: 0 };
  */
 export function stepCell(
   b: CellBody, mass: number, genome: number, dirX: number, dirY: number, actions: number, dt: number, time: number,
+  tier = 1, genome2 = 0,
 ) {
   const throttle = Math.hypot(dirX, dirY);
   const want = Math.atan2(dirY, dirX);
+  if (tier === 2) return stepEukaryote(b, mass, genome2, throttle, want, dt, time);
   let swim = 0;
 
   // Endospore: a dormant, invulnerable husk that still drifts. Simulated here so it's predicted.
@@ -103,6 +111,30 @@ export function stepCell(
     * (hasGene(genome, 'capsule') ? CAPSULE_SWIM : 1) * (hasGene(genome, 'thickWall') ? WALL_SWIM : 1);
   const pili = copiesOf(genome, 'pili');
   const drift = pili ? DRIFT_PILI ** stack(pili) : 1;
+  move(b, mass, v, drift, dt, time);
+}
+
+/**
+ * Eukaryotes steer instead of tumbling: cilia give precise, instant turns; a flagellum alone is fast
+ * but turns at T2_TURN_RATE; with both you get the flagellum's speed and the cilia's control.
+ */
+function stepEukaryote(b: CellBody, mass: number, genome2: number, throttle: number, want: number, dt: number, time: number) {
+  const cilia = TIER2.copiesOf(genome2, 'cilia');
+  const flagella = TIER2.copiesOf(genome2, 'flagellum');
+  let swim = 0;
+  if (throttle > 0) {
+    if (flagella && !cilia) {
+      const diff = wrapAngle(want - b.heading);
+      b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), T2_TURN_RATE * dt));
+    } else b.heading = want;
+    swim = flagella ? T2_SWIM_FLAGELLUM * (1 + FLAGELLUM_STACK * (stack(flagella) - 1))
+      : cilia ? T2_SWIM_CILIA * (1 + FLAGELLUM_STACK * (stack(cilia) - 1)) : T2_SWIM_CREEP;
+  }
+  move(b, mass, swim * throttle * speedOf(mass, 2), T2_DRIFT, dt, time);
+}
+
+/** Swim at speed `v` along the heading, drift with a share of the current, stay inside the pool. */
+function move(b: CellBody, mass: number, v: number, drift: number, dt: number, time: number) {
   currentAt(b.x, b.y, time, flow);
   b.x += (Math.cos(b.heading) * v + flow.x * drift) * dt;
   b.y += (Math.sin(b.heading) * v + flow.y * drift) * dt;

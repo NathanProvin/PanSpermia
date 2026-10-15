@@ -13,8 +13,12 @@ export const Player = schema({
   rng: t.uint32(),
   mass: t.number(),
   health: t.number(),
-  /** Bitmask of GENES. */
+  /** 1 = bacterium, 2 = eukaryote. */
+  tier: t.uint8().default(1),
+  /** Tier-1 part copies (GENES); 0 for a eukaryote. */
   genome: t.uint32(),
+  /** Tier-2 part copies (TIER2); 0 for a bacterium. */
+  genome2: t.uint32().default(0),
   /** Seconds left dormant as an endospore (0 = active), and until it can sporulate again. */
   spore: t.number().default(0),
   sporeCooldown: t.number().default(0),
@@ -27,13 +31,15 @@ export const Player = schema({
   // Server-side kill attribution and regen gating, never sent.
   lastHitBy: t.string().noSync().default(''),
   lastHitTick: t.uint32().noSync().default(0),
+  /** Swallowed whole this tick (by this eater): no debris, the eater already digested it. */
+  engulfedBy: t.string().noSync().default(''),
   /** Spawn protection lasts until this tick (server-side). */
   graceUntil: t.uint32().noSync().default(0),
 }, 'Player');
 export type Player = SchemaType<typeof Player>;
 
 /** Everything that drifts passively: food, DNA (fragments, plasmids) and phages. */
-export const NutrientKind = { dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4 } as const;
+export const NutrientKind = { dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4, algae: 5, chunk: 6 } as const;
 
 /**
  * A packet drifting on the current. Only its spawn point and tick are synced: clients rebuild
@@ -91,7 +97,9 @@ export type Part = SchemaType<typeof Part>;
 /** A human player's species across individuals: design, unlocked parts, DNA, reserve lives. */
 export const Lineage = schema({
   name: t.string(),
-  /** Copy counts of the current design (what each new individual expresses). */
+  /** The tier its next individuals hatch at. */
+  tier: t.uint8().default(1),
+  /** Copy counts (of the tier's catalog) of the current design (what each new individual expresses). */
   genome: t.uint32(),
   parts: t.array(Part),
   hue: t.float32(),

@@ -137,3 +137,34 @@ test('clampSteer caps throttle at 1 without bending the heading', () => {
     expect(bad).toEqual({ dirX: 0, dirY: 0 });
   }
 });
+
+test('eukaryotes steer: cilia turn at once, a lone flagellum turns slowly but swims faster', async () => {
+  const { TIER2 } = await import('./eukaryote.ts');
+  const { T2_SWIM_CILIA, T2_SWIM_FLAGELLUM, T2_TURN_RATE, T2_SPAWN_MASS, T2_DRIFT } = await import('./constants.ts');
+  const step = (genome2: number, dirX: number, dirY: number) => {
+    const moved = { ...cell() };
+    const drifted = { ...cell() };
+    stepCell(moved, T2_SPAWN_MASS, 0, dirX, dirY, 0, DT, T, 2, genome2);
+    stepCell(drifted, T2_SPAWN_MASS, 0, 0, 0, 0, DT, T, 2, genome2);
+    return { body: moved, swim: Math.hypot(moved.x - drifted.x, moved.y - drifted.y) };
+  };
+  const full = speedOf(T2_SPAWN_MASS, 2) * DT;
+  const cilia = TIER2.GENES.cilia.bit;
+  const flagellum = TIER2.GENES.flagellum.bit;
+  expect(step(cilia, 0, 1).body.heading).toBeCloseTo(Math.PI / 2, 10); // instant turn
+  expect(step(cilia, 1, 0).swim).toBeCloseTo(T2_SWIM_CILIA * full, 10);
+  expect(step(flagellum, 0, 1).body.heading).toBeCloseTo(T2_TURN_RATE * DT, 10); // slow turn
+  expect(step(flagellum, 1, 0).swim).toBeCloseTo(T2_SWIM_FLAGELLUM * full, 10);
+  expect(step(flagellum | cilia, 0, 1).body.heading).toBeCloseTo(Math.PI / 2, 10); // cilia steer the flagellum
+
+  // Tier-1 genes mean nothing to a eukaryote: a 'flagellum' bit in genome doesn't tumble it.
+  const b = cell();
+  stepCell(b, T2_SPAWN_MASS, GENES.flagellum.bit, 0, -1, 0, DT, T, 2, cilia);
+  expect(b.tumble).toBe(0);
+  // Big cells drift with less of the current than a geneless bacterium.
+  const eu = cell();
+  const bac = cell();
+  stepCell(eu, T2_SPAWN_MASS, 0, 0, 0, 0, DT, T, 2, 0);
+  stepCell(bac, SPAWN_MASS, 0, 0, 0, 0, DT, T);
+  expect(eu.x - 200).toBeCloseTo((bac.x - 200) * T2_DRIFT, 6);
+});

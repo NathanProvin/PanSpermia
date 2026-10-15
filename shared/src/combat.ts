@@ -1,6 +1,6 @@
 // Tier-1 combat is lysis: break the other cell's membrane, then eat what spills out.
 // Shared because clients render clouds (radius over age) and predict the endospore.
-import { HEALTH_MAX } from './constants.ts';
+import { HEALTH_MAX, T2_HEALTH_MAX } from './constants.ts';
 import { hasGene } from './genes.ts';
 
 /** Input action bits (Input.actions). */
@@ -42,4 +42,5 @@ export function toxinFactor(genome: number, kind: ToxinKind) {
 }
 /** Share of contact (T6SS) damage taken: a thick wall blunts the syringe. */
 export const contactFactor = (genome: number) => (hasGene(genome, 'thickWall') ? 0.5 : 1);
-export const healthMaxOf = (genome: number) => HEALTH_MAX * (hasGene(genome, 'thickWall') ? 1.4 : 1);
+export const healthMaxOf = (genome: number, tier = 1) =>
+  tier === 2 ? T2_HEALTH_MAX : HEALTH_MAX * (hasGene(genome, 'thickWall') ? 1.4 : 1);

@@ -2,13 +2,15 @@ import { expect, test } from 'vitest';
 import { type CardData, decodeCard, encodeCard } from './card.ts';
 
 const card: CardData = {
-  name: 'Vibrio stellaris', hue: 0.42, generation: 7, dna: 312, kills: 3, fate: 'evolved',
+  name: 'Vibrio stellaris', hue: 0.42, tier: 1, generation: 7, dna: 312, kills: 3, fate: 'evolved',
   parts: [{ gene: 'flagellum', x: -1, y: 0, angle: 3.14, scale: 1, group: 0 }, { gene: 'pili', x: 0.5, y: 0.87, angle: 1.05, scale: 1.5, group: 0 }],
 };
 const tamper = (data: unknown[]) => btoa(JSON.stringify(data)).replaceAll('+', '-').replaceAll('/', '_');
 
 test('a card survives the link round trip (UTF-8 names included)', () => {
   expect(decodeCard(encodeCard(card))).toEqual(card);
+  const eu: CardData = { ...card, tier: 2, parts: [{ gene: 'jaw', x: 1, y: 0, angle: 0, scale: 1, group: 0 }] };
+  expect(decodeCard(encodeCard(eu))).toEqual(eu);
   const accented = { ...card, name: 'Ébauche lucida' };
   expect(decodeCard(encodeCard(accented))!.name).toBe('Ébauche lucida');
 });

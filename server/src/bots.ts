@@ -2,7 +2,7 @@
 // PoolState, stepped by the same `stepCell`/`stepWorld` rules, so balance numbers transfer to humans.
 // Pure functions over PoolState + a brain map: the room and the headless balancing sim both drive them.
 import {
-  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, MASS_CAP, NutrientKind, type Player, type PoolState, TICK_DT, WORLD_RADIUS,
+  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, ENGULF_RATIO, MASS_CAP, TIER2, NutrientKind, type Player, type PoolState, TICK_DT, WORLD_RADIUS,
   genomeOf, hasGene, healthMaxOf, radiusOf, stepCell,
 } from '@panspermia/shared';
 import { type Death, secrete, spawnPlayer, yieldOf } from './world.ts';
@@ -148,7 +148,10 @@ function think(state: PoolState, bots: Bots, id: string, p: Player, b: Brain) {
     const isPrey = archetype === 'hunter' && p.mass < HUNT_UNTIL && o.spore === 0 && o.cyst === 0
       && state.tick >= o.graceUntil && o.mass < p.mass * PREY_RATIO;
     if (isPrey && d < (prey?.d ?? Infinity)) prey = { d, x: dx / d, y: dy / d };
-    const fear = archetype === 'coward' ? 250 : archetype === 'grazer' && armed(o.genome) && o.mass > p.mass * 0.5 ? GRAZER_FEAR : 0;
+    // Everyone flees a jawed eukaryote big enough to swallow them (P8a).
+    const swallower = o.tier === 2 && TIER2.hasGene(o.genome2, 'jaw') && p.mass <= o.mass * ENGULF_RATIO;
+    const fear = archetype === 'coward' || swallower ? 250
+      : archetype === 'grazer' && armed(o.genome) && o.mass > p.mass * 0.5 ? GRAZER_FEAR : 0;
     if (gap < fear) {
       const w = 2 * (1 - gap / fear);
       sx -= (dx / d) * w;

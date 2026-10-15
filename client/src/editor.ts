@@ -206,7 +206,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.message').textContent = message;
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) b.setAttribute('aria-pressed', String(b.dataset.sym === symmetry));
     const named = cleanName(name);
-    if (!named && !message) $('.message').textContent = 'Name: 2–24 letters, spaces, hyphens or apostrophes.';
+    if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
     $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
     const ready = lineage!.lifetimeDna >= EVOLVE_DNA;
     $<HTMLProgressElement>('.evolution progress').value = Math.min(EVOLVE_DNA, lineage!.lifetimeDna);
