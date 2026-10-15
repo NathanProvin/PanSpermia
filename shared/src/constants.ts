@@ -166,8 +166,7 @@ export const T3_SWIM_CREEP = 0.3;
 export const T3_SWIM_PADDLE = 0.85; // × speedOf; precise steering
 export const T3_SWIM_TAIL = 1.3; // × speedOf; fast, turns at T3_TURN_RATE
 export const T3_TURN_RATE = 1.6; // rad/s with a tail and no paddles
-export const MANDIBLE_DPS = 60; // bite into a tier-3 rival in front (± MANDIBLE_ARC)
-export const MANDIBLE_ARC = 0.7;
+export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bite (see BITE_*)
 export const CARAPACE_ARMOUR = 0.6; // share of bite damage that gets through a carapace
 /** A dead animal can't spill thousands of chunks: at most this many (the rest is lost). */
 export const SPILL_MAX = 40;
@@ -180,3 +179,24 @@ export const EGG_TIME = 20; // s until the clutch hatches
 export const EGG_HEALTH = 400; // a clutch survives this much eating
 export const EGG_EAT_DPS = 150; // how fast a eukaryote or animal touching it eats it
 export const EGG_RADIUS = 70;
+
+// Feel (movement polish): inertia and progressive turns. Gameplay over low-Reynolds realism: a cell's
+// velocity eases toward its propulsion with this time constant (s), per tier — bigger bodies feel heavier.
+export const INERTIA = [0, 0.3, 0.5, 0.8];
+/** Turn rates (rad/s) of the steering motility types that used to turn instantly. */
+export const PILI_TURN = 4;
+export const CREEP_TURN = 2.5;
+export const CILIA_TURN = 3.5;
+export const PADDLE_TURN = 2.5;
+/** A tumble spins the cell round to its new random heading instead of jumping there (rad/s). */
+export const TUMBLE_SPIN = 14;
+// Collisions: overlapping cells push apart (by mass) and bounce.
+export const BOUNCE = 0.6; // restitution of the normal velocity
+export const PUSH = 0.8; // share of the overlap resolved per tick
+export const BUMP_SPEED = 60; // u/s of extra separation kick at full overlap, for a felt bounce
+// Bites: jaws (tier 2) and mandibles (tier 3) bite what's in front and too big to swallow.
+export const BITE_INTERVAL = 0.8; // s between bites
+export const BITE_DAMAGE = [0, 0, 28, 45]; // per bite, per tier
+export const BITE_REACH = 0.25; // × the biter's radius beyond touching
+export const BITE_KNOCK = 140; // u/s pushed into the victim, away from the biter
+export const BITE_RECOIL = 80; // u/s the biter bounces back

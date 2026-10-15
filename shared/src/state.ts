@@ -9,6 +9,10 @@ export const Player = schema({
   y: t.number(),
   /** Swim direction, radians. Flagellated cells keep it between tumbles. */
   heading: t.number(),
+  /** Swim velocity (inertia; collisions and bites push it), and a tumble's target heading. Predicted. */
+  vx: t.number().default(0),
+  vy: t.number().default(0),
+  aim: t.number().default(0),
   /** Seconds left in the current tumble (0 = running). */
   tumble: t.number(),
   /** xorshift32 state: tumble randomness that client prediction replays exactly. */
@@ -33,6 +37,9 @@ export const Player = schema({
   toxinCooldown: t.number().default(0),
   /** Seconds left in the division cyst (0 = active). */
   cyst: t.number().default(0),
+  /** Bites made so far (wraps at 256): clients snap the mouthparts when it changes. */
+  bites: t.uint8().default(0),
+  biteCooldown: t.number().noSync().default(0),
   /** Animals: seconds spent calling for a mate (0 = not calling). */
   call: t.number().default(0),
   /** Seconds of phage lysis left (0 = healthy). */

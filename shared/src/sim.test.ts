@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import {
-  DRIFT_PILI, MASS_CAP, RUN_TURN_RATE, SPAWN_MASS, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI, TUMBLE_ERROR,
+  CILIA_TURN, DRIFT_PILI, INERTIA, MASS_CAP, PILI_TURN, RUN_TURN_RATE, SPAWN_MASS, TUMBLE_SPIN, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI, TUMBLE_ERROR,
   TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
 import { ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM } from './combat.ts';
@@ -11,7 +11,8 @@ const DT = 0.05;
 const T = 12.3;
 const { pili, flagellum, chemoreceptor } = { pili: GENES.pili.bit, flagellum: GENES.flagellum.bit, chemoreceptor: GENES.chemoreceptor.bit };
 const cell = (over: Partial<CellBody> = {}): CellBody => ({
-  x: 200, y: -100, heading: 0, tumble: 0, rng: 12345, spore: 0, sporeCooldown: 0, dash: 0, dashCooldown: 0, ...over,
+  x: 200, y: -100, heading: 0, tumble: 0, rng: 12345, spore: 0, sporeCooldown: 0, dash: 0, dashCooldown: 0, vx: 0, vy: 0, aim: 0,
+  ...over,
 });
 
 /** Displacement over one step. */
@@ -20,11 +21,11 @@ const stepOf = (genome: number, dirX: number, dirY: number, start = cell()) => {
   stepCell(b, SPAWN_MASS, genome, dirX, dirY, 0, DT, T);
   return { dx: b.x - start.x, dy: b.y - start.y, body: b };
 };
-/** Swim displacement alone: the same step minus the pure drift from the same spot and time. */
-const swimOf = (genome: number, dirX: number, dirY: number) => {
-  const moved = stepOf(genome, dirX, dirY);
-  const drifted = stepOf(genome, 0, 0);
-  return Math.hypot(moved.dx - drifted.dx, moved.dy - drifted.dy);
+/** Swim speed once the cell has turned and got up to speed (inertia settled): 15 s of the same input. */
+const swimOf = (genome: number, dirX: number, dirY: number, tier = 1, genome2 = 0) => {
+  const b = cell();
+  for (let i = 0; i < 300; i++) stepCell(b, tier === 2 ? 120 : SPAWN_MASS, genome, dirX, dirY, 0, DT, T, tier, genome2);
+  return Math.hypot(b.vx, b.vy);
 };
 
 test('bigger cells are larger and slower', () => {
@@ -33,11 +34,31 @@ test('bigger cells are larger and slower', () => {
 });
 
 test('swim speed follows motility genes and throttle', () => {
-  const full = speedOf(SPAWN_MASS) * DT;
-  expect(swimOf(0, 1, 0)).toBeCloseTo(SWIM_CREEP * full, 10);
-  expect(swimOf(pili, 1, 0)).toBeCloseTo(SWIM_PILI * full, 10);
-  expect(swimOf(flagellum, 1, 0)).toBeCloseTo(SWIM_FLAGELLUM * full, 10); // heading 0 = pointer: a run
-  expect(swimOf(pili, 0.3, 0.4)).toBeCloseTo(SWIM_PILI * full * 0.5, 10);
+  const full = speedOf(SPAWN_MASS);
+  expect(swimOf(0, 1, 0)).toBeCloseTo(SWIM_CREEP * full, 6);
+  expect(swimOf(pili, 1, 0)).toBeCloseTo(SWIM_PILI * full, 6);
+  expect(swimOf(flagellum, 1, 0)).toBeCloseTo(SWIM_FLAGELLUM * full, 6); // heading 0 = pointer: a run
+  expect(swimOf(pili, 0.3, 0.4)).toBeCloseTo(SWIM_PILI * full * 0.5, 6);
+});
+
+test('inertia: a cell gets up to speed, and glides on after the input stops', () => {
+  const target = SWIM_PILI * speedOf(SPAWN_MASS);
+  const b = cell();
+  stepCell(b, SPAWN_MASS, pili, 1, 0, 0, DT, T);
+  expect(b.vx).toBeCloseTo(target * (1 - Math.exp(-DT / INERTIA[1]!)), 10);
+  for (let i = 0; i < 100; i++) stepCell(b, SPAWN_MASS, pili, 1, 0, 0, DT, T);
+  const cruising = b.vx;
+  stepCell(b, SPAWN_MASS, pili, 0, 0, 0, DT, T);
+  expect(b.vx).toBeGreaterThan(cruising * 0.8); // still gliding
+  expect(b.vx).toBeLessThan(cruising);
+});
+
+test('turns are progressive: no body snaps round', () => {
+  const b = cell();
+  stepCell(b, SPAWN_MASS, pili, -1, 0, 0, DT, T); // straight behind
+  expect(Math.abs(b.heading)).toBeCloseTo(PILI_TURN * DT, 10);
+  for (let i = 0; i < 40; i++) stepCell(b, SPAWN_MASS, pili, -1, 0, 0, DT, T);
+  expect(Math.abs(wrapAngle(b.heading - Math.PI))).toBeLessThan(1e-9);
 });
 
 test('currents carry every cell; pili grip resists them', () => {
@@ -64,10 +85,10 @@ test('flagellum: wide turns tumble, then re-aim at the pointer with bounded rand
       expect(b.tumble).toBeGreaterThan(0);
       const stepsToFinish = Math.round(TUMBLE_TIME / DT);
       for (let i = 0; i < stepsToFinish; i++) {
-        const before = { x: b.x, y: b.y };
-        const drift = stepOf(genome, 0, 0, b); // no swim while tumbling: same as drifting
+        const before = b.heading;
         stepCell(b, SPAWN_MASS, genome, Math.cos(want), Math.sin(want), 0, DT, T);
-        if (b.tumble > 0) expect(Math.hypot(b.x - before.x - drift.dx, b.y - before.y - drift.dy)).toBeLessThan(1e-9);
+        // The cell spins round to its new heading (no jump), except the final settle onto the aim.
+        if (b.tumble > 0) expect(Math.abs(wrapAngle(b.heading - before))).toBeLessThanOrEqual(TUMBLE_SPIN * DT + 1e-9);
       }
       expect(b.tumble).toBe(0);
       errors.push(wrapAngle(b.heading - want));
@@ -79,8 +100,8 @@ test('flagellum: wide turns tumble, then re-aim at the pointer with bounded rand
 
 test('capsule and thick wall slow swimming', () => {
   const full = swimOf(pili, 1, 0);
-  expect(swimOf(pili | GENES.capsule.bit, 1, 0)).toBeCloseTo(full * CAPSULE_SWIM, 10);
-  expect(swimOf(pili | GENES.thickWall.bit, 1, 0)).toBeCloseTo(full * WALL_SWIM, 10);
+  expect(swimOf(pili | GENES.capsule.bit, 1, 0)).toBeCloseTo(full * CAPSULE_SWIM, 6);
+  expect(swimOf(pili | GENES.thickWall.bit, 1, 0)).toBeCloseTo(full * WALL_SWIM, 6);
 });
 
 test('endospore: dormant (no swim, still drifts) for its duration, then a long cooldown', () => {
@@ -138,24 +159,22 @@ test('clampSteer caps throttle at 1 without bending the heading', () => {
   }
 });
 
-test('eukaryotes steer: cilia turn at once, a lone flagellum turns slowly but swims faster', async () => {
+test('eukaryotes steer: cilia turn quickly, a lone flagellum turns slowly but swims faster', async () => {
   const { TIER2 } = await import('./eukaryote.ts');
   const { T2_SWIM_CILIA, T2_SWIM_FLAGELLUM, T2_TURN_RATE, T2_SPAWN_MASS, T2_DRIFT } = await import('./constants.ts');
   const step = (genome2: number, dirX: number, dirY: number) => {
     const moved = { ...cell() };
-    const drifted = { ...cell() };
     stepCell(moved, T2_SPAWN_MASS, 0, dirX, dirY, 0, DT, T, 2, genome2);
-    stepCell(drifted, T2_SPAWN_MASS, 0, 0, 0, 0, DT, T, 2, genome2);
-    return { body: moved, swim: Math.hypot(moved.x - drifted.x, moved.y - drifted.y) };
+    return { body: moved };
   };
-  const full = speedOf(T2_SPAWN_MASS, 2) * DT;
+  const full = speedOf(T2_SPAWN_MASS, 2);
   const cilia = TIER2.GENES.cilia.bit;
   const flagellum = TIER2.GENES.flagellum.bit;
-  expect(step(cilia, 0, 1).body.heading).toBeCloseTo(Math.PI / 2, 10); // instant turn
-  expect(step(cilia, 1, 0).swim).toBeCloseTo(T2_SWIM_CILIA * full, 10);
+  expect(step(cilia, 0, 1).body.heading).toBeCloseTo(CILIA_TURN * DT, 10); // quick turn
+  expect(swimOf(0, 1, 0, 2, cilia)).toBeCloseTo(T2_SWIM_CILIA * full, 6);
   expect(step(flagellum, 0, 1).body.heading).toBeCloseTo(T2_TURN_RATE * DT, 10); // slow turn
-  expect(step(flagellum, 1, 0).swim).toBeCloseTo(T2_SWIM_FLAGELLUM * full, 10);
-  expect(step(flagellum | cilia, 0, 1).body.heading).toBeCloseTo(Math.PI / 2, 10); // cilia steer the flagellum
+  expect(swimOf(0, 1, 0, 2, flagellum)).toBeCloseTo(T2_SWIM_FLAGELLUM * full, 6);
+  expect(step(flagellum | cilia, 0, 1).body.heading).toBeCloseTo(CILIA_TURN * DT, 10); // cilia steer the flagellum
 
   // Tier-1 genes mean nothing to a eukaryote: a 'flagellum' bit in genome doesn't tumble it.
   const b = cell();

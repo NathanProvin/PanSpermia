@@ -51,7 +51,18 @@ const pool = createPool();
 const plankton = createPlankton(camera);
 const giants = createGiants();
 const nutrientLayer = createNutrients();
-const cells = createCells(scene);
+/** Our own cell's last impact (bump, bite, wound): a short camera shake, and a buzz on phones. */
+let selfId = '';
+let bump = 0;
+let lastBuzz = 0;
+const cells = createCells(scene, (id, strength) => {
+  if (id !== selfId) return;
+  bump = Math.max(bump, strength);
+  if (performance.now() - lastBuzz > 150) {
+    lastBuzz = performance.now();
+    navigator.vibrate?.(Math.round(15 + 35 * strength));
+  }
+});
 const editor = createEditor(renderer, document.getElementById('editor')!);
 const cloudLayer = createClouds();
 const eggLayer = createEggs();
@@ -131,6 +142,7 @@ const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
 
 try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
+  selfId = room.sessionId;
   room.onLeave(() => { hud.textContent = 'Disconnected'; });
   room.onMessage('died', ({ cause, killer, extinct }: { cause: string; killer?: string; extinct: boolean }) => {
     const how = { starvation: 'You starved', phage: 'Phages burst you open', virus: 'A giant virus burst you open' }[cause]
@@ -185,7 +197,10 @@ try {
   // Player instance, so rebind whenever our entry is (re)added.
   const callbacks = Callbacks.get<PoolState>(room);
   callbacks.onAdd('nutrients', (n, id) => nutrientLayer.add(id, n));
-  callbacks.onRemove('nutrients', (_, id) => nutrientLayer.remove(id));
+  callbacks.onRemove('nutrients', (_, id) => {
+    const at = nutrientLayer.remove(id);
+    if (at) cells.gulp(at.x, at.y, performance.now() / 1000); // the cell that took it up dimples in
+  });
   callbacks.onAdd('clouds', (c, id) => cloudLayer.add(id, c));
   callbacks.onRemove('clouds', (_, id) => cloudLayer.remove(id));
   // A clutch that vanishes before its hatching tick was eaten.
@@ -204,7 +219,7 @@ try {
     me?.dispose();
     me = predict.reconciler(player, {
       input,
-      fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown'],
+      fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown', 'vx', 'vy', 'aim'],
       // Mass, genome and the sim clock are server-driven; replay reads their latest values and
       // smoothing absorbs the tiny resulting drift (currents change slowly).
       step: (ctx, state, cmd) =>
@@ -277,6 +292,10 @@ try {
     selfView?.grow(hatch);
     camera.position.x += (Math.random() - 0.5) * shake;
     camera.position.y += (Math.random() - 0.5) * shake;
+    const jolt = bump * camera.position.z * 0.012;
+    camera.position.x += (Math.random() - 0.5) * jolt;
+    camera.position.y += (Math.random() - 0.5) * jolt;
+    bump *= Math.exp(-dt * 9);
     if (self && selfMesh) {
       const lineage = room.state.lineages.get(room.sessionId)!;
       if (lineage !== knownLineage) [knownLineage, knownLibrary] = [lineage, lineage.library]; // a new species

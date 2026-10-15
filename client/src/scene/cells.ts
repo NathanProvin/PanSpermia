@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, type Segment, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
   deform, hasGene, radiusOf, shapeUniform,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -17,6 +17,9 @@ const QUAD_HALF = 1.9;
 // Eukaryotes (uTier = 1) carry a true nucleus (envelope + nucleolus) and a few vacuoles instead of a nucleoid.
 // Animals (uTier = 2) are a smooth union of body segments (uSeg: x, y, r), tissue made of many small cells,
 // grooves where segments meet, a gut along the spine; a carapace is a glossy shell over the body.
+// The membrane reacts: it wobbles more as the cell swims (stretching along its course), jiggles on impacts,
+// flattens where it presses on a neighbour, dimples in where it takes up a packet (pinocytosis: a vesicle
+// pinches off and sinks inward), and flashes red when hurt.
 const VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -44,8 +47,14 @@ uniform float uCentre;
 uniform vec3 uSeg[8];
 uniform int uSegN;
 uniform float uCarapace;
+uniform float uJiggle; // 0..1, impacts
+uniform float uSpeed; // 0..1 of its top speed
+uniform vec2 uContact; // body-frame angle, depth 0..1
+uniform vec2 uGulp[4]; // body-frame angle, age 0..1 (≥ 1: none)
+uniform float uHurt; // 0..1 flash
 varying vec2 vUv;
 ${NOISE}
+float angDiff(float x, float y) { float d = x - y; return atan(sin(d), cos(d)); }
 void main() {
   vec2 p = (vUv * 2.0 - 1.0) * ${QUAD_HALF.toFixed(2)}; // body frame (the quad turns with the cell), cell radii
   // Body shape: undo the bend, then the stretch, so everything below draws the canonical unit disc.
@@ -55,7 +64,15 @@ void main() {
   float r = length(p);
   float t = uTime + uSeed * 100.0;
   vec2 fwd = vec2(1.0, 0.0);
-  float rim = 1.0 + 0.035 * sin(3.0 * a + t * 1.1) + 0.025 * sin(5.0 * a - t * 1.6) + 0.012 * sin(9.0 * a + t * 2.4);
+  float rim = 1.0 + 0.05 * sin(3.0 * a + t * 1.3) + 0.035 * sin(5.0 * a - t * 1.9) + 0.018 * sin(9.0 * a + t * 2.8)
+    + 0.015 * sin(t * 2.1); // breathing
+  // Swimming stretches the body along its course and sends a ripple down the sides to the back.
+  rim += uSpeed * (0.05 * cos(2.0 * a) + 0.03 * sin(7.0 * a - t * 9.0) * smoothstep(0.0, -1.0, cos(a)));
+  // Impacts set it jiggling (decays on the CPU side).
+  rim += uJiggle * (0.07 * sin(5.0 * a + t * 15.0) + 0.04 * sin(8.0 * a - t * 21.0));
+  // Pressed on a neighbour: flattened there, bulging a little to the sides (the volume goes somewhere).
+  float ca = angDiff(a, uContact.x);
+  rim += uContact.y * (-0.22 * exp(-ca * ca * 5.0) + 0.06 * exp(-pow(abs(ca) - 1.3, 2.0) * 6.0));
   // Division: the membrane pinches in where it crosses the axis (sides), a breathing furrow.
   float side = cos(a);
   rim -= uCyst * (0.16 + 0.03 * sin(t * 2.0)) * exp(-side * side * 10.0);
@@ -79,6 +96,16 @@ void main() {
     }
     d = sd;
     groove = exp(-pow((d2 - d1) / 0.035, 2.0));
+  }
+  // Pinocytosis: the membrane dimples in where a packet is taken up, then a vesicle sinks inward.
+  float vesicle = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 g = uGulp[i];
+    if (g.y >= 1.0) continue;
+    float ga = angDiff(a, g.x);
+    d += 0.16 * sin(3.14159 * g.y) * exp(-ga * ga * 30.0);
+    vec2 at = vec2(cos(g.x), sin(g.x)) * (0.9 - 0.55 * g.y);
+    vesicle += exp(-dot(p - at, p - at) / 0.004) * (1.0 - g.y) * smoothstep(0.0, 0.25, g.y);
   }
   float aa = fwidth(d) * 1.5;
   float inside = 1.0 - smoothstep(-aa, aa, d);
@@ -119,6 +146,7 @@ void main() {
   float membrane = 1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005));
   vec3 membraneCol = mix(uColor * 0.85 + 0.04, uColor * 0.45 + vec3(0.09, 0.07, 0.04), uWall);
   membraneCol *= 1.0 - 0.45 * animal; // tissue, not a single glowing membrane
+  membraneCol += uHurt * vec3(1.0, 0.25, 0.15) * 0.9; // hurt: a red flash
   membraneCol += uCyst * (0.25 + 0.15 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a living glow
 
   // Siderophores: a faint dotted ring where they reach, slowly rotating.
@@ -167,6 +195,8 @@ void main() {
     + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.8 * inside
     + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(1.0, 0.3, 0.25) * virions * 1.2;
   color += (uColor * 0.4 + 0.55) * callRing;
+  color += vec3(0.85, 1.0, 0.9) * vesicle * 0.7 * inside;
+  color = mix(color, vec3(0.9, 0.12, 0.08) * cytoAlpha, uHurt * 0.35);
   float alpha = clamp(callRing + cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
 }
@@ -257,7 +287,7 @@ void main() {
     float ang = atan(p.y, p.x + 0.1);
     float funnel = (1.0 - smoothstep(0.42, 0.5, rr)) * smoothstep(0.18, 0.32, rr);
     float bristles = step(0.45, rr) * (1.0 - smoothstep(0.7, 0.9, rr))
-      * smoothstep(0.6, 0.9, sin(ang * 14.0 + sin(t * 3.0) * 0.6)) * step(-0.6, p.x);
+      * smoothstep(0.6, 0.9, sin(ang * 14.0 + sin(t * 5.0) * 1.3)) * step(-0.6, p.x); // bristles combing hard
     float gullet = 1.0 - smoothstep(0.12, 0.2, rr);
     a = max(max(funnel, bristles * 0.9), gullet * 0.8);
     col = mix(vec3(0.75, 1.0, 0.55), vec3(0.15, 0.25, 0.1), gullet);
@@ -276,7 +306,7 @@ void main() {
   } else if (k == ${KIND3 + TIER3.GENES.filterComb.index}) { // feathery combs beating in a wave, sieving the water
     for (int i = 0; i < 5; i++) {
       float fi = float(i) - 2.0;
-      float beat = 0.35 * sin(t * 7.0 - fi * 0.9);
+      float beat = 0.55 * sin(t * 8.0 - fi * 0.9);
       vec2 base = vec2(-0.85, fi * 0.3);
       vec2 dir = vec2(cos(beat), sin(beat));
       float along = clamp(dot(p - base, dir), 0.0, 1.2);
@@ -286,7 +316,8 @@ void main() {
     }
     col = vec3(0.92, 0.95, 0.85);
   } else if (k == ${KIND2 + TIER2.GENES.jaw.index} || k == ${KIND3 + TIER3.GENES.mandible.index}) { // two hooked mandibles snapping
-    float open = 0.28 + 0.16 * sin(t * 4.0);
+    // Idle chewing; a bite (uActive: 0 idle, then 0 → 1 over the snap) gapes wide and slams shut.
+    float open = 0.2 + 0.1 * sin(t * 3.0) + 0.85 * sin(3.14159 * uActive);
     for (int side = -1; side <= 1; side += 2) {
       float s = float(side);
       vec2 base = vec2(-0.8, s * 0.22);
@@ -296,7 +327,7 @@ void main() {
       float w = 0.13 - 0.08 * smoothstep(-0.8, 0.8, p.x);
       a = max(a, 1.0 - smoothstep(w - 0.03, w + 0.02, d));
     }
-    col = vec3(1.0, 0.86, 0.68);
+    col = vec3(1.0, 0.86, 0.68) * (1.0 + 0.8 * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive)));
   } else if (k == ${KIND2 + TIER2.GENES.spike.index}) { // a long bony spike
     float s = (p.x + 0.95) / 1.9;
     float w = 0.3 * (1.0 - s);
@@ -376,7 +407,7 @@ const kindOf = (tier: number, gene: string) => [0, 0, KIND2, KIND3][tier]! + cat
 const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.cilia.index]: { size: 0.7, out: 0.25 },
   [KIND2 + TIER2.GENES.filter.index]: { size: 0.55, out: 0.2 },
-  [KIND2 + TIER2.GENES.jaw.index]: { size: 0.6, out: 0.4 },
+  [KIND2 + TIER2.GENES.jaw.index]: { size: 0.8, out: 0.4 },
   [KIND2 + TIER2.GENES.spike.index]: { size: 0.6, out: 0.45 },
   [KIND2 + TIER2.GENES.poison.index]: { size: 0.45, out: 0.1 },
   [KIND2 + TIER2.GENES.electric.index]: { size: 0.5, out: 0 },
@@ -384,7 +415,7 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.eye.index]: { size: 0.32, out: 0 },
   [KIND3 + TIER3.GENES.paddle.index]: { size: 0.7, out: 0.35 },
   [KIND3 + TIER3.GENES.filterComb.index]: { size: 0.45, out: 0.3 },
-  [KIND3 + TIER3.GENES.mandible.index]: { size: 0.45, out: 0.35 },
+  [KIND3 + TIER3.GENES.mandible.index]: { size: 0.65, out: 0.35 },
   [KIND3 + TIER3.GENES.eye.index]: { size: 0.22, out: 0 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
   [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
@@ -425,6 +456,9 @@ void main() {
   gl_FragColor = vec4((uColor * 0.9 + 0.05) * a, a); // premultiplied
 }
 `;
+/** Seconds a mouthpart snap and a pinocytosis dimple last. */
+const BITE_ANIM = 0.45;
+const GULP_TIME = 0.6;
 const FLAGELLUM_LENGTH = [0, 3.2, 2.2, 1.3]; // cell radii, per tier (a eukaryote's whip is shorter; an animal's tail)
 /** How thick a whip is (× part scale) and how fast it beats (× BEAT_RUN), per tier: an animal's tail is stout and slow. */
 const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 3, beat: 0.35 }];
@@ -438,6 +472,8 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() }, uHeading: { value: 0 },
   uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 },
   uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uCall: { value: 0 }, uTier: { value: 0 },
+  uJiggle: { value: 0 }, uSpeed: { value: 0 }, uContact: { value: new THREE.Vector2() }, uHurt: { value: 0 },
+  uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
   uSegN: { value: DEFAULT_SEGMENTS.length }, uCarapace: { value: 0 },
@@ -477,7 +513,11 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   const frame = new THREE.Group(); // body frame: +x forward, units of cell radii
   parent.add(body, frame);
   let partsKey = '';
-  let parts: { mesh: ShaderMesh; flagellum: boolean }[] = [];
+  let parts: { mesh: ShaderMesh; flagellum: boolean; mouth: boolean }[] = [];
+  /** Reactions (CPU side, decaying): impacts, hurt, smoothed contact and speed, bites, gulps. */
+  const feel = { jiggle: 0, hurt: 0, depth: 0, angle: 0, speed: 0, bites: -1, biteAt: -10, health: -1 };
+  const gulps: { angle: number; at: number }[] = [];
+  let lastPose = { x: 0, y: 0, heading: 0, radius: 1 };
   let beat = 1;
 
   const rebuild = (placements: readonly Placement<string>[], tier: number, form: number, segments: readonly Segment[]) => {
@@ -502,7 +542,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         mesh.scale.set(FLAGELLUM_LENGTH[tier]! * pl.scale, WHIP[tier]!.width * pl.scale, 1);
         mesh.renderOrder = 9;
         frame.add(mesh);
-        parts.push({ mesh, flagellum: true });
+        parts.push({ mesh, flagellum: true, mouth: false });
         continue;
       }
       const shape = PART_SHAPE[kind];
@@ -519,7 +559,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       mesh.scale.setScalar(size);
       mesh.renderOrder = 11;
       frame.add(mesh);
-      parts.push({ mesh, flagellum: false });
+      parts.push({ mesh, flagellum: false, mouth: raw.gene === 'jaw' || raw.gene === 'mandible' });
     }
   };
 
@@ -561,13 +601,57 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uSpore!.value = pose.spore > 0 ? 1 : 0;
       u.uCyst!.value = pose.cyst > 0 ? 1 : 0;
       u.uCall!.value = (pose.call ?? 0) > 0 ? 1 : 0;
-      for (const { mesh, flagellum } of parts) {
+      lastPose = { x: pose.x, y: pose.y, heading: pose.heading, radius };
+      const snap = time - feel.biteAt < BITE_ANIM ? (time - feel.biteAt) / BITE_ANIM : 0;
+      for (const { mesh, flagellum, mouth } of parts) {
         if (flagellum) mesh.material.uniforms.uBeat!.value += dt * beat * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
         else {
           mesh.material.uniforms.uTime!.value = time;
-          mesh.material.uniforms.uActive!.value = (pose.dash ?? 0) > 0 ? 1 : 0; // the jet's plume
+          mesh.material.uniforms.uActive!.value = mouth ? snap : (pose.dash ?? 0) > 0 ? 1 : 0; // the bite; the jet's plume
         }
       }
+      u.uJiggle!.value = feel.jiggle;
+      u.uHurt!.value = feel.hurt;
+      u.uSpeed!.value = feel.speed;
+      (u.uContact!.value as THREE.Vector2).set(feel.angle - pose.heading, feel.depth);
+      const g = u.uGulp!.value as THREE.Vector2[];
+      for (let i = 0; i < 4; i++) {
+        const e = gulps[i];
+        g[i]!.set(e ? e.angle - pose.heading : 0, e ? (time - e.at) / GULP_TIME : 1);
+      }
+    },
+    /** Where it was last drawn (world), for gulp and contact lookups. */
+    get at() { return lastPose; },
+    /**
+     * Per-frame reactions from the synced state. Returns an impact strength (0 = none) when something hit it:
+     * a new contact, a bite it made, or damage taken.
+     */
+    react(r: { contactAngle: number; contact: number; speed: number; bites: number; health: number }, time: number, dt: number) {
+      let impact = 0;
+      if (r.contact > feel.depth + 0.15) impact = Math.max(impact, r.contact); // a new or harder bump
+      feel.depth += (r.contact - feel.depth) * Math.min(1, dt * 12);
+      if (r.contact > 0) feel.angle = r.contactAngle;
+      feel.speed += (r.speed - feel.speed) * Math.min(1, dt * 4);
+      if (feel.bites >= 0 && r.bites !== feel.bites) {
+        feel.biteAt = time;
+        impact = Math.max(impact, 0.5);
+      }
+      feel.bites = r.bites;
+      if (feel.health >= 0 && r.health < feel.health - 0.5) {
+        const hit = Math.min(1, (feel.health - r.health) / 20);
+        feel.hurt = Math.min(1, feel.hurt + 0.4 + hit);
+        impact = Math.max(impact, hit);
+      }
+      feel.health = r.health;
+      feel.jiggle = Math.min(1, feel.jiggle * Math.exp(-dt * 3) + impact);
+      feel.hurt *= Math.exp(-dt * 4);
+      while (gulps.length && time - gulps[0]!.at > GULP_TIME) gulps.shift();
+      return impact;
+    },
+    /** It took up a packet at world angle `angle` (from its centre): a pinocytosis dimple. */
+    gulp(angle: number, time: number) {
+      if (gulps.length >= 4) gulps.shift();
+      gulps.push({ angle, at: time });
     },
     setInfected(infected: boolean) { body.material.uniforms.uInfect!.value = infected ? 1 : 0; },
     /** Scale the whole cell after update (the meteor hatch pop). */
@@ -584,7 +668,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
 }
 export type CellView = ReturnType<typeof createCellView>;
 
-export function createCells(scene: THREE.Scene) {
+/** `onImpact(id, strength 0..1)`: a cell bumped, bit or got hurt (the game shakes the camera for its own). */
+export function createCells(scene: THREE.Scene, onImpact: (id: string, strength: number) => void = () => {}) {
   const views = new Map<string, CellView>();
   return {
     update(
@@ -592,11 +677,28 @@ export function createCells(scene: THREE.Scene) {
       time: number, dt: number, pose: (p: Player) => Pose, look: (id: string, p: Player) => Look,
     ) {
       // ponytail: full diff every frame, fine for ~100 cells; switch to state callbacks if it shows in profiles.
-      for (const [id, p] of players) {
-        let view = views.get(id);
-        if (!view) views.set(id, (view = createCellView(scene, hashId(id))));
-        view.update(pose(p), radiusOf(p.mass), look(id, p), time, dt);
-        view.setInfected(p.infection > 0);
+      const all: { id: string; p: Player; pose: Pose; r: number }[] = [];
+      for (const [id, p] of players) all.push({ id, p, pose: pose(p), r: radiusOf(p.mass) });
+      for (const c of all) {
+        let view = views.get(c.id);
+        if (!view) views.set(c.id, (view = createCellView(scene, hashId(c.id))));
+        // The neighbour it presses on hardest (cells are held at touching distance by the server).
+        // ponytail: O(n²) per frame, fine for ~100 cells.
+        let contact = 0;
+        let contactAngle = 0;
+        for (const o of all) {
+          if (o === c || o.id.startsWith('~')) continue;
+          const dx = o.pose.x - c.pose.x;
+          const dy = o.pose.y - c.pose.y;
+          const gap = Math.hypot(dx, dy) - c.r - o.r;
+          const press = Math.min(1, (c.r * 0.12 - gap) / (c.r * 0.3)) * Math.min(1.5, Math.sqrt(o.r / c.r));
+          if (press > contact) [contact, contactAngle] = [press, Math.atan2(dy, dx)];
+        }
+        const speed = Math.min(1, Math.hypot(c.p.vx, c.p.vy) / speedOf(c.p.mass, c.p.tier));
+        const impact = view.react({ contactAngle, contact, speed, bites: c.p.bites, health: c.p.health }, time, dt);
+        if (impact > 0) onImpact(c.id, impact);
+        view.update(c.pose, c.r, look(c.id, c.p), time, dt);
+        view.setInfected(c.p.infection > 0);
       }
       for (const [id, view] of views) {
         if (!players.has(id)) {
@@ -606,5 +708,16 @@ export function createCells(scene: THREE.Scene) {
       }
     },
     get: (id: string) => views.get(id),
+    /** A packet vanished at (x, y): the cell whose surface it was at took it up. */
+    gulp(x: number, y: number, time: number) {
+      let best: CellView | undefined;
+      let bestGap = 18; // world units beyond the membrane (siderophores and mouths reach out a little)
+      for (const view of views.values()) {
+        const { x: cx, y: cy, radius } = view.at;
+        const gap = Math.hypot(x - cx, y - cy) - radius * 1.15;
+        if (gap < bestGap) [best, bestGap] = [view, gap];
+      }
+      if (best) best.gulp(Math.atan2(y - best.at.y, x - best.at.x), time);
+    },
   };
 }

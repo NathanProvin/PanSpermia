@@ -5,7 +5,8 @@ import {
   T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
   JET_COOLDOWN, JET_TIME, MITO_SPEED, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
-  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
+  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
+  PILI_TURN, TUMBLE_SPIN,
 } from './constants.ts';
 import {
   ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
@@ -72,13 +73,23 @@ function random(body: { rng: number }) {
 export interface CellBody {
   x: number; y: number; heading: number; tumble: number; rng: number; spore: number; sporeCooldown: number;
   dash: number; dashCooldown: number;
+  /** Swim velocity (u/s, without the current): eases toward the propulsion (inertia). */
+  vx: number; vy: number;
+  /** Where a tumble is spinning the cell to (rad). */
+  aim: number;
+}
+
+/** Turn the heading toward `want` at most `rate`·dt: no body ever snaps round. */
+function turnToward(b: CellBody, want: number, rate: number, dt: number) {
+  const diff = wrapAngle(want - b.heading);
+  b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), rate * dt));
 }
 const flow = { x: 0, y: 0 };
 
 /**
  * Advance a cell one step: sporulate on request, swim per its motility genes (copies stack), drift with
- * the current at `time`, stay in the pool. Microbes live at low Reynolds number: no inertia, velocity follows
- * propulsion instantly. Inputs must already be sanitized (throttle = |dir| ≤ 1).
+ * the current at `time`, stay in the pool. Real microbes have no inertia; ours do (INERTIA, gameplay feel), and
+ * every body turns progressively. Inputs must already be sanitized (throttle = |dir| ≤ 1).
  */
 export function stepCell(
   b: CellBody, mass: number, genome: number, dirX: number, dirY: number, actions: number, dt: number, time: number,
@@ -105,22 +116,22 @@ export function stepCell(
   } else if (flagella) {
     if (b.tumble > 0) {
       b.tumble = Math.max(0, b.tumble - dt - 1e-9); // epsilon: exact 0 after the last step despite float dt
-      if (b.tumble === 0) {
-        const chemo = copiesOf(genome, 'chemoreceptor');
-        const error = chemo ? TUMBLE_ERROR_CHEMO / stack(chemo) : TUMBLE_ERROR;
-        b.heading = wrapAngle((throttle > 0 ? want : b.heading) + (2 * random(b) - 1) * error);
-      }
+      turnToward(b, b.aim, TUMBLE_SPIN, dt); // the motors reverse: the cell spins round
+      if (b.tumble === 0) b.heading = b.aim;
     } else if (throttle > 0) {
       const diff = wrapAngle(want - b.heading);
       if (Math.abs(diff) > TUMBLE_ANGLE) {
         b.tumble = TUMBLE_TIME;
+        const chemo = copiesOf(genome, 'chemoreceptor');
+        const error = chemo ? TUMBLE_ERROR_CHEMO / stack(chemo) : TUMBLE_ERROR;
+        b.aim = wrapAngle(want + (2 * random(b) - 1) * error);
       } else {
         b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), RUN_TURN_RATE * dt));
         swim = SWIM_FLAGELLUM * (1 + FLAGELLUM_STACK * (stack(flagella) - 1)) * throttle;
       }
     }
   } else if (throttle > 0) {
-    b.heading = want;
+    turnToward(b, want, hasGene(genome, 'pili') ? PILI_TURN : CREEP_TURN, dt);
     swim = (hasGene(genome, 'pili') ? SWIM_PILI : SWIM_CREEP) * throttle;
   }
 
@@ -128,11 +139,11 @@ export function stepCell(
     * (hasGene(genome, 'capsule') ? CAPSULE_SWIM : 1) * (hasGene(genome, 'thickWall') ? WALL_SWIM : 1);
   const pili = copiesOf(genome, 'pili');
   const drift = pili ? DRIFT_PILI ** stack(pili) : 1;
-  move(b, mass, v, drift, dt, time);
+  move(b, mass, v, drift, dt, time, INERTIA[1]!);
 }
 
 /**
- * Eukaryotes steer instead of tumbling: cilia give precise, instant turns; a flagellum alone is fast
+ * Eukaryotes steer instead of tumbling: cilia give precise, quick turns; a flagellum alone is fast
  * but turns at T2_TURN_RATE; with both you get the flagellum's speed and the cilia's control.
  */
 function stepEukaryote(
@@ -149,44 +160,49 @@ function stepEukaryote(
   const flagella = TIER2.copiesOf(genome2, 'flagellum');
   let swim = 0;
   if (throttle > 0) {
-    if (flagella && !cilia) {
-      const diff = wrapAngle(want - b.heading);
-      b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), T2_TURN_RATE * dt));
-    } else b.heading = want;
+    turnToward(b, want, flagella && !cilia ? T2_TURN_RATE : CILIA_TURN, dt);
     swim = flagella ? T2_SWIM_FLAGELLUM * (1 + FLAGELLUM_STACK * (stack(flagella) - 1))
       : cilia ? T2_SWIM_CILIA * (1 + FLAGELLUM_STACK * (stack(cilia) - 1)) : T2_SWIM_CREEP;
   }
   if (b.dash > 0) swim = Math.max(swim, T2_SWIM_CILIA) * JET_BOOST; // the jet pushes even a creeping cell
   swim *= 1 + MITO_SPEED * stack(TIER2.copiesOf(genome2, 'mitochondrion')); // more energy
-  move(b, mass, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time);
+  move(b, mass, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time, INERTIA[2]!);
 }
 
-/** Animals: paddle legs turn at once and steer precisely; a lone tail drives fast but turns wide. */
+/** Animals: paddle legs steer quickly and precisely; a lone tail drives fast but turns wide. */
 function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number, want: number, dt: number, time: number) {
   const paddles = TIER3.copiesOf(genome3, 'paddle');
   const tails = TIER3.copiesOf(genome3, 'tail');
   let swim = 0;
   if (throttle > 0) {
-    if (tails && !paddles) {
-      const diff = wrapAngle(want - b.heading);
-      b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), T3_TURN_RATE * dt));
-    } else b.heading = want;
+    turnToward(b, want, tails && !paddles ? T3_TURN_RATE : PADDLE_TURN, dt);
     swim = tails ? T3_SWIM_TAIL * (1 + FLAGELLUM_STACK * (stack(tails) - 1))
       : paddles ? T3_SWIM_PADDLE * (1 + FLAGELLUM_STACK * (stack(paddles) - 1)) : T3_SWIM_CREEP;
   }
-  move(b, mass, swim * throttle * speedOf(mass, 3), T3_DRIFT, dt, time);
+  move(b, mass, swim * throttle * speedOf(mass, 3), T3_DRIFT, dt, time, INERTIA[3]!);
 }
 
-/** Swim at speed `v` along the heading, drift with a share of the current, stay inside the pool. */
-function move(b: CellBody, mass: number, v: number, drift: number, dt: number, time: number) {
+/**
+ * Ease the swim velocity toward speed `v` along the heading (time constant `inertia`), drift with a share of
+ * the current, stay inside the pool (the rock stops the outward part of the velocity).
+ */
+function move(b: CellBody, mass: number, v: number, drift: number, dt: number, time: number, inertia: number) {
+  const k = 1 - Math.exp(-dt / inertia);
+  b.vx += (Math.cos(b.heading) * v - b.vx) * k;
+  b.vy += (Math.sin(b.heading) * v - b.vy) * k;
   currentAt(b.x, b.y, time, flow);
-  b.x += (Math.cos(b.heading) * v + flow.x * drift) * dt;
-  b.y += (Math.sin(b.heading) * v + flow.y * drift) * dt;
+  b.x += (b.vx + flow.x * drift) * dt;
+  b.y += (b.vy + flow.y * drift) * dt;
 
   const limit = WORLD_RADIUS - radiusOf(mass);
   const d = Math.hypot(b.x, b.y);
   if (d > limit) {
     b.x *= limit / d;
     b.y *= limit / d;
+    const out = (b.vx * b.x + b.vy * b.y) / limit;
+    if (out > 0) {
+      b.vx -= (out * b.x) / limit;
+      b.vy -= (out * b.y) / limit;
+    }
   }
 }

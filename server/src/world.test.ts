@@ -1,7 +1,7 @@
 import {
   DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, MANDIBLE_DPS, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
@@ -553,6 +553,7 @@ test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and 
   stepWorld(state);
   expect([bug.engulfedBy, eu.engulfedBy]).toEqual(['f', '']); // combs take bacteria, not eukaryotes
   filterer.genome3 = TIER3.genomeOf(['mandible']);
+  Object.assign(eu, { x: -10, y: 0 }); // the combs' collision pushed it out to touching distance
   stepWorld(state);
   expect(eu.engulfedBy).toBe('f');
   // Two mandibled animals face to face bite each other; a carapace turns part of the bite.
@@ -562,8 +563,15 @@ test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and 
   s2.players.set('a', a);
   s2.players.set('b', b);
   stepWorld(s2);
-  expect(1200 - b.health).toBeCloseTo(MANDIBLE_DPS * CARAPACE_ARMOUR / TICK_RATE, 1);
-  expect(1200 - a.health).toBeCloseTo(MANDIBLE_DPS / TICK_RATE, 1);
+  expect(1200 - b.health).toBeCloseTo(BITE_DAMAGE[3]! * CARAPACE_ARMOUR, 6);
+  expect(1200 - a.health).toBeCloseTo(BITE_DAMAGE[3]!, 6);
+  expect([a.bites, b.bites]).toEqual([1, 1]); // clients snap the mandibles on this
+  expect([...s2.nutrients.values()].filter((n) => n.kind === NutrientKind.chunk).length).toBe(2); // torn-off bits
+  expect(a.vx).toBeLessThan(0); // both recoil and get knocked apart
+  expect(b.vx).toBeGreaterThan(0);
+  const [ha, hb] = [a.health, b.health];
+  for (let i = 0; i < BITE_INTERVAL * TICK_RATE - 2; i++) stepWorld(s2);
+  expect([a.health, b.health]).toEqual([ha, hb]); // one bite per interval
   expect([a.engulfedBy, b.engulfedBy]).toEqual(['', '']); // rivals of a size are bitten, not swallowed
 });
 
@@ -871,4 +879,30 @@ test('eukaryotes and animals eat an unguarded clutch; bacteria cannot', () => {
   for (let i = 0; i < 4 * TICK_RATE && state.eggs.size; i++) stepWorld(state);
   expect(state.eggs.size).toBe(0);
   expect(eu.mass).toBeGreaterThan(300 + EGG_HEALTH * 0.5);
+});
+
+test('cells are solid: overlapping cells push apart (the lighter moves more) and bounce', () => {
+  const state = new PoolState();
+  const big = spawnPlayer();
+  const small = spawnPlayer();
+  const overlap = radiusOf(20);
+  Object.assign(big, { mass: 80, x: 0, y: 0, vx: 30, vy: 0 });
+  Object.assign(small, { mass: 20, x: radiusOf(80), y: 0, vx: -30, vy: 0 });
+  state.players.set('a', big);
+  state.players.set('b', small);
+  stepWorld(state);
+  expect(big.x).toBeCloseTo(-overlap * PUSH * 0.2, 6); // shares by mass: 20 / 100
+  expect(small.x).toBeCloseTo(radiusOf(80) + overlap * PUSH * 0.8, 6);
+  expect(big.vx).toBeLessThan(0); // they bounced
+  expect(small.vx).toBeGreaterThan(0);
+  // A eukaryote's jaw and its prey don't collide: engulfing needs the overlap.
+  const s2 = new PoolState();
+  const eater = spawnPlayer();
+  Object.assign(eater, { tier: 2, genome: 0, genome2: TIER2.GENES.jaw.bit, mass: 300, health: 300, x: 0, y: 0 });
+  const prey = spawnPlayer();
+  Object.assign(prey, { x: radiusOf(300) * 0.5, y: 0, graceUntil: 0 });
+  s2.players.set('e', eater);
+  s2.players.set('p', prey);
+  stepWorld(s2);
+  expect(prey.engulfedBy).toBe('e');
 });

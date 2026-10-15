@@ -54,6 +54,7 @@ test('server swims the cell along the input heading, even for unclamped input', 
   const p = serverRoom(room).state.players.get(room.sessionId)!;
   p.x = 300;
   p.y = -40;
+  p.heading = Math.atan2(40, -300); // already facing the input: turns are progressive now
   const start = { x: p.x, y: p.y };
 
   const input = room.input({ type: Input, mode: 'reliable' });
@@ -89,7 +90,7 @@ test('client prediction runs ahead, then settles on server truth (tumbles includ
   const predict = Predict.get(room, { mode: 'lerp', delay: 100 });
   const me = predict.reconciler(player, {
     input,
-    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown'],
+    fields: ['x', 'y', 'heading', 'tumble', 'rng', 'spore', 'sporeCooldown', 'dash', 'dashCooldown', 'vx', 'vy', 'aim'],
     step: (ctx, s, cmd) =>
       stepCell(s, player.mass, player.genome, cmd.dirX, cmd.dirY, cmd.actions, ctx.dt, room.state.tick * TICK_DT),
     warnOnDivergence: 1, // also switches on the drift telemetry asserted below

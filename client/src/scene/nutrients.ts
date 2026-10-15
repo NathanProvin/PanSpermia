@@ -112,7 +112,12 @@ export function createNutrients() {
     add(id: string, n: Nutrient) {
       packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, kind: n.kind, seed: (Number(id) * 0.618034) % 1 });
     },
-    remove(id: string) { packets.delete(id); },
+    /** Forget a packet; returns where it was last drawn (a cell eating it gets a gulp there). */
+    remove(id: string) {
+      const p = packets.get(id);
+      packets.delete(id);
+      return p && { x: p.x, y: p.y };
+    },
     /**
      * `tick` is the latest server tick; `sinceTick` the seconds elapsed locally since it arrived,
      * used to glide packets along the current between 20 Hz ticks.

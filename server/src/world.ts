@@ -4,7 +4,8 @@ import {
   ADHESIN_DRAIN, ADHESIN_SHARE, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
-  CARAPACE_ARMOUR, MANDIBLE_ARC, MANDIBLE_DPS, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_HEALTH_MAX, T3_METABOLISM_BASE,
+  BITE_DAMAGE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
+  CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_HEALTH_MAX, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
@@ -91,6 +92,88 @@ function stepMates(state: PoolState) {
     m.heading = Math.atan2(dy, dx);
   }
   for (const id of gone) state.players.delete(id);
+}
+
+/**
+ * Cells are solid: an overlapping pair pushes apart (the lighter one moves more) and bounces off — unless
+ * one can swallow the other (engulfing needs the overlap). Mates and the swallowed pass through.
+ * ponytail: O(players²), ~1300 pairs at 50 cells; bucket by grid if counts grow.
+ */
+function collide(state: PoolState) {
+  const cells = [...state.players].filter(([id, p]) => !isMate(id) && !p.engulfedBy).map(([, p]) => p);
+  for (let i = 0; i < cells.length; i++) {
+    const a = cells[i]!;
+    const ra = radiusOf(a.mass);
+    for (let j = i + 1; j < cells.length; j++) {
+      const b = cells[j]!;
+      const reach = ra + radiusOf(b.mass);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue;
+      const d2 = dx * dx + dy * dy;
+      if (!(d2 < reach * reach) || swallows(a, b) || swallows(b, a)) continue; // NaN-safe
+      const d = Math.sqrt(d2);
+      const [nx, ny] = d > 1e-6 ? [dx / d, dy / d] : [1, 0];
+      const overlap = reach - d;
+      const wa = b.mass / (a.mass + b.mass); // a's share of the response
+      const wb = 1 - wa;
+      a.x -= nx * overlap * PUSH * wa;
+      a.y -= ny * overlap * PUSH * wa;
+      b.x += nx * overlap * PUSH * wb;
+      b.y += ny * overlap * PUSH * wb;
+      // Reflect the closing speed, plus a kick that grows with the overlap: a felt bounce.
+      const closing = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+      const impulse = (closing < 0 ? -(1 + BOUNCE) * closing : 0) + BUMP_SPEED * Math.min(1, overlap / Math.min(ra, reach - ra));
+      a.vx -= nx * impulse * wa;
+      a.vy -= ny * impulse * wa;
+      b.vx += nx * impulse * wb;
+      b.vy += ny * impulse * wb;
+    }
+  }
+}
+
+/**
+ * Spore-style bites: a jaw (eukaryote) or mandibles (animal) bite the nearest cell in front that is too big
+ * to swallow, every BITE_INTERVAL: damage, a torn-off chunk of meat, the victim knocked away and the biter
+ * recoiling. `bites` counts up so clients can snap the mouthparts.
+ */
+function bite(state: PoolState, tick: number) {
+  for (const [aid, a] of state.players) {
+    a.biteCooldown = Math.max(0, a.biteCooldown - TICK_DT);
+    const mouth = a.tier === 2 ? TIER2.hasGene(a.genome2, 'jaw') : a.tier === 3 && TIER3.hasGene(a.genome3, 'mandible');
+    if (!mouth || a.biteCooldown > 0 || dormant(a) || a.engulfedBy || isMate(aid)) continue;
+    const ra = radiusOf(a.mass);
+    let target: { v: Player; d: number; dx: number; dy: number } | undefined;
+    for (const [vid, v] of state.players) {
+      if (vid === aid || isMate(vid) || dormant(v) || v.engulfedBy || tick < v.graceUntil || swallows(a, v)) continue;
+      const dx = v.x - a.x;
+      const dy = v.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (!(d < ra * (1 + BITE_REACH) + radiusOf(v.mass)) || d >= (target?.d ?? Infinity)) continue;
+      if (Math.abs(wrapAngle(Math.atan2(dy, dx) - a.heading)) < MANDIBLE_ARC) target = { v, d, dx, dy };
+    }
+    if (!target) continue;
+    const { v, d } = target;
+    const nx = d > 1e-6 ? target.dx / d : Math.cos(a.heading);
+    const ny = d > 1e-6 ? target.dy / d : Math.sin(a.heading);
+    const armour = v.tier === 3 && TIER3.hasGene(v.genome3, 'carapace') ? CARAPACE_ARMOUR : contactFactor(v.genome);
+    hurt(v, BITE_DAMAGE[a.tier]! * armour, aid, tick);
+    // A torn-off bit of the victim, at the wound: food for whoever grabs it first.
+    const torn = Math.min(v.tier >= 2 ? CHUNK_MASS : DEBRIS_MASS, v.mass - minMassOf(v.tier));
+    if (torn > 0) {
+      v.mass -= torn;
+      const rv = radiusOf(v.mass);
+      spawnNutrient(state, v.x - nx * rv * 0.8, v.y - ny * rv * 0.8, v.tier >= 2 ? NutrientKind.chunk : NutrientKind.debris);
+    }
+    const knock = BITE_KNOCK * Math.min(2, Math.sqrt(a.mass / v.mass));
+    const recoil = BITE_RECOIL * Math.min(1, Math.sqrt(v.mass / a.mass));
+    v.vx += nx * knock;
+    v.vy += ny * knock;
+    a.vx -= nx * recoil;
+    a.vy -= ny * recoil;
+    a.bites = (a.bites + 1) & 255;
+    a.biteCooldown = BITE_INTERVAL;
+  }
 }
 
 /** Clutches hatch into the species' next individual, unless eukaryotes or animals eat them first. */
@@ -505,6 +588,7 @@ export function stepWorld(state: PoolState): Death[] {
   }
   for (const id of spent) state.clouds.delete(id);
 
+  collide(state);
   stepMates(state);
   stepEggs(state, tick);
 
@@ -576,6 +660,7 @@ export function stepWorld(state: PoolState): Death[] {
       if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || !swallows(e, v)) continue;
       if (!((v.x - e.x) ** 2 + (v.y - e.y) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
       v.engulfedBy = eid;
+      e.bites = (e.bites + 1) & 255; // the mouth snaps on a swallow too
       hurt(v, v.health + 1, eid, tick);
       const food = v.mass * ENGULF_SHARE;
       e.mass = Math.min(massCapOf(e.tier), e.mass + food);
@@ -590,6 +675,8 @@ export function stepWorld(state: PoolState): Death[] {
     }
   }
 
+  bite(state, tick);
+
   // Parasitism: a bacterium with adhesins drains the energy of every eukaryote it clings to.
   for (const [pid, par] of state.players) {
     const hooks = par.tier === 1 && !dormant(par) ? copiesOf(par.genome, 'adhesin') : 0;
@@ -597,7 +684,7 @@ export function stepWorld(state: PoolState): Death[] {
     const rp = radiusOf(par.mass);
     for (const host of state.players.values()) {
       if (host.tier < 2 || dormant(host) || tick < host.graceUntil) continue; // eukaryotes and animals
-      const touch = radiusOf(host.mass) + rp;
+      const touch = (radiusOf(host.mass) + rp) * 1.08; // collisions hold cells at touching distance
       if (!((host.x - par.x) ** 2 + (host.y - par.y) ** 2 < touch * touch)) continue;
       const drained = Math.min(ADHESIN_DRAIN * stack(hooks) * TICK_DT, host.mass - minMassOf(host.tier));
       if (drained <= 0) continue;
@@ -637,18 +724,10 @@ export function stepWorld(state: PoolState): Death[] {
       const dx = p.x - a.x;
       const dy = p.y - a.y;
       const d = Math.hypot(dx, dy);
-      if (hasGene(a.genome, 't6ss') && d < ra + r) {
+      if (hasGene(a.genome, 't6ss') && d < (ra + r) * 1.08) { // collisions hold cells at touching distance
         hurt(p, T6SS_DPS * stack(copiesOf(a.genome, 't6ss')) * contactFactor(p.genome) * TICK_DT, aid, tick);
       }
-      if (a.tier === 3) {
-        // Mandibles bite a rival animal in front; a carapace turns part of the bite.
-        if (p.tier === 3 && TIER3.hasGene(a.genome3, 'mandible') && d < ra * 1.1 + r
-          && Math.abs(wrapAngle(Math.atan2(dy, dx) - a.heading)) < MANDIBLE_ARC) {
-          hurt(p, MANDIBLE_DPS * (TIER3.hasGene(p.genome3, 'carapace') ? CARAPACE_ARMOUR : 1) * TICK_DT, aid, tick);
-        }
-        continue;
-      }
-      if (a.tier !== 2) continue;
+      if (a.tier !== 2) continue; // animals fight by biting (see bite)
       // Electric organ: shocks everything inside its field, all around.
       const organs = TIER2.copiesOf(a.genome2, 'electric');
       if (organs && d < ra * ELECTRIC_REACH + r) hurt(p, ELECTRIC_DPS * stack(organs) * contactFactor(p.genome) * TICK_DT, aid, tick);
