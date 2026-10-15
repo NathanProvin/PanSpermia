@@ -48,6 +48,7 @@ export function addBot(state: PoolState, bots: Bots, species = SPAWN_CYCLE[nextB
   const p = spawnPlayer(state.tick);
   p.genome = genomeOf(BOT_SPECIES[species]!.genes);
   p.name = BOT_SPECIES[species]!.name;
+  p.shape = BOT_SPECIES[species]!.shape;
   state.players.set(id, p);
   return id;
 }
@@ -68,7 +69,8 @@ export function rebirth(state: PoolState, bots: Bots, deaths: Death[]) {
     const b = bots.get(id);
     if (!b) continue;
     bots.set(id, brain(b.species, state.tick));
-    Object.assign(state.players.get(id)!, { genome: genomeOf(BOT_SPECIES[b.species]!.genes), name: BOT_SPECIES[b.species]!.name });
+    const s = BOT_SPECIES[b.species]!;
+    Object.assign(state.players.get(id)!, { genome: genomeOf(s.genes), name: s.name, shape: s.shape });
   }
 }
 
@@ -82,7 +84,7 @@ export function divideBots(state: PoolState, bots: Bots) {
     const p = state.players.get(id);
     if (!p || p.mass < MASS_CAP - 1) continue;
     const child = spawnPlayer(state.tick);
-    Object.assign(child, { x: p.x, y: p.y, heading: p.heading, genome: p.genome, name: p.name });
+    Object.assign(child, { x: p.x, y: p.y, heading: p.heading, genome: p.genome, name: p.name, shape: p.shape });
     state.players.set(id, child);
     bots.set(id, brain(b.species, state.tick));
     divided.push(id);

@@ -132,3 +132,12 @@ export const EYE_SIGHT = 0.18; // camera pulls back this much more per stacked e
 // Meteor shards: Spore's meteor bits. Rare sparkly packets carrying a random tier-2 part; any eukaryote
 // that touches one unlocks it. A dead eukaryote's chunks carry its parts too (eaten with a jaw: may unlock).
 export const SHARD_RATE = 1 / 20; // per s over the whole pool
+
+// Photosynthesis and endosymbiosis (P8d). Light is uniform for now: a photosynthesizer gains mass
+// steadily without eating. Swallowing a bacterium may adopt it as an organelle (Margulis): one with
+// transporters (a respiring cell) → mitochondrion, one with thylakoids (a cyanobacterium) → chloroplast.
+export const PHOTO_RATE = 0.08; // mass/s for a bacterium, × stack(thylakoids)
+export const CHLOROPLAST_RATE = 0.35; // mass/s for a eukaryote, × stack(chloroplasts)
+export const MITO_METABOLISM = 0.15; // metabolism burns less by this share × stack(mitochondria)
+export const MITO_SPEED = 0.08; // and swims faster by this share × stack
+export const ENDOSYMBIOSIS_CHANCE = 0.25; // per qualifying bacterium swallowed

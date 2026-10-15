@@ -19,6 +19,8 @@ const CATALOG = {
   thickWall: { upkeep: 0.01, price: 18, maxCopies: 1, slot: 'coat', at: 0, label: 'Thick wall' },
   effluxPump: { upkeep: 0.006, price: 12, maxCopies: 1, slot: 'membrane', at: -2.0, label: 'Efflux pump' },
   endospore: { upkeep: 0.006, price: 20, maxCopies: 1, slot: 'internal', at: [0, 0], label: 'Endospore' },
+  // P8d — cyanobacterial thylakoid membranes: photosynthesis, mass from light (PHOTO_RATE × stack).
+  thylakoid: { upkeep: 0.004, price: 15, maxCopies: 3, slot: 'internal', at: [-0.1, -0.35], label: 'Photosynthesis' },
 } as const;
 export type Gene = keyof typeof CATALOG;
 

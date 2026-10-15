@@ -122,7 +122,7 @@ if (sharedCard) {
 const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogFor(l.tier).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
-  tier: l.tier,
+  tier: l.tier, shape: l.shape,
 });
 
 try {
@@ -163,7 +163,7 @@ try {
     const cat = catalogFor(p.tier);
     // The species design, unless this individual differs (dev cheats) or has no lineage (bots).
     const parts = l && l.tier === p.tier && l.genome === genome ? partsOf(l) : cat.defaultParts(genome);
-    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id) };
+    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: p.shape };
   };
 
   const input = room.input({ type: Input, mode: 'reliable' });

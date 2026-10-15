@@ -1,4 +1,6 @@
-import { GENES, type Placement, type Player, SIDEROPHORE_REACH, TIER2, catalogFor, hasGene, radiusOf } from '@panspermia/shared';
+import {
+  GENES, type Placement, type Player, SIDEROPHORE_REACH, TIER2, catalogFor, deform, hasGene, radiusOf, shapeUniform,
+} from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
 
@@ -33,17 +35,22 @@ uniform float uSpore;
 uniform float uInfect;
 uniform float uCyst;
 uniform float uTier;
+uniform vec3 uShape; // stretch x, stretch y, bend (shared/shapes.ts)
+uniform float uCentre;
 varying vec2 vUv;
 ${NOISE}
 void main() {
-  vec2 p = (vUv * 2.0 - 1.0) * ${QUAD_HALF.toFixed(2)}; // in cell radii
+  vec2 p = (vUv * 2.0 - 1.0) * ${QUAD_HALF.toFixed(2)}; // body frame (the quad turns with the cell), cell radii
+  // Body shape: undo the bend, then the stretch, so everything below draws the canonical unit disc.
+  p.y = (p.y - uShape.z * (p.x * p.x - uCentre * uShape.x * uShape.x)) / uShape.y;
+  p.x /= uShape.x;
   float a = atan(p.y, p.x);
   float r = length(p);
   float t = uTime + uSeed * 100.0;
-  vec2 fwd = vec2(cos(uHeading), sin(uHeading));
+  vec2 fwd = vec2(1.0, 0.0);
   float rim = 1.0 + 0.035 * sin(3.0 * a + t * 1.1) + 0.025 * sin(5.0 * a - t * 1.6) + 0.012 * sin(9.0 * a + t * 2.4);
   // Division: the membrane pinches in where it crosses the axis (sides), a breathing furrow.
-  float side = cos(a - uHeading);
+  float side = cos(a);
   rim -= uCyst * (0.16 + 0.03 * sin(t * 2.0)) * exp(-side * side * 10.0);
   float d = r - rim; // signed distance in radii, < 0 inside
   float aa = fwidth(d) * 1.5;
@@ -93,9 +100,11 @@ void main() {
     * (0.6 + 0.4 * sin(t * 6.0 + hash12(floor(vg)) * 30.0));
   cyto = mix(cyto, cyto * vec3(0.75, 0.45, 0.95), uInfect * 0.6);
 
-  // Wet glint from a light above-left, using the sphere normal the disc implies.
+  // Wet glint from a light above-left of the screen (turned into the body frame), using the sphere normal.
   vec3 n = vec3(p / max(rim, 1e-3), sqrt(max(0.0, 1.0 - dot(p, p) / (rim * rim))));
-  float glint = pow(max(0.0, dot(n, normalize(vec3(-0.45, 0.55, 0.7)))), 28.0) * inside;
+  float ch = cos(uHeading), sh = sin(uHeading);
+  vec2 lightXY = vec2(ch * -0.45 + sh * 0.55, -sh * -0.45 + ch * 0.55);
+  float glint = pow(max(0.0, dot(n, normalize(vec3(lightXY, 0.7)))), 28.0) * inside;
 
   float halo = exp(-max(d, 0.0) * (12.0 - 6.0 * uExo)) * (1.0 - inside) * (0.22 + 0.25 * uExo);
   vec3 haloCol = mix(uColor, vec3(1.0, 0.42, 0.18), uExo);
@@ -249,6 +258,27 @@ void main() {
     float outline = sclera * smoothstep(0.7, 0.82, rr);
     a = sclera;
     col = mix(vec3(0.95), vec3(0.05, 0.05, 0.08), max(pupil, outline * 0.8)) + glint * 0.9;
+  } else if (k == ${GENES.thylakoid.index}) { // stacked photosynthetic membranes, glowing green
+    float stacks = 0.0;
+    for (int i = -1; i <= 1; i++) {
+      float y = float(i) * 0.3 + 0.04 * sin(p.x * 7.0 + t + float(i));
+      stacks = max(stacks, (1.0 - smoothstep(0.035, 0.07, abs(p.y - y))) * (1.0 - smoothstep(0.55, 0.75, abs(p.x))));
+    }
+    a = stacks;
+    col = vec3(0.35, 1.0, 0.4) * 1.3;
+  } else if (k == ${KIND2 + TIER2.GENES.mitochondrion.index}) { // a mitochondrion: bean with folded cristae
+    vec2 q = p * vec2(1.0, 1.7);
+    float bean = 1.0 - smoothstep(0.62, 0.7, length(q));
+    float cristae = smoothstep(0.55, 0.9, sin(p.x * 14.0 + sin(p.y * 9.0) * 1.5)) * (1.0 - smoothstep(0.45, 0.6, length(q)));
+    a = bean * (0.55 + 0.45 * cristae);
+    col = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.85, 0.55), cristae);
+  } else if (k == ${KIND2 + TIER2.GENES.chloroplast.index}) { // a chloroplast: green lens with grana stacks
+    vec2 q = p * vec2(1.0, 1.5);
+    float lens = 1.0 - smoothstep(0.62, 0.7, length(q));
+    vec2 g = fract(p * vec2(4.0, 6.0)) - 0.5;
+    float grana = (1.0 - smoothstep(0.18, 0.28, length(g))) * (1.0 - smoothstep(0.5, 0.62, length(q)));
+    a = lens * (0.5 + 0.5 * grana);
+    col = mix(vec3(0.2, 0.7, 0.25), vec3(0.6, 1.0, 0.45), grana);
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -269,6 +299,9 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.electric.index]: { size: 0.5, out: 0 },
   [KIND2 + TIER2.GENES.jet.index]: { size: 0.6, out: 0.35 },
   [KIND2 + TIER2.GENES.eye.index]: { size: 0.32, out: 0 },
+  [GENES.thylakoid.index]: { size: 0.45, out: 0 },
+  [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },
+  [KIND2 + TIER2.GENES.chloroplast.index]: { size: 0.4, out: 0 },
   [GENES.pili.index]: { size: 0.6, out: 0.35 },
   [GENES.chemoreceptor.index]: { size: 0.32, out: 0 },
   [GENES.transporters.index]: { size: 0.36, out: 0 },
@@ -315,6 +348,7 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() }, uHeading: { value: 0 },
   uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 },
   uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uTier: { value: 0 },
+  uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -333,7 +367,7 @@ export function hashId(id: string) {
 /** Rendered (predicted or smoothed) pose of a cell. */
 export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
-export interface Look { tier: number; genome: number; parts: readonly Placement<string>[]; hue: number }
+export interface Look { tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number }
 
 type ShaderMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
@@ -349,7 +383,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   let partsKey = '';
   let parts: { mesh: ShaderMesh; flagellum: boolean }[] = [];
 
-  const rebuild = (placements: readonly Placement<string>[], tier: number) => {
+  const rebuild = (placements: readonly Placement<string>[], tier: number, form: number) => {
     for (const { mesh } of parts) {
       frame.remove(mesh);
       mesh.material.dispose();
@@ -361,8 +395,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         const mesh: ShaderMesh = new THREE.Mesh(flagellumGeometry, flagellumMaterial.clone());
         mesh.material.uniforms.uColor!.value = color;
         mesh.material.uniforms.uBeat!.value = seed * 100 + i * 1.7;
-        mesh.position.set(pl.x * 0.92, pl.y * 0.92, 0);
-        mesh.rotation.z = pl.angle;
+        const root = deform(form, pl.x * 0.92, pl.y * 0.92, pl.angle); // where it leaves the shaped body
+        mesh.position.set(root.x, root.y, 0);
+        mesh.rotation.z = root.angle;
         mesh.scale.set(FLAGELLUM_LENGTH[tier]! * pl.scale, pl.scale, 1);
         mesh.renderOrder = 9;
         frame.add(mesh);
@@ -377,8 +412,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uSeed!.value = seed + i * 0.37;
       u.uColor!.value = color;
       const size = shape.size * pl.scale;
-      mesh.position.set(pl.x + Math.cos(pl.angle) * size * shape.out, pl.y + Math.sin(pl.angle) * size * shape.out, 0);
-      mesh.rotation.z = pl.angle;
+      const at = deform(form, pl.x, pl.y, pl.angle); // on the shaped body, facing its normal there
+      mesh.position.set(at.x + Math.cos(at.angle) * size * shape.out, at.y + Math.sin(at.angle) * size * shape.out, 0);
+      mesh.rotation.z = at.angle;
       mesh.scale.setScalar(size);
       mesh.renderOrder = 11;
       frame.add(mesh);
@@ -389,13 +425,18 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   return {
     body,
     update(pose: Pose, radius: number, look: Look, time: number, dt: number) {
-      const key = look.tier + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
+      const form = look.shape ?? 0;
+      const key = `${look.tier}/${form}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
         partsKey = key;
-        rebuild(look.parts, look.tier);
+        rebuild(look.parts, look.tier, form);
+        const s = shapeUniform(form);
+        body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend);
+        body.material.uniforms.uCentre!.value = s.centre;
       }
       color.setHSL(look.hue, 0.8, 0.42);
       body.position.set(pose.x, pose.y, 0);
+      body.rotation.z = pose.heading; // a rod points where it swims
       body.scale.setScalar(radius);
       frame.position.set(pose.x, pose.y, 0);
       frame.rotation.z = pose.heading;
@@ -428,7 +469,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       frame.scale.multiplyScalar(k);
     },
     dispose() {
-      rebuild([], 1);
+      rebuild([], 1, 0);
       parent.remove(body, frame);
       body.material.dispose();
     },

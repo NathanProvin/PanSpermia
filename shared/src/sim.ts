@@ -3,7 +3,7 @@
 import {
   DRIFT_PILI, FLAGELLUM_STACK, MASS_CAP, MIN_MASS, RADIUS_PER_SQRT_MASS, SPAWN_MASS, T2_DRIFT, T2_MASS_CAP,
   T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
-  JET_COOLDOWN, JET_TIME, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
+  JET_COOLDOWN, JET_TIME, MITO_SPEED, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS,
 } from './constants.ts';
 import {
@@ -142,6 +142,7 @@ function stepEukaryote(
       : cilia ? T2_SWIM_CILIA * (1 + FLAGELLUM_STACK * (stack(cilia) - 1)) : T2_SWIM_CREEP;
   }
   if (b.dash > 0) swim = Math.max(swim, T2_SWIM_CILIA) * JET_BOOST; // the jet pushes even a creeping cell
+  swim *= 1 + MITO_SPEED * stack(TIER2.copiesOf(genome2, 'mitochondrion')); // more energy
   move(b, mass, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time);
 }
 

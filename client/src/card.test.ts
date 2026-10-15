@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { type CardData, decodeCard, encodeCard } from './card.ts';
 
 const card: CardData = {
-  name: 'Vibrio stellaris', hue: 0.42, tier: 1, generation: 7, dna: 312, kills: 3, fate: 'evolved',
+  name: 'Vibrio stellaris', hue: 0.42, tier: 1, shape: 2, generation: 7, dna: 312, kills: 3, fate: 'evolved',
   parts: [{ gene: 'flagellum', x: -1, y: 0, angle: 3.14, scale: 1, group: 0 }, { gene: 'pili', x: 0.5, y: 0.87, angle: 1.05, scale: 1.5, group: 0 }],
 };
 const tamper = (data: unknown[]) => btoa(JSON.stringify(data)).replaceAll('+', '-').replaceAll('/', '_');

@@ -187,3 +187,17 @@ test('the jet dashes on demand (predicted), then cools down', async () => {
   stepCell(plain, T2_SPAWN_MASS, 0, 1, 0, ACTION_SPORE, DT, T, 2, TIER2.GENES.cilia.bit);
   expect(plain.dash).toBe(0); // needs a jet
 });
+
+test('shapes: deform and undeform are inverses; a round body is the identity', async () => {
+  const { deform, undeform } = await import('./shapes.ts');
+  for (const shape of [0, 1, 2]) {
+    for (const [x, y] of [[1, 0], [0, 1], [-0.6, 0.3], [0.2, -0.9]] as const) {
+      const d = deform(shape, x, y);
+      const back = undeform(shape, d.x, d.y);
+      expect(back.x).toBeCloseTo(x, 10);
+      expect(back.y).toBeCloseTo(y, 10);
+    }
+  }
+  expect(deform(0, 0.3, -0.4, 1.2)).toEqual({ x: 0.3, y: -0.4, angle: 1.2 });
+  expect(deform(1, 1, 0).x).toBeGreaterThan(1.4); // a rod is long
+});

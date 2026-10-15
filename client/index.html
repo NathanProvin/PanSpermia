@@ -29,7 +29,8 @@
       #editor button:disabled { opacity: 0.4; cursor: default; }
       #editor button[aria-pressed="true"] { background: rgb(159 231 224 / 0.3); }
       #editor button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-      #editor fieldset { border: 1px solid rgb(159 231 224 / 0.2); border-radius: 6px; margin: 0; display: flex; gap: 6px; align-items: center; }
+      #editor fieldset { border: 1px solid rgb(159 231 224 / 0.2); border-radius: 6px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+      #editor fieldset button { padding: 6px 8px; }
       #editor label { display: grid; gap: 4px; }
       #editor p { margin: 0; }
       #editor .short { color: #ff8a7a; }

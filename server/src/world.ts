@@ -1,6 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
+  CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2, T2_HEALTH_MAX,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, T2_MIN_MASS, T2_SPAWN_MASS, TIER2, MAX_TIER, catalogFor, massCapOf,
@@ -59,6 +60,7 @@ function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: 
   if (l.tier === 2) Object.assign(p, { tier: 2, genome: 0, genome2: l.genome, mass: T2_SPAWN_MASS, health: T2_HEALTH_MAX });
   else p.genome = l.genome;
   p.name = l.name;
+  p.shape = l.shape;
   if (at) Object.assign(p, at);
   return p;
 }
@@ -90,7 +92,7 @@ export function hatch(state: PoolState, id: string) {
   state.players.set(id, nextOf(l, state.tick, { x: parent.x, y: parent.y, heading: parent.heading }));
 }
 
-interface Design { genome: number; placed: Part[]; hue: number; children: number; name: string; evolve: boolean; cost: number }
+interface Design { genome: number; placed: Part[]; hue: number; shape: number; children: number; name: string; evolve: boolean; cost: number }
 /** The latest valid draft per lineage, applied if the cyst times out (server-only, never synced). */
 const drafts = new WeakMap<Lineage, Design>();
 
@@ -100,7 +102,8 @@ const drafts = new WeakMap<Lineage, Design>();
  */
 function parseDesign(l: Lineage, design: unknown): Design | string {
   if (typeof design !== 'object' || design === null) return 'bad design';
-  const { parts, hue, children, name: rawName, evolve = false } = design as Record<string, unknown>;
+  const { parts, hue, children, name: rawName, evolve = false, shape = 0 } = design as Record<string, unknown>;
+  if (typeof shape !== 'number' || !Number.isInteger(shape) || !SHAPES[shape]) return 'bad shape';
   const name = cleanName(rawName);
   if (!name) return 'bad name';
   if (typeof evolve !== 'boolean') return 'bad evolve';
@@ -131,7 +134,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   }
   const cost = cat.priceOf(genome) - cat.priceOf(l.genome) + children * CHILD_PRICE;
   if (cost > l.dna) return 'not enough DNA';
-  return { genome, placed, hue, children, name, evolve, cost };
+  return { genome, placed, hue, shape, children, name, evolve, cost };
 }
 
 /**
@@ -170,6 +173,7 @@ function apply(l: Lineage, d: Design) {
   l.parts.push(...d.placed);
   l.hue = d.hue;
   l.name = d.name;
+  l.shape = d.shape;
   l.children += d.children;
 }
 
@@ -206,11 +210,15 @@ export function initPool(state: PoolState) {
 /** Burn mass (metabolism + part upkeep, per tier) down to the floor; starve there, else regenerate if allowed. */
 export function metabolize(p: { mass: number; health: number; genome: number; genome2?: number; tier?: number }, dt: number, regen = true) {
   const t2 = p.tier === 2;
+  const genome2 = p.genome2 ?? 0;
   const floor = t2 ? T2_MIN_MASS : MIN_MASS;
+  // Mitochondria make metabolism cheaper; thylakoids / chloroplasts make mass from light.
   const burn = t2
-    ? T2_METABOLISM_BASE + T2_METABOLISM_RATE * p.mass + TIER2.upkeepOf(p.genome2 ?? 0)
+    ? (T2_METABOLISM_BASE + T2_METABOLISM_RATE * p.mass) * (1 - MITO_METABOLISM * stack(TIER2.copiesOf(genome2, 'mitochondrion')))
+      + TIER2.upkeepOf(genome2)
     : METABOLISM_BASE + METABOLISM_RATE * p.mass + upkeepOf(p.genome);
-  p.mass = Math.max(floor, p.mass - burn * dt);
+  const light = t2 ? CHLOROPLAST_RATE * stack(TIER2.copiesOf(genome2, 'chloroplast')) : PHOTO_RATE * stack(copiesOf(p.genome, 'thylakoid'));
+  p.mass = Math.max(floor, Math.min(massCapOf(t2 ? 2 : 1), p.mass + (light - burn) * dt));
   if (p.mass <= floor) p.health -= STARVE_DPS * dt;
   else if (regen) p.health = Math.min(healthMaxOf(p.genome, p.tier), p.health + HEALTH_REGEN * dt);
 }
@@ -423,6 +431,13 @@ export function stepWorld(state: PoolState): Death[] {
       const food = v.mass * ENGULF_SHARE;
       e.mass = Math.min(massCapOf(2), e.mass + food);
       earn(state, eid, food * DNA_PER_MASS);
+      // Endosymbiosis: a swallowed bacterium may live on inside as an organelle (unlocked for the editor).
+      const l = state.lineages.get(eid);
+      if (l?.tier === 2 && v.tier === 1) {
+        for (const [gene, organelle] of [['transporters', 'mitochondrion'], ['thylakoid', 'chloroplast']] as const) {
+          if (hasGene(v.genome, gene) && Math.random() < ENDOSYMBIOSIS_CHANCE) l.library |= TIER2.GENES[organelle].bit;
+        }
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 import {
   CHILD_PRICE, EVOLVE_DNA, type Catalog, type Lineage, MAX_CHILDREN, MAX_PARTS, MAX_TIER, NAME_MAX, type Placement, TIER_NAMES,
-  catalogFor, cleanName,
+  SHAPE_NAMES, catalogFor, cleanName, undeform,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
@@ -15,7 +15,7 @@ import { createCellView } from './scene/cells.ts';
 type Symmetry = 'axial' | 'radial';
 /** One placement as the player made it: a master part plus how it repeats. */
 interface Group { gene: string; x: number; y: number; angle: number; scale: number; repeat: 'single' | 'axial' | 'radial'; n: number }
-export interface Design { parts: Placement<string>[]; hue: number; children: number; name: string; evolve?: boolean }
+export interface Design { parts: Placement<string>[]; hue: number; shape: number; children: number; name: string; evolve?: boolean }
 
 const VIEW_HALF = 2.4; // cell radii visible above and below the centre
 const AXIS_SNAP = 0.12; // radii: this close to the axis (or the centre) is "on" it
@@ -99,6 +99,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         <button type="button" data-sym="axial" aria-pressed="true">Axial</button>
         <button type="button" data-sym="radial" aria-pressed="false">Radial</button>
       </fieldset>
+      <fieldset class="shapes"><legend>Shape</legend></fieldset>
       <label>Colour <input type="range" class="hue" min="0" max="0.999" step="0.001"></label>
       <fieldset><legend>Children <small>(${CHILD_PRICE} DNA each)</small></legend>
         <button type="button" class="fewer" aria-label="One child fewer">−</button>
@@ -122,6 +123,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   let lineage: Lineage | undefined;
   let cat = catalogFor(1);
+  let shape = 0;
   let groups: Group[] = [];
   let children = 0;
   let hue = 0;
@@ -142,7 +144,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const rect = renderer.domElement.getBoundingClientRect();
     const wx = ((e.clientX - rect.left) / rect.width * 2 - 1) * camera.right;
     const wy = -((e.clientY - rect.top) / rect.height * 2 - 1) * VIEW_HALF;
-    return { bx: wy, by: -wx }; // rotate the screen by -FORWARD
+    const c = undeform(shape, wy, -wx); // rotate the screen by -FORWARD, then undo the body shape
+    return { bx: c.x, by: c.y };
   };
   const pick = (bx: number, by: number) => {
     let best = -1;
@@ -207,6 +210,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(3)} mass/s`;
     $('.message').textContent = message;
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) b.setAttribute('aria-pressed', String(b.dataset.sym === symmetry));
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-shape]')) b.setAttribute('aria-pressed', String(Number(b.dataset.shape) === shape));
     const named = cleanName(name);
     if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
     $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
@@ -288,7 +292,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     else children++;
     render();
   });
-  const design = (): Design => ({ parts: placementsOf(groups), hue, children, name: cleanName(name) ?? '' });
+  const design = (): Design => ({ parts: placementsOf(groups), hue, shape, children, name: cleanName(name) ?? '' });
   const send = (evolve = false) => {
     if (submitted || !lineage || lineage.dna - cost(groups) < 0 || !cleanName(name)) return;
     submitted = true;
@@ -313,6 +317,16 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       groups = groupsOf(cat, l);
       children = 0;
       hue = l.hue;
+      shape = l.shape;
+      // Shape names depend on the tier (coccus/rod/vibrio for bacteria); the shapes themselves don't.
+      $('.shapes').replaceChildren($('.shapes legend'), ...SHAPE_NAMES[l.tier as 1 | 2].map((label, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.shape = String(i);
+        b.textContent = label;
+        b.addEventListener('click', () => { shape = i; render(); });
+        return b;
+      }));
       hueInput.value = String(hue);
       name = l.name;
       nameInput.value = name;
@@ -339,7 +353,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       camera.updateProjectionMatrix();
       const gs = working();
       cell.update({ x: 0, y: 0, heading: FORWARD, tumble: 0, spore: 0, cyst: 0 }, 1,
-        { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue }, time, dt);
+        { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue, shape }, time, dt);
       $('.timer').textContent = `Dividing — ${Math.ceil(secondsLeft)} s left`;
       return { scene, camera };
     },

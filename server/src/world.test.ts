@@ -672,3 +672,48 @@ test('meteor shards unlock tier-2 parts on touch; eaten chunks may carry the dea
   stepWorld(s2.state);
   expect(s2.lineage.library).toBe(before);
 });
+
+// --- Photosynthesis, endosymbiosis, shapes (P8d) --------------------------------------------------
+
+test('thylakoids feed a bacterium from light; chloroplasts a eukaryote; mitochondria cut metabolism', () => {
+  const dark = { mass: 30, health: 100, genome: 0 };
+  const lit = { mass: 30, health: 100, genome: GENES.thylakoid.bit * 2 };
+  metabolize(dark, 1);
+  metabolize(lit, 1);
+  expect(lit.mass - dark.mass).toBeCloseTo(0.08 * 1.5 - 2 * GENES.thylakoid.upkeep, 6);
+
+  const eu = (genome2: number) => ({ mass: 300, health: 300, genome: 0, genome2, tier: 2 });
+  const plain = eu(0);
+  const green = eu(TIER2.GENES.chloroplast.bit);
+  const mito = eu(TIER2.GENES.mitochondrion.bit);
+  for (const p of [plain, green, mito]) metabolize(p, 1);
+  expect(green.mass - plain.mass).toBeCloseTo(0.35, 6);
+  expect(mito.mass).toBeGreaterThan(plain.mass);
+});
+
+test('swallowing the right bacteria may adopt them as organelles', () => {
+  const { state, player, lineage } = species();
+  lineage.tier = 2;
+  lineage.library = STARTER_LIBRARY2;
+  Object.assign(player, { tier: 2, genome: 0, genome2: STARTER_GENOME2, mass: 600, health: 300, x: 0, y: 0 });
+  for (let i = 0; i < 40 && !(lineage.library & TIER2.GENES.chloroplast.bit && lineage.library & TIER2.GENES.mitochondrion.bit); i++) {
+    for (const [id, genome] of [['cyano', GENES.thylakoid.bit], ['resp', GENES.transporters.bit]] as const) {
+      const b = spawnPlayer();
+      Object.assign(b, { x: 5, y: 0, mass: 20, genome });
+      state.players.set(id + i, b);
+    }
+    stepWorld(state);
+  }
+  expect(lineage.library & TIER2.GENES.chloroplast.bit).toBeTruthy();
+  expect(lineage.library & TIER2.GENES.mitochondrion.bit).toBeTruthy();
+});
+
+test('a design body shape is validated and worn by the next individual', () => {
+  const { state, player, lineage } = species();
+  player.cyst = CYST_TIME;
+  const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
+  const design = { parts: keep, hue: 0.1, children: 0, name: lineage.name };
+  expect(submitDesign(state, 'p', { ...design, shape: 7 })).toBe('bad shape');
+  expect(submitDesign(state, 'p', { ...design, shape: 2 })).toBeUndefined();
+  expect([lineage.shape, state.players.get('p')!.shape]).toEqual([2, 2]);
+});

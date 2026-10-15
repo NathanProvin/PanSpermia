@@ -15,6 +15,9 @@ export const TIER2 = makeCatalog({
   electric: { upkeep: 0.05, price: 30, maxCopies: 2, slot: 'internal', at: [-0.35, -0.3], label: 'Electric organ' },
   jet: { upkeep: 0.04, price: 25, maxCopies: 1, slot: 'membrane', at: -2.6, label: 'Jet' },
   eye: { upkeep: 0.005, price: 8, maxCopies: 3, slot: 'internal', at: [0.45, 0.2], label: 'Eye' },
+  // P8d — organelles from endosymbiosis: swallowed bacteria that became part of the cell.
+  mitochondrion: { upkeep: 0, price: 20, maxCopies: 3, slot: 'internal', at: [-0.45, 0.25], label: 'Mitochondrion' },
+  chloroplast: { upkeep: 0, price: 20, maxCopies: 3, slot: 'internal', at: [0.1, -0.45], label: 'Chloroplast' },
 });
 export type Gene2 = (typeof TIER2.NAMES)[number];
 

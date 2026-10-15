@@ -3,6 +3,8 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
 export const Player = schema({
   /** Species name, shown above the cell and on the leaderboard (a copy of the lineage's, or the bot species'). */
   name: t.string().default(''),
+  /** Body shape (SHAPES index), copied from the species. Visual only. */
+  shape: t.uint8().default(0),
   x: t.number(),
   y: t.number(),
   /** Swim direction, radians. Flagellated cells keep it between tumbles. */
@@ -106,6 +108,7 @@ export const Lineage = schema({
   genome: t.uint32(),
   parts: t.array(Part),
   hue: t.float32(),
+  shape: t.uint8().default(0),
   /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */
   library: t.uint32(),
   dna: t.number(),
