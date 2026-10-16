@@ -17,7 +17,7 @@ import {
   PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
-  SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  ANIMAL_MOUTH, ANIMAL_MOUTH_AHEAD, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
 } from '@panspermia/shared';
 
 /** Uniform random point in a disc of radius `r` centred on the origin. */
@@ -67,7 +67,7 @@ function stepMates(state: PoolState) {
     const m = state.players.get(mid);
     if (!m) {
       const a = Math.random() * 2 * Math.PI;
-      const far = 2 * radiusOf(p.mass) + MATE_DISTANCE; // two grown animals touch ~620 apart
+      const far = 2 * radiusOf(p.mass, p.tier) + MATE_DISTANCE; // two grown animals touch ~620 apart
       const at = { x: p.x + Math.cos(a) * far, y: p.y + Math.sin(a) * far };
       const k = Math.min(1, (WORLD_RADIUS * 0.95) / Math.hypot(at.x, at.y)); // inside the pool
       state.players.set(mid, new Player({
@@ -80,7 +80,7 @@ function stepMates(state: PoolState) {
     const dx = p.x - m.x;
     const dy = p.y - m.y;
     const d = Math.hypot(dx, dy);
-    if (d < radiusOf(p.mass) + radiusOf(m.mass) || p.call > MATE_TIMEOUT) {
+    if (d < radiusOf(p.mass, p.tier) + radiusOf(m.mass, m.tier) || p.call > MATE_TIMEOUT) {
       gone.push(mid);
       p.call = 0;
       p.cyst = CYST_TIME; // mated: shielded while the player edits the next generation
@@ -103,10 +103,10 @@ function collide(state: PoolState) {
   const cells = [...state.players].filter(([id, p]) => !isMate(id) && !p.engulfedBy).map(([, p]) => p);
   for (let i = 0; i < cells.length; i++) {
     const a = cells[i]!;
-    const ra = radiusOf(a.mass);
+    const ra = radiusOf(a.mass, a.tier);
     for (let j = i + 1; j < cells.length; j++) {
       const b = cells[j]!;
-      const reach = ra + radiusOf(b.mass);
+      const reach = ra + radiusOf(b.mass, b.tier);
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue;
@@ -142,14 +142,14 @@ function bite(state: PoolState, tick: number) {
     a.biteCooldown = Math.max(0, a.biteCooldown - TICK_DT);
     const mouth = a.tier === 2 ? TIER2.hasGene(a.genome2, 'jaw') : a.tier === 3 && TIER3.hasGene(a.genome3, 'mandible');
     if (!mouth || a.biteCooldown > 0 || dormant(a) || a.engulfedBy || isMate(aid)) continue;
-    const ra = radiusOf(a.mass);
+    const ra = radiusOf(a.mass, a.tier);
     let target: { v: Player; d: number; dx: number; dy: number } | undefined;
     for (const [vid, v] of state.players) {
       if (vid === aid || isMate(vid) || dormant(v) || v.engulfedBy || tick < v.graceUntil || swallows(a, v)) continue;
       const dx = v.x - a.x;
       const dy = v.y - a.y;
       const d = Math.hypot(dx, dy);
-      if (!(d < ra * (1 + BITE_REACH) + radiusOf(v.mass)) || d >= (target?.d ?? Infinity)) continue;
+      if (!(d < ra * (1 + BITE_REACH) + radiusOf(v.mass, v.tier)) || d >= (target?.d ?? Infinity)) continue;
       if (Math.abs(wrapAngle(Math.atan2(dy, dx) - a.heading)) < MANDIBLE_ARC) target = { v, d, dx, dy };
     }
     if (!target) continue;
@@ -162,7 +162,7 @@ function bite(state: PoolState, tick: number) {
     const torn = Math.min(v.tier >= 2 ? CHUNK_MASS : DEBRIS_MASS, v.mass - minMassOf(v.tier));
     if (torn > 0) {
       v.mass -= torn;
-      const rv = radiusOf(v.mass);
+      const rv = radiusOf(v.mass, v.tier);
       spawnNutrient(state, v.x - nx * rv * 0.8, v.y - ny * rv * 0.8, v.tier >= 2 ? NutrientKind.chunk : NutrientKind.debris);
     }
     const knock = BITE_KNOCK * Math.min(2, Math.sqrt(a.mass / v.mass));
@@ -192,7 +192,7 @@ function stepEggs(state: PoolState, tick: number) {
     }
     for (const [pid, p] of state.players) {
       if (pid === egg.owner || isMate(pid) || p.tier < 2 || dormant(p)) continue;
-      const reach = radiusOf(p.mass) * 1.05 + EGG_RADIUS;
+      const reach = radiusOf(p.mass, p.tier) * 1.05 + EGG_RADIUS;
       if (!((p.x - egg.x) ** 2 + (p.y - egg.y) ** 2 < reach * reach)) continue;
       const bite = Math.min(egg.health, EGG_EAT_DPS * TICK_DT);
       egg.health -= bite;
@@ -244,12 +244,17 @@ let nextEggId = 0;
 /**
  * Editing done. Cells divide: a child with the lineage's current design takes over where the parent
  * divided. Animals lay a clutch instead and carry on, spent; the clutch hatches into the new design.
+ * A stage-up cyst (just evolved) simply hatches as the designed individual.
  */
 export function hatch(state: PoolState, id: string) {
   const parent = state.players.get(id);
   const l = state.lineages.get(id);
   if (!parent || !l) return;
   drafts.delete(l);
+  if (parent.evolving) {
+    state.players.set(id, nextOf(l, state.tick, { x: parent.x, y: parent.y, heading: parent.heading }));
+    return;
+  }
   if (parent.tier === 3 && l.tier === 3) {
     parent.cyst = 0;
     parent.mass = T3_SPAWN_MASS; // the energy went into the eggs
@@ -333,8 +338,15 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
     return undefined;
   }
   apply(l, d);
-  if (d.evolve) evolve(l);
-  hatch(state, id);
+  if (!d.evolve) {
+    hatch(state, id);
+    return undefined;
+  }
+  // Evolving: the next individual is of the new tier, born into the editor (still shielded) to design it.
+  evolve(l);
+  drafts.delete(l); // a draft of the old tier's design means nothing to the new body
+  l.generation++;
+  state.players.set(id, Object.assign(nextOf(l, state.tick, { x: p.x, y: p.y, heading: p.heading }), { cyst: CYST_TIME, evolving: true }));
   return undefined;
 }
 
@@ -432,7 +444,7 @@ export function secrete(state: PoolState, id: string) {
     if (!power || p.mass - toxin.cost * power < minMassOf(p.tier)) continue;
     p.mass -= toxin.cost * power;
     p.toxinCooldown = Math.max(p.toxinCooldown, toxin.cooldown);
-    const back = p.tier === 2 ? radiusOf(p.mass) * 1.2 : 0; // a eukaryote leaves its poison behind it
+    const back = p.tier === 2 ? radiusOf(p.mass, p.tier) * 1.2 : 0; // a eukaryote leaves its poison behind it
     const x0 = Math.fround(p.x - Math.cos(p.heading) * back);
     const y0 = Math.fround(p.y - Math.sin(p.heading) * back);
     state.clouds.set(`c${nextCloudId++}`, new Cloud({ x0, y0, tick0: state.tick, kind, owner: id, power, x: x0, y: y0, tick: state.tick }));
@@ -492,7 +504,8 @@ export function yield3Of(kind: number, genome3: number) {
 export function swallows(e: Player, v: Player) {
   if (v.mass > e.mass * ENGULF_RATIO) return false;
   if (e.tier === 2) return TIER2.hasGene(e.genome2, 'jaw');
-  if (e.tier === 3) return TIER3.hasGene(e.genome3, 'mandible') || (v.tier === 1 && TIER3.hasGene(e.genome3, 'filterComb'));
+  // Animals swallow single cells only: a rival animal is a fight (bites), never a mouthful.
+  if (e.tier === 3) return v.tier < 3 && (TIER3.hasGene(e.genome3, 'mandible') || (v.tier === 1 && TIER3.hasGene(e.genome3, 'filterComb')));
   return false;
 }
 
@@ -594,7 +607,7 @@ export function stepWorld(state: PoolState): Death[] {
 
   for (const [id, p] of state.players) {
     if (dormant(p) || isMate(id)) continue;
-    const r = radiusOf(p.mass);
+    const r = radiusOf(p.mass, p.tier);
     const t2 = p.tier >= 2; // eukaryotes and animals eat by mouth
     const reach = t2 ? r * 1.05 : reachOf(p.mass, p.genome);
     const span = Math.ceil(reach / GRID);
@@ -650,15 +663,20 @@ export function stepWorld(state: PoolState): Death[] {
   }
 
   // Phagocytosis: a jaw (or mandibles, or filter combs for bacteria) swallows any cell at most ENGULF_RATIO
-  // of the eater's mass whose centre it covers — bacteria are snacks. Endospores resist digestion; cysts and
-  // newborns are shielded.
-  // ponytail: O(players²), fine at 50; use a grid when tier-2 bots raise counts.
+  // of the eater's mass whose centre it covers — bacteria are snacks. A eukaryote engulfs with its whole body;
+  // an animal only with its mouth, at the head (else a big animal vacuums up everything it swims over).
+  // Endospores resist digestion; cysts and newborns are shielded.
+  // ponytail: O(players²), fine at 80; use a grid when bot counts rise.
   for (const [eid, e] of state.players) {
     if (e.tier < 2 || dormant(e) || e.engulfedBy || isMate(eid)) continue;
-    const mouth = radiusOf(e.mass) * 0.9;
+    const r = radiusOf(e.mass, e.tier);
+    const ahead = e.tier === 3 ? r * ANIMAL_MOUTH_AHEAD : 0;
+    const mx = e.x + Math.cos(e.heading) * ahead;
+    const my = e.y + Math.sin(e.heading) * ahead;
+    const mouth = r * (e.tier === 3 ? ANIMAL_MOUTH : EUK_MOUTH);
     for (const [vid, v] of state.players) {
       if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || !swallows(e, v)) continue;
-      if (!((v.x - e.x) ** 2 + (v.y - e.y) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
+      if (!((v.x - mx) ** 2 + (v.y - my) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
       v.engulfedBy = eid;
       e.bites = (e.bites + 1) & 255; // the mouth snaps on a swallow too
       hurt(v, v.health + 1, eid, tick);
@@ -681,10 +699,10 @@ export function stepWorld(state: PoolState): Death[] {
   for (const [pid, par] of state.players) {
     const hooks = par.tier === 1 && !dormant(par) ? copiesOf(par.genome, 'adhesin') : 0;
     if (!hooks) continue;
-    const rp = radiusOf(par.mass);
+    const rp = radiusOf(par.mass, par.tier);
     for (const host of state.players.values()) {
       if (host.tier < 2 || dormant(host) || tick < host.graceUntil) continue; // eukaryotes and animals
-      const touch = (radiusOf(host.mass) + rp) * 1.08; // collisions hold cells at touching distance
+      const touch = (radiusOf(host.mass, host.tier) + rp) * 1.08; // collisions hold cells at touching distance
       if (!((host.x - par.x) ** 2 + (host.y - par.y) ** 2 < touch * touch)) continue;
       const drained = Math.min(ADHESIN_DRAIN * stack(hooks) * TICK_DT, host.mass - minMassOf(host.tier));
       if (drained <= 0) continue;
@@ -705,7 +723,7 @@ export function stepWorld(state: PoolState): Death[] {
   // Lysis. ponytail: O(players × (clouds + players)), fine at 50; reuse the spatial grid when bots raise counts.
   for (const [id, p] of state.players) {
     if (dormant(p) || tick < p.graceUntil) continue; // dormant: the infection waits too
-    const r = radiusOf(p.mass);
+    const r = radiusOf(p.mass, p.tier);
     if (p.infection > 0) {
       hurt(p, (p.tier === 2 ? VIRUS_DPS : PHAGE_DPS) * TICK_DT, p.tier === 2 ? VIRUS_KILLER : PHAGE_KILLER, tick);
       p.infection = Math.max(0, p.infection - TICK_DT - 1e-9);
@@ -720,7 +738,7 @@ export function stepWorld(state: PoolState): Death[] {
     }
     for (const [aid, a] of state.players) {
       if (aid === id || dormant(a) || isMate(aid)) continue;
-      const ra = radiusOf(a.mass);
+      const ra = radiusOf(a.mass, a.tier);
       const dx = p.x - a.x;
       const dy = p.y - a.y;
       const d = Math.hypot(dx, dy);
@@ -775,7 +793,7 @@ export function stepWorld(state: PoolState): Death[] {
   // The killer earns DNA; then the next child takes over, or the species ends.
   for (const [i, p] of dead.entries()) {
     const death = deaths[i]!;
-    const r = radiusOf(p.mass);
+    const r = radiusOf(p.mass, p.tier);
     const spill = (kind: number, gene = 0) => {
       const at = randomInDisc(r);
       spawnNutrient(state, p.x + at.x, p.y + at.y, kind, gene);

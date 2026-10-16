@@ -15,6 +15,7 @@ attribute float aSize;
 attribute float aSeed;
 uniform float uFocus;
 uniform float uAperture;
+uniform float uCull;
 varying vec2 vUv;
 varying float vSeed;
 varying float vSize;
@@ -24,6 +25,8 @@ void main() {
   float blur = uAperture * abs(-view.z - uFocus);
   float quad = aSize + 2.0 * blur;
   vSharp = aSize / quad;
+  // So defocused it would cover almost nothing: skip the quad (all of its fill cost) instead of blending ~0.
+  if (vSharp * vSharp < uCull) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   view.xy += position.xy * quad;
   vUv = uv;
   vSeed = aSeed;
@@ -34,8 +37,11 @@ void main() {
 
 export type Sprites = ReturnType<typeof createSprites>;
 
-/** `fragmentShader` receives vUv, vSeed, vSize, vSharp (1 = in focus) and uniform uTime; additive output. */
-export function createSprites(capacity: number, fragmentShader: string, renderOrder: number) {
+/**
+ * `fragmentShader` receives vUv, vSeed, vSize, vSharp (1 = in focus) and uniform uTime. Additive output by
+ * default (light: glows, food); `opaque` = premultiplied alpha over what's behind (matter: silt, flakes).
+ */
+export function createSprites(capacity: number, fragmentShader: string, renderOrder: number, opaque = false) {
   const quad = new THREE.PlaneGeometry(1, 1);
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.index = quad.index;
@@ -53,12 +59,14 @@ export function createSprites(capacity: number, fragmentShader: string, renderOr
   geometry.instanceCount = 0;
 
   const material = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uFocus: { value: 1 }, uAperture: { value: APERTURE } },
+    // uFade: free for the shader; uCull: sharpness² below which a sprite isn't drawn (0 = all drawn).
+    uniforms: { uTime: { value: 0 }, uFocus: { value: 1 }, uAperture: { value: APERTURE }, uFade: { value: 1 }, uCull: { value: 0 } },
     vertexShader: VERTEX,
     fragmentShader,
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    blending: opaque ? THREE.NormalBlending : THREE.AdditiveBlending,
+    premultipliedAlpha: opaque,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false; // instances span the whole view; bounds come from the attributes, not the quad

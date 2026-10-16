@@ -26,9 +26,24 @@ float fbm(vec2 p) {
 // and its depth: shallow water is turquoise or sea green and shows the bottom, deep holes are blue to
 // navy and swallow it. Sunlight arrives as broad, heavily blurred patches.
 const FLOOR_DEPTH = -1400;
-const FLOOR_FRAGMENT = /* glsl */ `
-uniform float uTime;
+/**
+ * The bottom's static fields (sand, rock, weed, depth, water tint, how lit) are baked once into two
+ * textures covering BAKE_HALF around the pool centre (wider than any view of the floor): sampling them is a
+ * fraction of the cost of ~14 fbm per pixel. ~23 world units per texel, finer than the floor's defocus.
+ */
+const BAKE_HALF = 12000;
+const BAKE_SIZE = 1024;
+const BAKE_VERTEX = /* glsl */ `
+varying vec2 vWorld;
+void main() {
+  vWorld = position.xy;
+  gl_Position = vec4(position.xy / ${BAKE_HALF.toFixed(1)}, 0.0, 1.0);
+}
+`;
+// Pass 0: water colour + clarity. Pass 1: bottom colour + light (fades away from the pool).
+const FLOOR_BAKE = /* glsl */ `
 uniform float uRadius;
+uniform float uPass;
 varying vec2 vWorld;
 ${NOISE}
 ${FBM}
@@ -56,38 +71,59 @@ void main() {
   float depth = smoothstep(0.35, 0.7, deepF); // 0 shallow, 1 a deep hole
   vec3 water = mix(mix(turquoise, seaGreen, smoothstep(0.4, 0.7, tint)), mix(blue, navy, smoothstep(0.4, 0.7, tint)), depth);
   float clarity = 0.7 - 0.45 * depth; // shallow water shows the bottom
-
+  float lit = 1.0 - smoothstep(0.2, 1.0, length(w) / (uRadius * 1.7));
+  gl_FragColor = uPass < 0.5 ? vec4(water, clarity) : vec4(bottom, lit);
+}
+`;
+// Live: the baked fields, plus what moves — broad sun patches and blurred caustics.
+const FLOOR_FRAGMENT = /* glsl */ `
+uniform float uTime;
+uniform sampler2D uWater;
+uniform sampler2D uBottom;
+varying vec2 vWorld;
+${NOISE}
+float fbm2(vec2 p) { return (valueNoise(p) * 0.5 + valueNoise(p * 2.03 + 17.1) * 0.25) / 0.75; }
+void main() {
+  vec2 w = vWorld;
+  vec2 uv = w / ${(2 * BAKE_HALF).toFixed(1)} + 0.5;
+  vec4 a = texture2D(uWater, uv);
+  vec4 b = texture2D(uBottom, uv);
+  float clarity = a.a;
+  float lit = b.a;
+  float depth = (0.7 - clarity) / 0.45;
   vec2 cp = w / 950.0 + 0.6 * vec2(sin(w.y / 1400.0 + uTime * 0.05), cos(w.x / 1300.0 - uTime * 0.04));
   float glow = smoothstep(0.45, 0.0, cellEdge(cp, uTime * 0.1));
-  float sun = 0.5 + 0.5 * fbm(w / 2100.0 - uTime * 0.006);
-  float lit = 1.0 - smoothstep(0.2, 1.0, length(w) / (uRadius * 1.7));
-
-  vec3 color = mix(water, bottom * (0.75 + 0.6 * sun), clarity) * (0.4 + 0.75 * lit)
+  float sun = 0.5 + 0.5 * fbm2(w / 2100.0 - uTime * 0.006);
+  vec3 color = mix(a.rgb, b.rgb * (0.75 + 0.6 * sun), clarity) * (0.4 + 0.75 * lit)
     + vec3(0.05, 0.07, 0.055) * glow * 0.3 * lit * sun * (1.0 - depth * 0.6);
   gl_FragColor = vec4(color, 1.0);
 }
 `;
 
-// The water column between the bottom and the gameplay plane: a thin, uneven veil of suspended
-// particles (blue to green) with faint slanted sun shafts. It sits at its own depth, so it slides
-// against the floor and the creatures beyond it: atmospheric perspective and parallax for depth.
+// The water column between the bottom and the gameplay plane: an uneven veil of suspended matter — clear
+// blue-green water in places, murky with warm brown silt and olive organic haze in others — with faint
+// slanted sun shafts. It sits at its own depth, so it slides against the floor and the creatures beyond it:
+// atmospheric perspective and parallax for depth. Two-octave noise: it is broad and far out of focus.
 const HAZE_DEPTH = -650;
 const HAZE_FRAGMENT = /* glsl */ `
 uniform float uTime;
 varying vec2 vWorld;
 ${NOISE}
-${FBM}
+float fbm2(vec2 p) { return (valueNoise(p) * 0.5 + valueNoise(p * 2.03 + 17.1) * 0.25) / 0.75; }
 void main() {
   vec2 w = vWorld;
-  float density = fbm(w / 1900.0 + uTime * 0.004);
-  vec3 fog = mix(vec3(0.02, 0.06, 0.08), vec3(0.03, 0.075, 0.05), fbm(w / 3100.0 + 9.0));
+  float density = fbm2(w / 1900.0 + uTime * 0.004);
+  float silt = smoothstep(0.35, 0.75, fbm2(w / 2600.0 + 9.0 - uTime * 0.002)); // murky, sediment-laden patches
+  vec3 clear = mix(vec3(0.02, 0.06, 0.075), vec3(0.03, 0.07, 0.05), valueNoise(w / 4100.0 + 3.0));
+  vec3 murk = mix(vec3(0.075, 0.06, 0.035), vec3(0.05, 0.06, 0.03), valueNoise(w / 1700.0 + 5.0)); // brown silt to olive
+  vec3 fog = mix(clear, murk, silt);
   float along = dot(w, normalize(vec2(1.0, 0.35)));
   // Broad, soft, broken-up shafts: wide bands, warped by noise and faded in and out, never a hard line.
-  float shafts = pow(0.5 + 0.5 * sin(along / 520.0 + fbm(w / 1300.0 + uTime * 0.02) * 6.0 + uTime * 0.05), 3.0);
-  shafts *= smoothstep(0.4, 0.8, fbm(w / 2000.0 - uTime * 0.01)) * 0.6;
-  float alpha = 0.16 + 0.16 * density;
-  vec3 color = fog * (0.8 + 0.5 * density) + vec3(0.07, 0.1, 0.075) * shafts * 0.35;
-  gl_FragColor = vec4(color * alpha + vec3(0.05, 0.08, 0.06) * shafts * 0.12, alpha); // premultiplied
+  float shafts = pow(0.5 + 0.5 * sin(along / 520.0 + valueNoise(w / 1300.0 + uTime * 0.02) * 6.0 + uTime * 0.05), 3.0);
+  shafts *= smoothstep(0.3, 0.7, valueNoise(w / 2000.0 - uTime * 0.01)) * 0.6 * (1.0 - 0.5 * silt);
+  float alpha = 0.16 + 0.16 * density + 0.1 * silt;
+  vec3 color = fog * (0.8 + 0.5 * density) + vec3(0.07, 0.09, 0.065) * shafts * 0.3;
+  gl_FragColor = vec4(color * alpha + vec3(0.05, 0.07, 0.05) * shafts * 0.1, alpha); // premultiplied
 }
 `;
 
@@ -117,9 +153,13 @@ void main() {
 export function createPool() {
   const uniforms = { uTime: { value: 0 }, uRadius: { value: WORLD_RADIUS } };
 
+  const baked = [0, 1].map(() => new THREE.WebGLRenderTarget(BAKE_SIZE, BAKE_SIZE, { type: THREE.HalfFloatType, depthBuffer: false }));
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(30000, 30000),
-    new THREE.ShaderMaterial({ uniforms, vertexShader: WORLD_VERTEX, fragmentShader: FLOOR_FRAGMENT, depthWrite: false }),
+    new THREE.ShaderMaterial({
+      uniforms: { ...uniforms, uWater: { value: baked[0]!.texture }, uBottom: { value: baked[1]!.texture } },
+      vertexShader: WORLD_VERTEX, fragmentShader: FLOOR_FRAGMENT, depthWrite: false,
+    }),
   );
   floor.position.z = FLOOR_DEPTH;
   floor.renderOrder = 0;
@@ -144,7 +184,26 @@ export function createPool() {
   rim.renderOrder = 30; // over plankton and cells that brush the edge
 
   return {
-    objects: [floor, haze, rim],
+    /** Far, defocused layers (post.far, rendered at reduced resolution). */
+    far: [floor, haze],
+    objects: [rim],
     update(time: number) { uniforms.uTime.value = time; },
+    /** Bake the floor's static fields once, before the first frame. */
+    bake(renderer: THREE.WebGLRenderer) {
+      const material = new THREE.ShaderMaterial({
+        uniforms: { uRadius: { value: WORLD_RADIUS }, uPass: { value: 0 } }, vertexShader: BAKE_VERTEX, fragmentShader: FLOOR_BAKE,
+      });
+      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2 * BAKE_HALF, 2 * BAKE_HALF), material);
+      quad.frustumCulled = false; // the vertex shader maps it straight to clip space
+      const scene = new THREE.Scene().add(quad);
+      for (const [pass, target] of baked.entries()) {
+        material.uniforms.uPass!.value = pass;
+        renderer.setRenderTarget(target);
+        renderer.render(scene, new THREE.Camera());
+      }
+      renderer.setRenderTarget(null);
+      material.dispose();
+      quad.geometry.dispose();
+    },
   };
 }

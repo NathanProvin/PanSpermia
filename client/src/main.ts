@@ -16,6 +16,7 @@ import { createGiants } from './scene/giants.ts';
 import { createPlankton } from './scene/plankton.ts';
 import { createPool } from './scene/pool.ts';
 import { createPost } from './scene/post.ts';
+import { createPerf, off } from './perf.ts';
 
 const hud = document.getElementById('hud')!;
 const extinctScreen = document.getElementById('extinct')!;
@@ -32,15 +33,47 @@ document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
 // Top-down perspective camera over the gameplay plane z = 0, which is also the focal plane.
-const camera = new THREE.PerspectiveCamera(50, 1, 10, 9000); // far: an animal's camera over the pond floor
+const camera = new THREE.PerspectiveCamera(50, 1, 10, 14000); // far: a grown animal's camera over the pond floor
 camera.position.z = 700;
 
 const post = createPost(renderer, scene, camera);
+const perf = createPerf(renderer);
+// The console reads the budget: perf(); perfReset() forgets the samples (after toggling a layer).
+if (import.meta.env.DEV) Object.assign(window, { perf: perf.stats, perfReset: () => perf.reset('gpu', 'frame', 'calls') });
+/**
+ * Adaptive resolution: the scene renders at renderScale × the device pixel ratio (the image is soft by design,
+ * so fewer pixels barely show). Once a second: over budget (GPU > GPU_BUDGET ms, or missed frames if there is no GPU timer) → render
+ * fewer pixels; clear headroom for a while → climb back toward full resolution.
+ */
+const GPU_BUDGET = 12;
+const MIN_SCALE = 0.5;
+/** `?res=0.7` pins the scale (comparing costs, or a player's own choice). */
+const pinnedScale = Number(new URLSearchParams(location.search).get('res')) || 0;
+let renderScale = pinnedScale || 1;
+let adaptedAt = 0;
+let calm = 0;
+const adaptResolution = (now: number) => {
+  if (pinnedScale || now - adaptedAt < 1000) return;
+  adaptedAt = now;
+  const frame = perf.median('frame') ?? 0;
+  const gpu = perf.median('gpu');
+  // Fewer pixels only relieve the GPU: with a GPU timer, judge by it alone (a busy CPU or a throttled tab
+  // also misses frames); without one, missed frames are all there is to go on.
+  const busy = gpu === undefined ? frame > 18.5 : gpu > GPU_BUDGET;
+  // Room to climb: one step up (×1.1 per axis, ×1.21 pixels) would still fit with a margin.
+  calm = !busy && (gpu === undefined ? frame < 17.4 : gpu * 1.21 < GPU_BUDGET * 0.9) ? calm + 1 : 0;
+  const next = busy ? Math.max(MIN_SCALE, renderScale * 0.85) : calm >= (gpu === undefined ? 5 : 2) ? Math.min(1, renderScale * 1.1) : renderScale;
+  if (next === renderScale) return;
+  renderScale = next;
+  calm = 0;
+  perf.reset('frame', 'gpu');
+  resize();
+};
 const resize = () => {
   const pixelRatio = Math.min(devicePixelRatio, 2);
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
-  post.setSize(innerWidth, innerHeight, pixelRatio);
+  post.setSize(innerWidth, innerHeight, pixelRatio * renderScale);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
 };
@@ -48,6 +81,7 @@ addEventListener('resize', resize);
 resize();
 
 const pool = createPool();
+pool.bake(renderer);
 const plankton = createPlankton(camera);
 const giants = createGiants();
 const nutrientLayer = createNutrients();
@@ -67,7 +101,16 @@ const editor = createEditor(renderer, document.getElementById('editor')!);
 const cloudLayer = createClouds();
 const eggLayer = createEggs();
 const meteor = createMeteor();
-scene.add(...pool.objects, ...giants.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects);
+// Dev: ?off=floor,haze,rim,plankton,nutrients hides a layer at load; `layers.rim.visible = false` from the console
+// does it live (perf attribution, see perf.ts).
+const layers = {
+  floor: pool.far[0]!, haze: pool.far[1]!, rim: pool.objects[0]!, plankton: plankton.objects[0]!, dust: plankton.objects[1]!,
+  nutrients: nutrientLayer.objects[0]!,
+};
+for (const [name, object] of Object.entries(layers)) if (off.has(name)) object.visible = false;
+if (import.meta.env.DEV) Object.assign(window, { layers, bloom: post.bloom, nutrientLayer });
+post.far.add(...pool.far, ...giants.objects);
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
 const INTRO_HEIGHT = 1800;
 let introPlayed = false;
@@ -122,6 +165,7 @@ let designedFor: Player | undefined;
 let knownTier = 0;
 const STAGEUP_MS = 4500;
 let stageupUntil = 0;
+let pendingStageUp: Lineage | undefined;
 
 /** A shared card link opens the card alone; Play drops the fragment and starts the game. */
 const sharedCard = location.hash.startsWith('#card=') ? decodeCard(location.hash.slice('#card='.length)) : undefined;
@@ -248,6 +292,7 @@ try {
   let lastTick = -1;
   let tickArrivedAt = 0;
   renderer.setAnimationLoop((now) => {
+    perf.begin();
     // Send the due inputs before reading any predicted value (see Predict.tick).
     for (let due = predict.tick(now); due > 0; due--) {
       // The hatchling waits for the intro; a dividing cell can't act (the server ignores it too).
@@ -263,16 +308,20 @@ try {
     const dt = Math.min((now - last) / 1000, 0.1); // clamp after tab switches
     last = now;
     if (dt > 0) fps += (1 / dt - fps) * 0.05;
+    if (dt > 0 && dt < 0.1) perf.sample('frame', dt * 1000); // not the long gaps of a hidden tab
+    adaptResolution(now);
     const { players, seeps, tick } = room.state;
     if (tick !== lastTick) {
       lastTick = tick;
       tickArrivedAt = now;
     }
 
+    const seenH = camera.position.z * Math.tan((camera.fov * Math.PI) / 360); // last frame's view of the plane
     cells.update(players, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
       tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'), call: p.call,
-    }), lookOf);
+    }), lookOf, { x: camera.position.x, y: camera.position.y, halfW: seenH * camera.aspect * 1.2, halfH: seenH * 1.2 });
+    perf.mark('cells');
     const self = players.get(room.sessionId);
     const selfView = cells.get(room.sessionId);
     const selfMesh = selfView?.body;
@@ -281,13 +330,14 @@ try {
       // Eyes let a eukaryote see further: the camera pulls back.
       const eyes = self.tier === 3 ? TIER3.copiesOf(self.genome3, 'eye') : self.tier === 2 ? TIER2.copiesOf(self.genome2, 'eye') : 0;
       const sight = 1 + EYE_SIGHT * stack(eyes);
-      // bacterium: spawn ≈ 290, cap ≈ 620; eukaryote ≈ 670–1650; animal (gentler: specks still readable) ≈ 1330–2420
-      const r = radiusOf(self.mass);
+      // bacterium: spawn ≈ 290, cap ≈ 620; eukaryote ≈ 930–1970; animal (gentler: specks still readable) ≈ 2540–4420
+      const r = radiusOf(self.mass, self.tier);
       const targetZ = (140 + 12 * Math.min(r, 126) + 5 * Math.max(0, r - 126)) * sight;
-      camera.position.set(selfMesh.position.x, selfMesh.position.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
+      const at = selfView!.at; // the cell's centre (an animal's quad is offset to fit its body)
+      camera.position.set(at.x, at.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
     }
     // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
-    const impact = selfMesh?.position ?? camera.position;
+    const impact = selfView?.at ?? camera.position;
     const { hatch, shake } = meteor.update(dt, time, camera.position.z, impact.x, impact.y);
     selfView?.grow(hatch);
     camera.position.x += (Math.random() - 0.5) * shake;
@@ -301,7 +351,7 @@ try {
       if (lineage !== knownLineage) [knownLineage, knownLibrary] = [lineage, lineage.library]; // a new species
       const cat = catalogFor(lineage.tier);
       if (lineage.tier !== knownTier) { // a new species, or a stage-up: the library starts over
-        if (knownTier && lineage.tier > knownTier) stageUp(lineage);
+        if (knownTier && lineage.tier > knownTier) pendingStageUp = lineage; // its title plays once the editor is done
         knownTier = lineage.tier;
         knownLibrary = lineage.library;
       }
@@ -311,9 +361,14 @@ try {
       }
       knownLibrary = lineage.library;
       if (self.cyst === 0) designedFor = undefined; // an animal stays the same individual: it may mate again
+      // Evolving: the new tier's editor first, then the stage-up title as the first individual hatches.
+      if (pendingStageUp && !self.evolving && self.cyst === 0) {
+        stageUp(pendingStageUp);
+        pendingStageUp = undefined;
+      }
       if (self.cyst > 0 && designedFor !== self) {
         designedFor = self;
-        editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design));
+        editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design), self.evolving);
       }
       const own = ownGenome(self);
       const genes = cat.NAMES.filter((g) => cat.hasGene(own, g))
@@ -325,7 +380,7 @@ try {
         self.tier === 2 && TIER2.hasGene(self.genome2, 'jet') ? (self.dash > 0 ? 'DASH' : `jet ${ready(self.dashCooldown)}`) : '',
         hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
-        self.cyst > 0 ? (self.tier === 3 ? 'MATING' : 'DIVIDING') : '',
+        self.cyst > 0 ? (self.evolving ? 'EVOLVING' : self.tier === 3 ? 'MATING' : 'DIVIDING') : '',
         self.call > 0 ? 'CALLING — a mate is coming' : '',
         ...[...room.state.eggs.values()].filter((e) => e.owner === room.sessionId)
           .map((e) => `eggs hatch in ${Math.ceil((e.hatchTick - room.state.tick) / TICK_RATE)}s`),
@@ -333,7 +388,7 @@ try {
       hud.textContent = `${lineage.name} · energy ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome, self.tier)}`
         + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
         + ` · DNA ${Math.floor(lineage.dna)} · children ${lineage.children} · gen ${lineage.generation} · ${players.size} cell${players.size === 1 ? '' : 's'}`
-        + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps` : '')
+        + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps · ${perf.text()} · ${Math.round(renderScale * 100)}% res` : '')
         + (now < noticeUntil ? ` — ${notice}` : '');
     } else hud.textContent = now < noticeUntil ? notice : ''; // extinct or evolved: no cell to report on
 
@@ -343,24 +398,34 @@ try {
     }
 
     labels.update(players, room.sessionId, camera, (id) => {
-      const body = cells.get(id)?.body;
-      return body && { x: body.position.x, y: body.position.y, r: body.scale.x };
+      const at = cells.get(id)?.at; // where it was drawn (an animal's quad is bigger than its body)
+      return at && { x: at.x, y: at.y, r: at.radius };
     }, !editor.isOpen && !meteor.active);
     labels.leaderboard(players, room.sessionId, !editor.isOpen);
 
+    perf.mark('hud');
     const focus = camera.position.z; // distance to the gameplay plane
     pool.update(time);
     giants.update(time, dt, camera.position);
+    perf.mark('pool');
     plankton.update(time, dt, focus);
-    nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus);
+    perf.mark('plankton');
+    const halfH = focus * Math.tan((camera.fov * Math.PI) / 360); // the view on the gameplay plane
+    nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus,
+      { x: camera.position.x, y: camera.position.y, halfW: halfH * camera.aspect, halfH });
+    perf.mark('nutrients');
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
     eggLayer.update(room.state.eggs.values(), tick, time, focus);
+    perf.mark('clouds');
+    perf.gpuBegin();
     // The editor stays up for exactly one division: until this individual hatches (or dies).
     if (editor.isOpen && (!self || self !== designedFor || self.cyst === 0)) editor.close();
     if (editor.isOpen) {
       const view = editor.frame(time, dt, self!.cyst, innerWidth / innerHeight);
       post.render(view.scene, view.camera);
     } else post.render();
+    perf.gpuEnd();
+    perf.mark('render');
   });
 } catch (err) {
   hud.textContent = `Cannot reach server at ${endpoint}`;

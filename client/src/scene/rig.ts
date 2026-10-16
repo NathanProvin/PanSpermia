@@ -7,10 +7,18 @@ import { wrapAngle } from '@panspermia/shared';
 const WATER_DRAG = 12;
 /** 1/s: how hard a whip straightens out from its root (softer toward the tip). */
 const WHIP_BEND = 40;
-/** 1/s: how hard a spine straightens; most of the shape comes from following the head. */
-const SPINE_BEND = 3;
-/** rad: the most a spine joint bends. */
-const MAX_BEND = 0.6;
+// Animal spine: a kinematic chain of link angles behind the head (lengths exact by construction, so segments
+// can never come apart). Each link turns toward its parent's direction at speed / length (the body follows
+// its head's path, as a worm's does) plus a slow straightening when still.
+/** 1/s: how fast a still body straightens. */
+const STRAIGHTEN = 1.5;
+/** rad: the most one joint bends, and the most the whole body curls (it never folds onto itself). */
+const MAX_JOINT = 0.45;
+const MAX_CURL = 1.2;
+/** Swimming undulation: a wave running head to tail (rad of bend, rad/s of phase idle → full swim, rad per link). */
+const WAVE_AMP = [0.03, 0.22];
+const WAVE_RATE = [1.5, 8];
+const WAVE_LAG = 1.1;
 /** 1/s and the most a radial lobe strays from its rest spot (× its distance from the centre). */
 const LOBE_PULL = 12;
 const LOBE_SLACK = 0.15;
@@ -23,10 +31,13 @@ export interface Chain {
   live: boolean;
   /** The root (whips) where the last step left it, to sweep it smoothly across substeps. */
   rx: number; ry: number; rdir: number;
+  /** Spines: each link's world direction (segment i → i + 1), and the undulation's phase. */
+  a: Float64Array; phase: number;
 }
 
 export const chain = (n: number): Chain => ({
   x: new Float64Array(n), y: new Float64Array(n), px: new Float64Array(n), py: new Float64Array(n), live: false, rx: 0, ry: 0, rdir: 0,
+  a: new Float64Array(Math.max(0, n - 1)), phase: 0,
 });
 
 const substeps = (dt: number) => Math.min(8, Math.ceil(dt / STEP));
@@ -118,50 +129,60 @@ export function segmentTurn(c: Chain, rest: readonly Point[], i: number, radial:
 
 /**
  * An animal body, `rest` = where each segment would be on a rigid body (world). Segment 0 (head, or the
- * radial centre) is pinned there. Spine: each next segment follows the one ahead at its rest distance,
- * bending at most MAX_BEND per joint, so the body curves through a turn. Radial: lobes on springs around
- * the centre (they lag and wobble). dt ≤ 0 or a dead chain snaps to rest.
+ * radial centre) is pinned there. Spine: a chain of links behind the head that follows its path (`speed`,
+ * world u/s), undulating as it swims (`swim` 0..1), bend-limited per joint and overall. Radial: lobes on
+ * springs around the centre (they lag and wobble). dt ≤ 0 or a dead chain snaps to rest.
  */
-export function stepSpine(c: Chain, rest: readonly Point[], radial: boolean, dt: number) {
+export function stepSpine(c: Chain, rest: readonly Point[], radial: boolean, dt: number, speed = 0, swim = 0) {
   const n = rest.length;
+  const restDir = (i: number) => Math.atan2(rest[i + 1]!.y - rest[i]!.y, rest[i + 1]!.x - rest[i]!.x);
   if (!c.live || dt <= 0) {
     for (let i = 0; i < n; i++) place(c, i, rest[i]!.x, rest[i]!.y);
+    for (let i = 0; i < n - 1; i++) c.a[i] = restDir(i);
     c.live = true;
     return;
   }
   const steps = substeps(dt);
   const h = dt / steps;
-  for (let s = 0; s < steps; s++) {
-    place(c, 0, rest[0]!.x, rest[0]!.y); // ponytail: the pin jumps once per frame, fine at ≥ 30 fps
-    drift(c, 1, h);
-    for (let i = 1; i < n; i++) {
-      const p = radial ? 0 : i - 1;
-      // Where it would sit if the joint were relaxed: its rest offset, turned with its parent.
-      const turn = p === 0 ? 0 : segmentTurn(c, rest, p, radial);
-      const ox = rest[i]!.x - rest[p]!.x;
-      const oy = rest[i]!.y - rest[p]!.y;
-      const tx = c.x[p]! + ox * Math.cos(turn) - oy * Math.sin(turn);
-      const ty = c.y[p]! + ox * Math.sin(turn) + oy * Math.cos(turn);
-      const len = Math.hypot(ox, oy);
-      const k = 1 - Math.exp(-h * (radial ? LOBE_PULL : SPINE_BEND));
-      relax(c, i, tx, ty, k);
-      if (radial) { // a lobe strays a little, no more
-        const dx = c.x[i]! - tx;
-        const dy = c.y[i]! - ty;
+  if (radial) {
+    for (let s = 0; s < steps; s++) {
+      place(c, 0, rest[0]!.x, rest[0]!.y);
+      drift(c, 1, h);
+      for (let i = 1; i < n; i++) { // a lobe strays a little from its rest spot, no more
+        const len = Math.hypot(rest[i]!.x - rest[0]!.x, rest[i]!.y - rest[0]!.y);
+        relax(c, i, rest[i]!.x, rest[i]!.y, 1 - Math.exp(-h * LOBE_PULL));
+        const dx = c.x[i]! - rest[i]!.x;
+        const dy = c.y[i]! - rest[i]!.y;
         const d = Math.hypot(dx, dy);
         if (d > LOBE_SLACK * len) {
-          c.x[i] = tx + (dx / d) * LOBE_SLACK * len;
-          c.y[i] = ty + (dy / d) * LOBE_SLACK * len;
+          c.x[i] = rest[i]!.x + (dx / d) * LOBE_SLACK * len;
+          c.y[i] = rest[i]!.y + (dy / d) * LOBE_SLACK * len;
         }
-        continue;
       }
-      // Spine joint: clamp the bend, then hold the link length.
-      const want = Math.atan2(ty - c.y[p]!, tx - c.x[p]!);
-      const bend = wrapAngle(Math.atan2(c.y[i]! - c.y[p]!, c.x[i]! - c.x[p]!) - want);
-      const a = want + Math.max(-MAX_BEND, Math.min(MAX_BEND, bend));
-      c.x[i] = c.x[p]! + Math.cos(a) * len;
-      c.y[i] = c.y[p]! + Math.sin(a) * len;
     }
+    return;
+  }
+  c.phase += dt * (WAVE_RATE[0]! + (WAVE_RATE[1]! - WAVE_RATE[0]!) * swim);
+  const amp = WAVE_AMP[0]! + (WAVE_AMP[1]! - WAVE_AMP[0]!) * swim;
+  for (let s = 0; s < steps; s++) {
+    let curl = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const len = Math.hypot(rest[i + 1]!.x - rest[i]!.x, rest[i + 1]!.y - rest[i]!.y);
+      // Where this link would point on a relaxed body: its parent's direction (the head: the body's own),
+      // turned by the rest angle between them, plus the swimming wave.
+      const along = i === 0 ? restDir(0) : c.a[i - 1]! + wrapAngle(restDir(i) - restDir(i - 1));
+      const target = along + amp * Math.sin(c.phase - i * WAVE_LAG);
+      c.a[i]! += wrapAngle(target - c.a[i]!) * (1 - Math.exp(-h * (speed / len + STRAIGHTEN)));
+      const room = Math.min(MAX_JOINT, MAX_CURL - curl);
+      const bend = Math.max(-room, Math.min(room, wrapAngle(c.a[i]! - along)));
+      curl += Math.abs(bend);
+      c.a[i] = along + bend;
+    }
+  }
+  place(c, 0, rest[0]!.x, rest[0]!.y);
+  for (let i = 0; i < n - 1; i++) {
+    const len = Math.hypot(rest[i + 1]!.x - rest[i]!.x, rest[i + 1]!.y - rest[i]!.y);
+    place(c, i + 1, c.x[i]! + Math.cos(c.a[i]!) * len, c.y[i]! + Math.sin(c.a[i]!) * len);
   }
 }
 

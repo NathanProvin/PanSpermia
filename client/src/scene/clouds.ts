@@ -29,7 +29,7 @@ void main() {
   } else {
     float ring = exp(-pow((r - 0.82) / 0.07, 2.0));
     float core = (1.0 - smoothstep(0.0, 0.85, r)) * 0.25;
-    color = vec3(1.0, 0.38, 0.12) * (ring * 1.4 + core) * fade;
+    color = vec3(1.0, 0.38, 0.12) * (ring * 0.9 + core) * fade;
   }
   gl_FragColor = vec4(color, 1.0);
 }

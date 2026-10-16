@@ -16,10 +16,13 @@ const MODES = [
 export function currentAt(x: number, y: number, t: number, out = { x: 0, y: 0 }) {
   let u = 0;
   let v = 0;
-  for (const [kx, ky, w, phase, amp] of MODES) {
-    const c = amp * Math.cos(kx * x + ky * y + w * t + phase);
-    u += c * ky; //  ∂ψ/∂y
-    v -= c * kx; // -∂ψ/∂x
+  // Indexed, not destructured: called ~10k times a frame on the client (packets, plankton), where a
+  // tuple iterator per mode was the cost.
+  for (let i = 0; i < MODES.length; i++) {
+    const m = MODES[i]!;
+    const c = m[4] * Math.cos(m[0] * x + m[1] * y + m[2] * t + m[3]);
+    u += c * m[1]; //  ∂ψ/∂y
+    v -= c * m[0]; // -∂ψ/∂x
   }
   out.x = u;
   out.y = v;

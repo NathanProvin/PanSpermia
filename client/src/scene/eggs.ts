@@ -27,7 +27,7 @@ void main() {
     float t = uTime * (1.0 + 4.0 * grown) + float(i) * 1.7;
     vec2 e = q - 0.05 * vec2(sin(t), cos(t * 1.3)) * grown;
     float embryo = (1.0 - smoothstep(0.05 + 0.13 * grown, 0.08 + 0.13 * grown, length(e * vec2(1.0, 1.6))));
-    color += vec3(1.0, 0.9, 0.7) * shell * 1.1 + vec3(0.95, 0.62, 0.22) * yolk + vec3(1.0, 0.85, 0.6) * embryo * 1.2;
+    color += vec3(1.0, 0.9, 0.7) * shell * 0.8 + vec3(0.95, 0.62, 0.22) * yolk * 0.8 + vec3(1.0, 0.85, 0.6) * embryo * 0.8;
   }
   color += vec3(0.5, 0.45, 0.3) * jelly * 0.12; // the jelly that binds the clutch
   gl_FragColor = vec4(color, 1.0);

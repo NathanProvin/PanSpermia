@@ -5,7 +5,7 @@ import {
   T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
   JET_COOLDOWN, JET_TIME, MITO_SPEED, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
-  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
+  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
   PILI_TURN, TUMBLE_SPIN,
 } from './constants.ts';
 import {
@@ -38,7 +38,8 @@ export function sanitizeInput(input: { dirX: number; dirY: number; actions: numb
   input.actions &= ACTION_MASK;
 }
 
-export const radiusOf = (mass: number) => RADIUS_PER_SQRT_MASS * Math.sqrt(mass);
+/** Body radius: grows with √mass, and each tier is drawn and collides at its own scale (TIER_SCALE). */
+export const radiusOf = (mass: number, tier = 1) => RADIUS_PER_SQRT_MASS * (TIER_SCALE[tier] ?? 1) * Math.sqrt(mass);
 /** Per-tier body scale: newborn size, starvation floor, size that triggers division, speed coefficient. */
 const BODY = [
   undefined,
@@ -139,7 +140,7 @@ export function stepCell(
     * (hasGene(genome, 'capsule') ? CAPSULE_SWIM : 1) * (hasGene(genome, 'thickWall') ? WALL_SWIM : 1);
   const pili = copiesOf(genome, 'pili');
   const drift = pili ? DRIFT_PILI ** stack(pili) : 1;
-  move(b, mass, v, drift, dt, time, INERTIA[1]!);
+  move(b, mass, 1, v, drift, dt, time, INERTIA[1]!);
 }
 
 /**
@@ -166,7 +167,7 @@ function stepEukaryote(
   }
   if (b.dash > 0) swim = Math.max(swim, T2_SWIM_CILIA) * JET_BOOST; // the jet pushes even a creeping cell
   swim *= 1 + MITO_SPEED * stack(TIER2.copiesOf(genome2, 'mitochondrion')); // more energy
-  move(b, mass, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time, INERTIA[2]!);
+  move(b, mass, 2, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time, INERTIA[2]!);
 }
 
 /** Animals: paddle legs steer quickly and precisely; a lone tail drives fast but turns wide. */
@@ -179,14 +180,14 @@ function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number
     swim = tails ? T3_SWIM_TAIL * (1 + FLAGELLUM_STACK * (stack(tails) - 1))
       : paddles ? T3_SWIM_PADDLE * (1 + FLAGELLUM_STACK * (stack(paddles) - 1)) : T3_SWIM_CREEP;
   }
-  move(b, mass, swim * throttle * speedOf(mass, 3), T3_DRIFT, dt, time, INERTIA[3]!);
+  move(b, mass, 3, swim * throttle * speedOf(mass, 3), T3_DRIFT, dt, time, INERTIA[3]!);
 }
 
 /**
  * Ease the swim velocity toward speed `v` along the heading (time constant `inertia`), drift with a share of
  * the current, stay inside the pool (the rock stops the outward part of the velocity).
  */
-function move(b: CellBody, mass: number, v: number, drift: number, dt: number, time: number, inertia: number) {
+function move(b: CellBody, mass: number, tier: number, v: number, drift: number, dt: number, time: number, inertia: number) {
   const k = 1 - Math.exp(-dt / inertia);
   b.vx += (Math.cos(b.heading) * v - b.vx) * k;
   b.vy += (Math.sin(b.heading) * v - b.vy) * k;
@@ -194,7 +195,7 @@ function move(b: CellBody, mass: number, v: number, drift: number, dt: number, t
   b.x += (b.vx + flow.x * drift) * dt;
   b.y += (b.vy + flow.y * drift) * dt;
 
-  const limit = WORLD_RADIUS - radiusOf(mass);
+  const limit = WORLD_RADIUS - radiusOf(mass, tier);
   const d = Math.hypot(b.x, b.y);
   if (d > limit) {
     b.x *= limit / d;

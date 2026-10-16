@@ -1,6 +1,6 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
-  deform, hasGene, radiusOf, shapeUniform, undeform, wrapAngle,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
+  deform, hasGene, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
@@ -8,6 +8,17 @@ import { type Chain, type Spring, chain, segmentTurn, spring, stepSpine, stepSpr
 
 /** Quad half-size in cell radii: room for the wobble, halo and the siderophore reach ring. */
 const QUAD_HALF = 1.9;
+/** An animal's quad while it calls a mate: room for the pulsing rings around a long curled body. */
+const ANIMAL_HALF = 2.8;
+/** How far a segment's drawing reaches beyond its centre, in its radii (plate, legs; the head's antennae further). */
+const REACH = 2.4;
+const HEAD_REACH = 2.9;
+/**
+ * An animal's shape is its segments', not a stretch of the whole body (which would pull bent segments apart):
+ * the shape lays the spine out (longer, or curved) and sets each plate's proportions (half-length along its
+ * own axis, half-width across), per shape id: compact, long, curved.
+ */
+const PLATE: readonly (readonly [number, number])[] = [[0.82, 1], [1.25, 0.78], [1.15, 0.75]];
 
 // Living membrane: wobbling rim, translucent cytoplasm thickening toward the edge (reads as a
 // sphere), drifting granules, a diffuse nucleoid (bacteria have no nucleus), a wet specular glint.
@@ -16,8 +27,7 @@ const QUAD_HALF = 1.9;
 // A phage infection darkens the cytoplasm and fills it with new virions; a division cyst pinches the
 // cell across its axis around two separating nucleoids; an endospore is a hard pale husk.
 // Eukaryotes (uTier = 1) carry a true nucleus (envelope + nucleolus) and a few vacuoles instead of a nucleoid.
-// Animals (uTier = 2) are a smooth union of body segments (uSeg: x, y, r), tissue made of many small cells,
-// grooves where segments meet, a gut along the spine; a carapace is a glossy shell over the body.
+// Animals (uTier = 2) are not cells and have their own branch (drawAnimal): see there.
 // The membrane reacts: it wobbles more as the cell swims (stretching along its course), jiggles on impacts,
 // flattens where it presses on a neighbour, dimples in where it takes up a packet (pinocytosis: a vesicle
 // pinches off and sinks inward), and flashes red when hurt.
@@ -54,6 +64,8 @@ uniform float uSpeed; // 0..1 of its top speed
 uniform vec2 uContact; // body-frame angle, depth 0..1
 uniform vec2 uGulp[4]; // body-frame angle, age 0..1 (≥ 1: none)
 uniform float uHurt; // 0..1 flash
+uniform vec4 uQuad; // the quad in the body frame: centre xy, half extents zw (cell radii)
+uniform vec2 uPlate; // animals: a plate's half-length along its segment's axis and half-width across, × its radius
 varying vec2 vUv;
 ${NOISE}
 float angDiff(float x, float y) { float d = x - y; return atan(sin(d), cos(d)); }
@@ -61,14 +73,114 @@ float segment(vec2 p, vec2 a, vec2 b) {
   vec2 ab = b - a;
   return length(p - a - ab * clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
 }
+vec2 turn(vec2 v, float a) { return vec2(cos(a) * v.x - sin(a) * v.y, sin(a) * v.x + cos(a) * v.y); }
+/** Light from above-left of the screen, turned into the body frame. */
+vec3 lightDir() {
+  float ch = cos(uHeading), sh = sin(uHeading);
+  return normalize(vec3(ch * -0.45 + sh * 0.55, -sh * -0.45 + ch * 0.55, 0.7));
+}
+
+// Animals: many-celled bodies, a real step up from a cell. An opaque segmented body: cuticle plates a little
+// shorter along the spine than across it (a worm's rings, an insect's tergites), dark furrows between them, a
+// paler dorsal ridge, mottling, lit as solid bulging segments; legs rowing along the sides in a wave running
+// down the body (metachronal, faster as it swims), antennae on the head and two tail filaments. Radial bodies
+// wave tentacles instead. The segments come from the soft rig (the body bends as it follows its head).
+// No membrane, nucleus or glow.
+vec2 segAxis(int i) { // a segment's forward direction: toward the one ahead (the head: away from the next)
+  if (uRadial > 0.5) return i == 0 ? vec2(1.0, 0.0) : normalize(uSeg[i].xy - uSeg[0].xy);
+  if (i == 0) return uSegN > 1 ? normalize(uSeg[0].xy - uSeg[1].xy) : vec2(1.0, 0.0);
+  return normalize(uSeg[i - 1].xy - uSeg[i].xy);
+}
+vec4 drawAnimal(vec2 p, float t) {
+  float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3;
+  vec2 q1 = vec2(0.0);
+  float r1 = 1.0;
+  float row = 3.0 + 9.0 * uSpeed; // leg strokes, rad/s
+  for (int i = 0; i < 8; i++) {
+    if (i >= uSegN) break;
+    vec3 s = uSeg[i];
+    // Beyond everything this segment draws (plate, legs; the head's antennae reach further): skip it. Most of an
+    // animal's quad is open water, and this loop is the costliest shader in the game.
+    float reach = s.z * (i == 0 && uRadial < 0.5 ? ${HEAD_REACH.toFixed(2)} : ${REACH.toFixed(2)});
+    if (dot(p - s.xy, p - s.xy) > reach * reach) continue;
+    vec2 ax = segAxis(i);
+    vec2 side = vec2(-ax.y, ax.x);
+    vec2 q = vec2(dot(p - s.xy, ax), dot(p - s.xy, side));
+    float di = (length(q / uPlate) - s.z) * min(uPlate.x, uPlate.y);
+    if (uJiggle > 0.001) di += uJiggle * 0.03 * s.z * sin(atan(q.y, q.x) * 5.0 + t * 15.0); // impacts only
+    float h = clamp(0.5 + 0.5 * (di - sd) / 0.06, 0.0, 1.0);
+    sd = i == 0 ? di : mix(di, sd, h) - 0.06 * h * (1.0 - h); // joined, but each plate still reads
+    if (di < d1) { d2 = d1; d1 = di; q1 = q; r1 = s.z; } else if (di < d2) d2 = di;
+    for (int k = -1; k <= 1; k += 2) {
+      float fk = float(k);
+      if (uRadial > 0.5) { // a tentacle waving out of each lobe
+        if (i == 0) continue;
+        vec2 base = s.xy + ax * s.z * uPlate.x + side * fk * s.z * 0.3 * uPlate.y;
+        vec2 dir = turn(ax, fk * 0.25 + 0.3 * sin(t * 1.8 + float(i) * 1.7 + fk));
+        vec2 mid = base + dir * s.z * 0.7;
+        vec2 tip = mid + turn(dir, 0.5 * sin(t * 2.3 + float(i))) * s.z * 0.6;
+        limbs = min(limbs, min(segment(p, base, mid) - 0.05 * s.z, segment(p, mid, tip) - 0.03 * s.z));
+      } else if (i == 0) { // antennae
+        vec2 base = s.xy + ax * s.z * 0.85 * uPlate.x + side * fk * s.z * 0.3 * uPlate.y;
+        vec2 dir = turn(ax, fk * (0.45 + 0.1 * sin(t * 1.7 + fk)));
+        vec2 mid = base + dir * s.z * 0.9;
+        vec2 tip = mid + turn(dir, fk * (0.35 + 0.15 * sin(t * 2.1 - fk))) * s.z * 0.8;
+        limbs = min(limbs, min(segment(p, base, mid), segment(p, mid, tip)) - 0.025 * s.z);
+      } else { // a jointed leg each side, swept back, rowing (left and right in antiphase)
+        float b = 0.55 + 0.4 * sin(t * row - float(i) * 1.2 + (fk > 0.0 ? 0.0 : 3.14159));
+        vec2 base = s.xy + side * fk * s.z * 0.95 * uPlate.y;
+        vec2 knee = base + (side * fk * cos(b) - ax * sin(b)) * s.z * 0.6;
+        vec2 foot = knee + (side * fk * cos(b + 0.7) - ax * sin(b + 0.7)) * s.z * 0.5;
+        limbs = min(limbs, min(segment(p, base, knee) - 0.07 * s.z, segment(p, knee, foot) - 0.045 * s.z));
+        if (i == uSegN - 1) { // two tail filaments
+          vec2 cb = s.xy - ax * s.z * 0.85 * uPlate.x + side * fk * s.z * 0.25 * uPlate.y;
+          vec2 tip = cb + turn(-ax, -fk * (0.3 + 0.12 * sin(t * 2.0 + fk))) * s.z * 0.9;
+          limbs = min(limbs, segment(p, cb, tip) - 0.025 * s.z);
+        }
+      }
+    }
+  }
+  // Edge softness from the pixel size, not fwidth(sd): skipped segments leave sd and limbs at 1e3, and that
+  // jump between neighbouring pixels made fwidth huge along each skip circle (drew faint rings around bodies).
+  float aa = length(fwidth(p)) * 1.2;
+  float body = 1.0 - smoothstep(-aa, aa, sd);
+  float limb = (1.0 - smoothstep(-aa, aa, limbs)) * (1.0 - body);
+  if (body + limb <= 0.0 && uCall <= 0.0) return vec4(0.0); // open water: most of the quad, skip the shading
+  // Each plate bulges like a squashed sphere.
+  vec2 qn = q1 / uPlate / r1;
+  vec3 n = normalize(vec3(qn * 0.9, sqrt(max(0.0, 1.0 - dot(qn, qn)))));
+  vec3 L = lightDir();
+  float lambert = max(0.0, dot(n, L));
+  float furrow = exp(-pow((d2 - d1) / 0.03, 2.0));
+  float ridge = exp(-pow(q1.y / (r1 * 0.22), 2.0));
+  float edge = smoothstep(-0.12, 0.0, sd);
+  float mottle = valueNoise(p * 9.0 + uSeed * 30.0);
+  vec3 base = mix(uColor, vec3(0.32, 0.26, 0.17), 0.35); // earthy, not a glowing cell
+  vec3 col = base * (0.35 + 0.65 * lambert) * (0.85 + 0.25 * mottle);
+  col = mix(col, base * 1.25 + 0.03, ridge * 0.35);
+  col *= 1.0 - 0.55 * furrow - 0.35 * edge;
+  col += pow(max(0.0, dot(reflect(-L, n), vec3(0.0, 0.0, 1.0))), 20.0 - 12.0 * uCarapace) * (0.1 + 0.3 * uCarapace);
+  col = mix(col, col * 1.1 + vec3(0.05, 0.045, 0.03), uCarapace * 0.5); // a carapace: a paler, glossier shell
+  col = mix(col, vec3(0.8, 0.1, 0.06), uHurt * 0.45);
+  // Mate call: rings pulsing out from a calling animal.
+  float ping = fract(t * 0.6);
+  float callRing = uCall * exp(-pow((length(p) - (1.5 + 0.7 * ping)) / 0.04, 2.0)) * (1.0 - ping) * (1.0 - body);
+  vec3 color = col * body + base * 0.45 * limb * 0.9 + (uColor * 0.4 + 0.55) * callRing * 0.5;
+  return vec4(color, clamp(body + limb * 0.9 + callRing, 0.0, 1.0)); // premultiplied
+}
+
 void main() {
-  vec2 p = (vUv * 2.0 - 1.0) * ${QUAD_HALF.toFixed(2)}; // body frame (the quad turns with the cell), cell radii
+  vec2 p = uQuad.xy + (vUv * 2.0 - 1.0) * uQuad.zw; // body frame (the quad turns with the cell), cell radii
   // Body shape: undo the bend, then the stretch, so everything below draws the canonical unit disc.
   p.y = (p.y - uShape.z * (p.x * p.x - uCentre * uShape.x * uShape.x)) / uShape.y;
   p.x /= uShape.x;
+  float t = uTime + uSeed * 100.0;
+  if (uTier > 1.5) {
+    gl_FragColor = drawAnimal(p, t);
+    return;
+  }
   float a = atan(p.y, p.x);
   float r = length(p);
-  float t = uTime + uSeed * 100.0;
   vec2 fwd = vec2(1.0, 0.0);
   float rim = 1.0 + 0.05 * sin(3.0 * a + t * 1.3) + 0.035 * sin(5.0 * a - t * 1.9) + 0.018 * sin(9.0 * a + t * 2.8)
     + 0.015 * sin(t * 2.1); // breathing
@@ -83,26 +195,8 @@ void main() {
   float side = cos(a);
   rim -= uCyst * (0.16 + 0.03 * sin(t * 2.0)) * exp(-side * side * 10.0);
   float d = r - rim; // signed distance in radii, < 0 inside
-  float animal = step(1.5, uTier);
-  float euk = step(0.5, uTier) - animal;
-  float bact = 1.0 - step(0.5, uTier);
-  // Animal: segments blended into one body; remember the nearest two (grooves) and the nearest (normal).
-  vec2 segC = vec2(0.0);
-  float segR = 1.0;
-  float groove = 0.0;
-  if (animal > 0.5) {
-    float sd = 1e3, d1 = 1e3, d2 = 1e3;
-    for (int i = 0; i < 8; i++) {
-      if (i >= uSegN) break;
-      vec3 s = uSeg[i];
-      float di = length(p - s.xy) - s.z * (1.0 + 0.3 * (rim - 1.0));
-      float h = clamp(0.5 + 0.5 * (di - sd) / ${SEGMENT_BLEND.toFixed(3)}, 0.0, 1.0);
-      sd = i == 0 ? di : mix(di, sd, h) - ${SEGMENT_BLEND.toFixed(3)} * h * (1.0 - h);
-      if (di < d1) { d2 = d1; d1 = di; segC = s.xy; segR = s.z; } else if (di < d2) d2 = di;
-    }
-    d = sd;
-    groove = exp(-pow((d2 - d1) / 0.035, 2.0));
-  }
+  float euk = step(0.5, uTier);
+  float bact = 1.0 - euk;
   // Pinocytosis: the membrane dimples in where a packet is taken up, then a vesicle sinks inward.
   float vesicle = 0.0;
   for (int i = 0; i < 4; i++) {
@@ -124,17 +218,6 @@ void main() {
   float twins = max(1.0 - smoothstep(0.0, 0.35, length(p - fwd * 0.42)), 1.0 - smoothstep(0.0, 0.35, length(p + fwd * 0.42)));
   nucleoid = mix(nucleoid, twins, uCyst);
   vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid * bact);
-  // Animal tissue: many small cells, a gut through the segment centres (it bends with the spine; radial
-  // bodies get canals out to the lobes) with a slow peristaltic wave.
-  float tissue = animal * (1.0 - smoothstep(0.0, 0.1, cellEdge(p * 9.0 + uSeed * 20.0, t * 0.05)));
-  float gutD = 1e3;
-  for (int i = 1; i < 8; i++) {
-    if (i >= uSegN) break;
-    gutD = min(gutD, segment(p, uRadial > 0.5 ? uSeg[0].xy : uSeg[i - 1].xy, uSeg[i].xy));
-  }
-  float gut = animal * exp(-pow(gutD / 0.07, 2.0)) * (0.6 + 0.4 * sin(p.x * 12.0 + t * 2.0));
-  cyto = cyto * (1.0 - 0.25 * tissue - 0.45 * groove * animal) + (uColor * 0.3 + 0.1) * tissue * 0.25;
-  cyto = mix(cyto, uColor * 0.25 + vec3(0.12, 0.09, 0.04), gut * 0.6);
   // Eukaryote: a nucleus behind the middle (envelope, darker nucleoplasm, bright nucleolus) and vacuoles.
   vec2 nucleusAt = -fwd * 0.18 + 0.05 * vec2(sin(t * 0.2), cos(t * 0.23));
   float nd = length(p - nucleusAt) - 0.34;
@@ -149,16 +232,15 @@ void main() {
   vacuoles *= euk;
   cyto = mix(cyto, uColor * 0.35 + 0.05, nucleus * 0.7);
   cyto += (uColor * 0.4 + 0.25) * vacuoles * 0.35;
-  float furrow = uCyst * (1.0 - animal) * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside; // animals mate, they don't split
+  float furrow = uCyst * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside;
   cyto *= 1.0 - 0.6 * furrow;
   float cytoAlpha = inside * (0.6 + 0.35 * shell);
 
   float wall = 0.025 + 0.04 * max(uWall, uSpore);
   float membrane = 1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005));
   vec3 membraneCol = mix(uColor * 0.85 + 0.04, uColor * 0.45 + vec3(0.09, 0.07, 0.04), uWall);
-  membraneCol *= 1.0 - 0.45 * animal; // tissue, not a single glowing membrane
   membraneCol += uHurt * vec3(1.0, 0.25, 0.15) * 0.9; // hurt: a red flash
-  membraneCol += uCyst * (0.25 + 0.15 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a living glow
+  membraneCol += uCyst * (0.12 + 0.08 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a living glow
 
   // Siderophores: a faint dotted ring where they reach, slowly rotating.
   float ring = uSidero * exp(-pow((r - uReach) / 0.025, 2.0)) * step(0.5, fract(a * 48.0 / 6.2831853 + t * 0.15)) * 0.45;
@@ -175,18 +257,7 @@ void main() {
 
   // Wet glint from a light above-left of the screen (turned into the body frame), using the sphere normal.
   vec3 n = vec3(p / max(rim, 1e-3), sqrt(max(0.0, 1.0 - dot(p, p) / (rim * rim))));
-  if (animal > 0.5) { // each segment bulges like its own sphere
-    vec2 q = (p - segC) / segR;
-    n = vec3(q, sqrt(max(0.0, 1.0 - dot(q, q))));
-  }
-  float ch = cos(uHeading), sh = sin(uHeading);
-  vec2 lightXY = vec2(ch * -0.45 + sh * 0.55, -sh * -0.45 + ch * 0.55);
-  float glint = pow(max(0.0, dot(n, normalize(vec3(lightXY, 0.7)))), 28.0 - 18.0 * uCarapace) * inside * (1.0 + 0.8 * uCarapace);
-  // Carapace: a hard translucent shell, a pale thick rim and a sheen over the back.
-  membraneCol = mix(membraneCol, vec3(0.85, 0.8, 0.65), uCarapace * 0.6);
-  wall = mix(wall, 0.07, uCarapace);
-  membrane = max(membrane, uCarapace * (1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005))));
-  cyto += uCarapace * vec3(0.06, 0.055, 0.04) * smoothstep(-0.6, 0.0, d) * inside;
+  float glint = pow(max(0.0, dot(n, lightDir())), 28.0) * inside;
 
   float halo = exp(-max(d, 0.0) * (12.0 - 6.0 * uExo)) * (1.0 - inside) * (0.22 + 0.25 * uExo);
   vec3 haloCol = mix(uColor, vec3(1.0, 0.42, 0.18), uExo);
@@ -197,18 +268,13 @@ void main() {
   cyto = mix(cyto, vec3(0.8, 0.84, 0.74) * (0.3 + 0.45 * shell), uSpore);
   membraneCol = mix(membraneCol, vec3(0.95, 0.97, 0.88), uSpore);
 
-  // Mate call: rings pulsing out from a calling animal.
-  float ping = fract(t * 0.6);
-  float callRing = uCall * exp(-pow((r - (1.15 + 0.7 * ping)) / 0.035, 2.0)) * (1.0 - ping) * (1.0 - inside);
-
   // Premultiplied alpha.
-  vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.55 + haloCol * halo * 0.6
-    + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.8 * inside
-    + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(1.0, 0.3, 0.25) * virions * 1.2;
-  color += (uColor * 0.4 + 0.55) * callRing;
-  color += vec3(0.85, 1.0, 0.9) * vesicle * 0.7 * inside;
+  vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.25 + haloCol * halo * 0.3
+    + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.5 * inside
+    + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(1.0, 0.3, 0.25) * virions * 0.8;
+  color += vec3(0.85, 1.0, 0.9) * vesicle * 0.4 * inside;
   color = mix(color, vec3(0.9, 0.12, 0.08) * cytoAlpha, uHurt * 0.35);
-  float alpha = clamp(callRing + cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
+  float alpha = clamp(cytoAlpha + membrane + halo * 0.5 + ring + gel * 0.35 + virions, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
 }
 `;
@@ -251,39 +317,39 @@ void main() {
     col = uColor * 0.8 + 0.15;
   } else if (k == ${GENES.chemoreceptor.index}) { // glowing receptor arrays
     a = dots(p, vec2(-0.3, -0.45), 0.2) + dots(p, vec2(-0.1, 0.0), 0.22) + dots(p, vec2(-0.3, 0.45), 0.2);
-    col = vec3(1.0, 0.85, 0.55) * 1.6;
+    col = vec3(1.0, 0.85, 0.55) * 0.9;
   } else if (k == ${GENES.transporters.index}) { // bright pores studding the membrane
     for (int i = -1; i <= 1; i++) {
       float rr = length(p - vec2(-0.1, float(i) * 0.55));
       a = max(a, exp(-pow((rr - 0.17) / 0.07, 2.0)));
     }
-    col = vec3(0.9, 1.0, 0.8) * 1.4;
+    col = vec3(0.9, 1.0, 0.8) * 0.8;
   } else if (k == ${GENES.siderophores.index}) { // a cluster of iron-scavenging granules
     for (int i = 0; i < 5; i++) {
       vec2 at = 0.55 * vec2(hash12(vec2(float(i), uSeed)) - 0.5, hash12(vec2(uSeed, float(i))) - 0.5) * 2.0;
       at += 0.06 * vec2(sin(t + float(i)), cos(t * 1.3 + float(i)));
       a = max(a, dots(p, at, 0.16));
     }
-    col = vec3(0.45, 0.95, 1.0) * 1.3;
+    col = vec3(0.45, 0.95, 1.0) * 0.8;
   } else if (k == ${GENES.exoenzymes.index}) { // an enzyme vesicle
     float rr = length(p);
     a = (1.0 - smoothstep(0.55, 0.65, rr)) * (0.35 + 0.65 * smoothstep(0.4, 0.6, rr))
       + 0.6 * dots(p, 0.2 * vec2(sin(t), cos(t * 0.8)), 0.15);
-    col = vec3(1.0, 0.55, 0.2) * 1.2;
+    col = vec3(1.0, 0.55, 0.2) * 0.8;
   } else if (k == ${GENES.bacteriocin.index} || k == ${GENES.poreFormer.index}) { // a secretion gland
     vec2 q = p - vec2(-0.55, 0.0);
     float blob = length(q * vec2(1.0, 0.8));
     float pulse = 0.8 + 0.2 * sin(t * 2.5);
     a = (1.0 - smoothstep(0.5, 0.62, blob)) * (0.5 + 0.5 * smoothstep(0.2, 0.55, blob)) * pulse;
-    col = k == ${GENES.bacteriocin.index} ? vec3(1.0, 0.22, 0.25) * 1.4 : vec3(1.0, 0.45, 0.15) * 1.4; // danger: red
+    col = k == ${GENES.bacteriocin.index} ? vec3(1.0, 0.22, 0.25) * 0.85 : vec3(1.0, 0.45, 0.15) * 0.85; // danger: red
   } else if (k == ${GENES.t6ss.index}) { // a tapered molecular syringe
     float s = (p.x + 0.9) / 1.8; // 0 at the base, 1 at the tip
     float w = 0.28 * (1.0 - s);
     a = step(0.0, s) * step(s, 1.0) * (1.0 - smoothstep(w - 0.03, w + 0.03, abs(p.y)));
-    col = vec3(0.85, 0.9, 1.0) * 1.1;
+    col = vec3(0.85, 0.9, 1.0) * 0.8;
   } else if (k == ${GENES.effluxPump.index}) { // orange pump beads
     a = dots(p, vec2(-0.2, -0.35), 0.24) + dots(p, vec2(-0.2, 0.35), 0.24);
-    col = vec3(1.0, 0.6, 0.2) * 1.4;
+    col = vec3(1.0, 0.6, 0.2) * 0.8;
   } else if (k == ${KIND2 + TIER2.GENES.cilia.index}) { // a comb of short cilia beating in a travelling wave
     for (int i = 0; i < 9; i++) {
       float fi = float(i) - 4.0;
@@ -338,7 +404,7 @@ void main() {
       float w = 0.13 - 0.08 * smoothstep(-0.8, 0.8, p.x);
       a = max(a, 1.0 - smoothstep(w - 0.03, w + 0.02, d));
     }
-    col = vec3(1.0, 0.86, 0.68) * (1.0 + 0.8 * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive)));
+    col = vec3(1.0, 0.86, 0.68) * (0.85 + 0.4 * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive)));
   } else if (k == ${KIND2 + TIER2.GENES.spike.index}) { // a long bony spike
     float s = (p.x + 0.95) / 1.9;
     float w = 0.3 * (1.0 - s);
@@ -349,12 +415,15 @@ void main() {
     float blob = length(q * vec2(0.9, 1.0));
     float bubbles = smoothstep(0.7, 0.9, valueNoise(q * 6.0 + vec2(0.0, -t * 1.5)));
     a = (1.0 - smoothstep(0.48, 0.58, blob)) * (0.55 + 0.45 * bubbles);
-    col = vec3(0.9, 0.12, 0.1) * (1.2 + 0.3 * sin(t * 3.0)); // danger: red
-  } else if (k == ${KIND2 + TIER2.GENES.electric.index}) { // an electric organ crackling with arcs
+    col = vec3(0.9, 0.12, 0.1) * (0.8 + 0.2 * sin(t * 3.0)); // danger: red
+  } else if (k == ${KIND2 + TIER2.GENES.electric.index}) { // an electric organ, now and then crackling with thin arcs
+    // Arcs only in some 1/8 s moments (not a full new pattern 12 times a second), thin and dim: no bloom, no strobe.
     float lens = 1.0 - smoothstep(0.55, 0.65, length(p * vec2(1.0, 1.4)));
-    float arcs = 1.0 - smoothstep(0.0, 0.06, abs(valueNoise(p * 4.0 + floor(t * 12.0) * 1.7) - 0.5));
-    a = max(lens * 0.6, arcs * smoothstep(0.95, 0.4, length(p)));
-    col = vec3(0.55, 0.8, 1.0) * (1.2 + arcs);
+    float moment = floor(t * 8.0);
+    float live = step(0.7, hash12(vec2(moment, uSeed * 13.0)));
+    float arcs = live * (1.0 - smoothstep(0.0, 0.03, abs(valueNoise(p * 4.0 + moment * 1.7) - 0.5)));
+    a = max(lens * 0.55, arcs * 0.6 * smoothstep(0.95, 0.4, length(p)));
+    col = vec3(0.45, 0.68, 0.95) * (0.55 + 0.3 * arcs);
   } else if (k == ${KIND2 + TIER2.GENES.jet.index}) { // a nozzle; a bubbling plume while dashing
     float s = (p.x + 0.9) / 1.3; // along the nozzle
     float w = mix(0.14, 0.42, clamp(s, 0.0, 1.0));
@@ -372,7 +441,7 @@ void main() {
     float glint = 1.0 - smoothstep(0.08, 0.12, length(p - look - vec2(0.1, 0.12)));
     float outline = sclera * smoothstep(0.7, 0.82, rr);
     a = sclera;
-    col = mix(vec3(0.95), vec3(0.05, 0.05, 0.08), max(pupil, outline * 0.8)) + glint * 0.9;
+    col = mix(vec3(0.95), vec3(0.05, 0.05, 0.08), max(pupil, outline * 0.8)) + glint * 0.5;
   } else if (k == ${GENES.adhesin.index}) { // adhesins: a fringe of barbed hooks for clinging to a host
     for (int i = -2; i <= 2; i++) {
       float y = float(i) * 0.3;
@@ -390,7 +459,7 @@ void main() {
       stacks = max(stacks, (1.0 - smoothstep(0.035, 0.07, abs(p.y - y))) * (1.0 - smoothstep(0.55, 0.75, abs(p.x))));
     }
     a = stacks;
-    col = vec3(0.35, 1.0, 0.4) * 1.3;
+    col = vec3(0.35, 1.0, 0.4) * 0.8;
   } else if (k == ${KIND2 + TIER2.GENES.mitochondrion.index}) { // a mitochondrion: bean with folded cristae
     vec2 q = p * vec2(1.0, 1.7);
     float bean = 1.0 - smoothstep(0.62, 0.7, length(q));
@@ -514,13 +583,15 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uKind: { value: 0 }, uActive: { value: 0 }, uColor: { value: new THREE.Color() },
 });
 const flagellumGeometry = new THREE.PlaneGeometry(1, 1, 48, 1).translate(0.5, 0, 0);
+// The vertex shader lays a whip along its chain: bound the longest one (cell radii) so culling still works.
+flagellumGeometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 8);
 const flagellumMaterial = material(FLAGELLUM_VERTEX, FLAGELLUM_FRAGMENT, {
   uBeat: { value: 0 }, uWidth: { value: 1 }, uColor: { value: new THREE.Color() },
   uChain: { value: Array.from({ length: WHIP_POINTS }, (_, i) => new THREE.Vector2(i / (WHIP_POINTS - 1), 0)) },
@@ -616,7 +687,6 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       if (whip) {
         u.uBeat!.value = seed * 100 + i * 1.7;
         u.uWidth!.value = WHIP[tier]!.width * raw.scale;
-        mesh.frustumCulled = false; // drawn along its chain, far from the plane geometry's bounds
         mesh.renderOrder = 9;
       } else {
         u.uKind!.value = kind;
@@ -683,28 +753,45 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const s = shapeUniform(form);
       const bow = look.tier < 3 ? 0.25 + 0.75 * (s.sx / s.sy - 1) : 0;
       stepSpring(flex, clamp(m.omega * FLEX, FLEX_MAX) * bow, FLEX_SPRING.k, FLEX_SPRING.c, step);
-      body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend + flex.v);
+      if (look.tier === 3) { // the shape is in the segment layout and the plates (PLATE), not a body stretch
+        body.material.uniforms.uShape!.value.set(1, 1, 0);
+        (body.material.uniforms.uPlate!.value as THREE.Vector2).set(...(PLATE[form] ?? PLATE[0]!));
+      } else body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend + flex.v);
 
       // Animal: the head leads, the rest of the body follows it through the water.
       const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
       const turns: number[] = [];
+      // The rest layout in the body frame: the canonical design laid out by the shape (longer, or curved).
+      const restBody = look.tier === 3 ? segments.map(([x, y]) => deform(form, x, y)) : [];
       if (look.tier === 3) {
-        const rest = segments.map(([x, y]) => {
-          const d = deform(form, x, y);
-          return toWorld(d.x, d.y);
-        });
-        stepSpine(spine, rest, radial, step);
+        const rest = restBody.map((b) => toWorld(b.x, b.y));
+        stepSpine(spine, rest, radial, step, Math.hypot(m.vx, m.vy), feel.speed);
         for (const [i, [, , r]] of segments.entries()) {
           const b = toBody(spine.x[i]!, spine.y[i]!);
-          const c = undeform(form, b.x, b.y);
-          seg[i]!.set(c.x, c.y, r);
+          seg[i]!.set(b.x, b.y, r);
           turns[i] = segmentTurn(spine, rest, i, radial);
         }
       }
       color.setHSL(look.hue, look.tier === 3 ? 0.55 : 0.8, 0.42); // animal tissue is less saturated than a cell
-      body.position.set(pose.x, pose.y, 0);
+      body.visible = true;
+      // The body's quad: a cell's fixed square; an animal's the bounding box of what its segments draw this
+      // frame (most of a fixed square would be open water, and the animal shader is the costliest in the game).
+      const quad = body.material.uniforms.uQuad!.value as THREE.Vector4;
+      if (look.tier === 3 && !((pose.call ?? 0) > 0)) {
+        let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < segments.length; i++) {
+          const v = seg[i]!;
+          const reach = v.z * (i === 0 && !radial ? HEAD_REACH : REACH);
+          [x0, y0, x1, y1] = [Math.min(x0, v.x - reach), Math.min(y0, v.y - reach), Math.max(x1, v.x + reach), Math.max(y1, v.y + reach)];
+        }
+        quad.set((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2);
+      } else {
+        const half = look.tier === 3 ? ANIMAL_HALF : QUAD_HALF;
+        quad.set(0, 0, half, half);
+      }
+      body.position.set(pose.x + (quad.x * ch - quad.y * sh) * radius, pose.y + (quad.x * sh + quad.y * ch) * radius, 0);
       body.rotation.z = pose.heading; // a rod points where it swims
-      body.scale.setScalar(radius);
+      body.scale.set((quad.z * radius) / QUAD_HALF, (quad.w * radius) / QUAD_HALF, 1);
       frame.position.set(pose.x, pose.y, 0);
       frame.rotation.z = pose.heading;
       frame.scale.setScalar(radius);
@@ -728,17 +815,17 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       for (const part of parts) {
         const { mesh } = part;
         const un = mesh.material.uniforms;
-        let { x, y, angle } = part;
-        if (part.seg >= 0) { // ride its segment: carried and turned with it
-          const [rx, ry] = segments[part.seg]!;
+        // On the shaped (and flexing) body, facing its normal there; an animal's part then rides its segment,
+        // carried and turned with it (all in the body frame).
+        const at = deform(form, part.x, part.y, part.angle, flex.v);
+        if (part.seg >= 0) {
           const t = turns[part.seg]!;
-          const dx = x - rx;
-          const dy = y - ry;
-          x = seg[part.seg]!.x + dx * Math.cos(t) - dy * Math.sin(t);
-          y = seg[part.seg]!.y + dx * Math.sin(t) + dy * Math.cos(t);
-          angle += t;
+          const dx = at.x - restBody[part.seg]!.x;
+          const dy = at.y - restBody[part.seg]!.y;
+          at.x = seg[part.seg]!.x + dx * Math.cos(t) - dy * Math.sin(t);
+          at.y = seg[part.seg]!.y + dx * Math.sin(t) + dy * Math.cos(t);
+          at.angle += t;
         }
-        const at = deform(form, x, y, angle, flex.v); // on the shaped (and flexing) body, facing its normal there
         if (part.whip) {
           const root = toWorld(at.x, at.y);
           stepWhip(part.whip, root.x, root.y, pose.heading + at.angle, (part.size * radius) / (WHIP_POINTS - 1), step);
@@ -811,6 +898,18 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       gulps.push({ angle, at: time });
     },
     setInfected(infected: boolean) { body.material.uniforms.uInfect!.value = infected ? 1 : 0; },
+    /**
+     * Off screen: keep only where it is (labels, gulps) and skip the rig, reactions and uniforms. It comes back
+     * at rest, with fresh reaction baselines (no hurt flash for damage taken out of sight).
+     */
+    park(pose: Pose, radius: number) {
+      body.position.set(pose.x, pose.y, 0);
+      body.scale.setScalar(radius);
+      body.visible = frame.visible = false;
+      lastPose = { x: pose.x, y: pose.y, heading: pose.heading, radius };
+      motion.live = false;
+      feel.bites = feel.health = -1;
+    },
     /** Scale the whole cell after update (the meteor hatch pop). */
     grow(k: number) {
       body.scale.multiplyScalar(k);
@@ -829,16 +928,23 @@ export type CellView = ReturnType<typeof createCellView>;
 export function createCells(scene: THREE.Scene, onImpact: (id: string, strength: number) => void = () => {}) {
   const views = new Map<string, CellView>();
   return {
+    /** `seen`: the visible area on the gameplay plane (centre, half extents); cells outside it are parked. */
     update(
       players: Iterable<[string, Player]> & { has(id: string): boolean },
       time: number, dt: number, pose: (p: Player) => Pose, look: (id: string, p: Player) => Look,
+      seen?: { x: number; y: number; halfW: number; halfH: number },
     ) {
       // ponytail: full diff every frame, fine for ~100 cells; switch to state callbacks if it shows in profiles.
       const all: { id: string; p: Player; pose: Pose; r: number }[] = [];
-      for (const [id, p] of players) all.push({ id, p, pose: pose(p), r: radiusOf(p.mass) });
+      for (const [id, p] of players) all.push({ id, p, pose: pose(p), r: radiusOf(p.mass, p.tier) });
       for (const c of all) {
         let view = views.get(c.id);
         if (!view) views.set(c.id, (view = createCellView(scene, hashId(c.id))));
+        const reach = c.r * 4; // body plus its longest whip
+        if (seen && (Math.abs(c.pose.x - seen.x) > seen.halfW + reach || Math.abs(c.pose.y - seen.y) > seen.halfH + reach)) {
+          view.park(c.pose, c.r);
+          continue;
+        }
         // The neighbour it presses on hardest (cells are held at touching distance by the server).
         // ponytail: O(n²) per frame, fine for ~100 cells.
         let contact = 0;

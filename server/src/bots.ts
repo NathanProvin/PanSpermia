@@ -133,7 +133,7 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
   const t2 = p.tier >= 2; // eukaryotes and animals: eat by mouth, swallow prey, no bacterial toxins
   const sight = SIGHT[p.tier]!;
   const scale = SCALE[p.tier]!;
-  const r = radiusOf(p.mass);
+  const r = radiusOf(p.mass, p.tier);
   let sx = 0;
   let sy = 0;
   let actions = 0;
@@ -207,9 +207,9 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
       kin++;
       continue;
     }
-    const gap = d - r - radiusOf(o.mass);
+    const gap = d - r - radiusOf(o.mass, o.tier);
     if (archetype === 'parasite' && o.tier >= 2 && !oid.startsWith('~') && o.spore === 0 && o.cyst === 0 && d < (host?.d ?? Infinity)) {
-      host = { d, dx, dy, r: radiusOf(o.mass) };
+      host = { d, dx, dy, r: radiusOf(o.mass, o.tier) };
     }
     if (t2 && o.tier === 1 && hasGene(o.genome, 'adhesin') && gap < 0) clingers++;
     // Eukaryote and animal hunters chase what their mouth can swallow; bacterial hunters what's clearly smaller.
@@ -233,7 +233,7 @@ function think(state: PoolState, bots: Bots, grid: Map<number, Nutrient[]>, id: 
     if (t2) continue; // eukaryotes fire poison and jet below, from the whole picture
     // Swarms defend their patch from any foreigner; hunters fire at prey, or back at whoever hit them.
     const target = archetype === 'swarm' || isPrey || (archetype === 'hunter' && state.tick - p.lastHitTick <= DEFEND_TICKS);
-    if (target && d < TOXIN_RANGE + r + radiusOf(o.mass) * 0.5) actions |= ACTION_TOXIN;
+    if (target && d < TOXIN_RANGE + r + radiusOf(o.mass, o.tier) * 0.5) actions |= ACTION_TOXIN;
   }
   if (prey) {
     sx += prey.x * 2.5;

@@ -24,6 +24,7 @@ export interface Design {
 }
 
 const VIEW_HALF = 2.4; // cell radii visible above and below the centre
+const ANIMAL_VIEW_HALF = 3; // an animal's long body, legs and antennae need more room
 const AXIS_SNAP = 0.12; // radii: this close to the axis (or the centre) is "on" it
 const PICK = 0.3; // radii: grab distance for placed parts
 const INTERIOR = 0.6; // internal parts stay this far inside
@@ -134,6 +135,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   let name = '';
   /** Evolving is final for this tier: the first click arms the button, the second commits. */
   let evolveArmed = false;
+  let evolving = false;
 
   let lineage: Lineage | undefined;
   let cat = catalogFor(1);
@@ -163,7 +165,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const toBody = (e: PointerEvent | WheelEvent) => {
     const rect = renderer.domElement.getBoundingClientRect();
     const wx = ((e.clientX - rect.left) / rect.width * 2 - 1) * camera.right;
-    const wy = -((e.clientY - rect.top) / rect.height * 2 - 1) * VIEW_HALF;
+    const wy = -((e.clientY - rect.top) / rect.height * 2 - 1) * camera.top;
     const c = undeform(shape, wy, -wx); // rotate the screen by -FORWARD, then undo the body shape
     return { bx: c.x, by: c.y };
   };
@@ -239,14 +241,15 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const named = cleanName(name);
     if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
     $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
-    $('.hatch').textContent = animal() ? 'Lay eggs' : 'Divide'; // animals mate and lay a clutch
+    // Animals mate and lay a clutch; a species that just evolved hatches its first individual of the new tier.
+    $('.hatch').textContent = evolving ? 'Hatch' : animal() ? 'Lay eggs' : 'Divide';
     const need = evolveDnaOf(lineage!.tier);
     const ready = lineage!.lifetimeDna >= need;
     const progress = $<HTMLProgressElement>('.evolution progress');
     if (Number.isFinite(need)) [progress.max, progress.value] = [need, Math.min(need, lineage!.lifetimeDna)];
     evolveButton.disabled = submitted || left < 0 || !named || !ready;
     const next = TIER_NAMES[lineage!.tier + 1]?.toLowerCase();
-    evolveButton.hidden = $<HTMLElement>('.evolution').hidden = lineage!.tier >= MAX_TIER;
+    evolveButton.hidden = $<HTMLElement>('.evolution').hidden = lineage!.tier >= MAX_TIER || evolving;
     evolveButton.textContent = evolveArmed ? `Evolve to ${next}? Click again` : ready ? 'Evolve' : `Evolve (${Math.floor(lineage!.lifetimeDna)}/${need} DNA)`;
     // Keep the server's draft current (debounced), so the timer running out keeps these edits.
     clearTimeout(draftTimer);
@@ -385,9 +388,13 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   return {
     get isOpen() { return !root.hidden; },
-    /** Open on the lineage's current design; `onSubmit` sends it to the server (final, or a draft). */
-    open(l: Lineage, onSubmit: (design: Design, final: boolean) => void) {
+    /**
+     * Open on the lineage's current design; `onSubmit` sends it to the server (final, or a draft).
+     * `stageUp`: the species just evolved and designs its first individual of the new tier.
+     */
+    open(l: Lineage, onSubmit: (design: Design, final: boolean) => void, stageUp = false) {
       lineage = l;
+      evolving = stageUp;
       cat = catalogFor(l.tier);
       groups = groupsOf(cat, l);
       children = 0;
@@ -426,13 +433,16 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     },
     /** Draw the preview; `secondsLeft` is the cyst timer (the server applies the last draft at 0). */
     frame(time: number, dt: number, secondsLeft: number, aspect: number) {
-      camera.left = -VIEW_HALF * aspect;
-      camera.right = VIEW_HALF * aspect;
+      const half = animal() ? ANIMAL_VIEW_HALF : VIEW_HALF;
+      [camera.top, camera.bottom] = [half, -half];
+      camera.left = -half * aspect;
+      camera.right = half * aspect;
       camera.updateProjectionMatrix();
       const gs = working();
       cell.update({ x: 0, y: 0, heading: FORWARD, tumble: 0, spore: 0, cyst: 0 }, 1,
         { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue, shape, segments: segments() }, time, dt);
-      $('.timer').textContent = `${animal() ? 'Mating' : 'Dividing'} — ${Math.ceil(secondsLeft)} s left`;
+      const what = evolving ? `Evolved: design your first ${TIER_NAMES[lineage!.tier]!.toLowerCase()}` : animal() ? 'Mating' : 'Dividing';
+      $('.timer').textContent = `${what} — ${Math.ceil(secondsLeft)} s left`;
       return { scene, camera };
     },
   };
