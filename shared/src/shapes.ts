@@ -16,9 +16,10 @@ const BEND_CENTRE = 1 / 3;
 
 const shapeOf = (shape: number) => SHAPES[shape] ?? SHAPES[0];
 
-/** A canonical point (and a direction at it, rad) on the shaped body. */
-export function deform(shape: number, x: number, y: number, angle = 0) {
-  const { sx, sy, bend } = shapeOf(shape);
+/** A canonical point (and a direction at it, rad) on the shaped body; `flex` bends it further (a turning body). */
+export function deform(shape: number, x: number, y: number, angle = 0, flex = 0) {
+  const { sx, sy } = shapeOf(shape);
+  const bend = shapeOf(shape).bend + flex;
   const dx = x * sx;
   const lift = bend * (dx * dx - BEND_CENTRE * sx * sx);
   // The direction: the canonical (circle) normal pushed through the shape's gradient.

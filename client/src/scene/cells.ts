@@ -1,9 +1,10 @@
 import {
   DEFAULT_SEGMENTS, GENES, type Placement, type Player, SEGMENT_BLEND, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
-  deform, hasGene, radiusOf, shapeUniform,
+  deform, hasGene, radiusOf, shapeUniform, undeform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
+import { type Chain, type Spring, chain, segmentTurn, spring, stepSpine, stepSpring, stepWhip } from './rig.ts';
 
 /** Quad half-size in cell radii: room for the wobble, halo and the siderophore reach ring. */
 const QUAD_HALF = 1.9;
@@ -44,8 +45,9 @@ uniform float uCall;
 uniform float uTier;
 uniform vec3 uShape; // stretch x, stretch y, bend (shared/shapes.ts)
 uniform float uCentre;
-uniform vec3 uSeg[8];
+uniform vec3 uSeg[8]; // canonical frame, moved every frame by the soft rig (the spine bends)
 uniform int uSegN;
+uniform float uRadial; // radial plan: segment 0 is the centre, the others hang off it
 uniform float uCarapace;
 uniform float uJiggle; // 0..1, impacts
 uniform float uSpeed; // 0..1 of its top speed
@@ -55,6 +57,10 @@ uniform float uHurt; // 0..1 flash
 varying vec2 vUv;
 ${NOISE}
 float angDiff(float x, float y) { float d = x - y; return atan(sin(d), cos(d)); }
+float segment(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a;
+  return length(p - a - ab * clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
+}
 void main() {
   vec2 p = (vUv * 2.0 - 1.0) * ${QUAD_HALF.toFixed(2)}; // body frame (the quad turns with the cell), cell radii
   // Body shape: undo the bend, then the stretch, so everything below draws the canonical unit disc.
@@ -118,10 +124,15 @@ void main() {
   float twins = max(1.0 - smoothstep(0.0, 0.35, length(p - fwd * 0.42)), 1.0 - smoothstep(0.0, 0.35, length(p + fwd * 0.42)));
   nucleoid = mix(nucleoid, twins, uCyst);
   vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid * bact);
-  // Animal tissue: many small cells, a gut along the spine with a slow peristaltic wave.
+  // Animal tissue: many small cells, a gut through the segment centres (it bends with the spine; radial
+  // bodies get canals out to the lobes) with a slow peristaltic wave.
   float tissue = animal * (1.0 - smoothstep(0.0, 0.1, cellEdge(p * 9.0 + uSeed * 20.0, t * 0.05)));
-  float gut = animal * exp(-pow(p.y / 0.07, 2.0)) * (1.0 - smoothstep(0.75, 0.95, abs(p.x + 0.05)))
-    * (0.6 + 0.4 * sin(p.x * 12.0 + t * 2.0));
+  float gutD = 1e3;
+  for (int i = 1; i < 8; i++) {
+    if (i >= uSegN) break;
+    gutD = min(gutD, segment(p, uRadial > 0.5 ? uSeg[0].xy : uSeg[i - 1].xy, uSeg[i].xy));
+  }
+  float gut = animal * exp(-pow(gutD / 0.07, 2.0)) * (0.6 + 0.4 * sin(p.x * 12.0 + t * 2.0));
   cyto = cyto * (1.0 - 0.25 * tissue - 0.45 * groove * animal) + (uColor * 0.3 + 0.1) * tissue * 0.25;
   cyto = mix(cyto, uColor * 0.25 + vec3(0.12, 0.09, 0.04), gut * 0.6);
   // Eukaryote: a nucleus behind the middle (envelope, darker nucleoplasm, bright nucleolus) and vacuoles.
@@ -433,18 +444,28 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [GENES.endospore.index]: { size: 0.5, out: 0 },
 };
 
-// Flagellum: a tapered whip, its helical beat seen side-on as a travelling wave.
+/** Points per whip chain (the soft rig simulates them; the flagellum shader draws along them). */
+const WHIP_POINTS = 12;
+// Flagellum: a tapered whip laid along its simulated chain (body frame, cell radii), its helical beat seen
+// side-on as a travelling wave across the chain.
 const FLAGELLUM_VERTEX = /* glsl */ `
 uniform float uBeat;
+uniform float uWidth;
+uniform vec2 uChain[${WHIP_POINTS}];
 varying float vAlong;
 varying float vAcross;
 void main() {
   float s = position.x; // 0 at the cell, 1 at the tip
-  vec3 pos = position;
-  pos.y = position.y * mix(0.22, 0.06, s) + 0.24 * s * sin(s * 9.0 - uBeat);
+  float f = s * ${(WHIP_POINTS - 1).toFixed(1)};
+  int i = int(min(floor(f), ${(WHIP_POINTS - 2).toFixed(1)}));
+  vec2 a = uChain[i];
+  vec2 b = uChain[i + 1];
+  vec2 dir = normalize(b - a + 1e-6);
+  float across = position.y * mix(0.22, 0.06, s) + 0.24 * s * sin(s * 9.0 - uBeat);
+  vec2 pos = mix(a, b, f - float(i)) + vec2(-dir.y, dir.x) * across * uWidth;
   vAlong = s;
   vAcross = position.y * 2.0;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 0.0, 1.0);
 }
 `;
 const FLAGELLUM_FRAGMENT = /* glsl */ `
@@ -464,6 +485,23 @@ const FLAGELLUM_LENGTH = [0, 3.2, 2.2, 1.3]; // cell radii, per tier (a eukaryot
 const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 3, beat: 0.35 }];
 const BEAT_RUN = 22; // rad/s of wave phase
 const BEAT_TUMBLE = 5; // motor reversal during a tumble: the bundle flails slowly
+// Secondary motion (visual only): parts trail a turn and a sideways push, then spring back.
+// Stiffness k (1/s²) and damping c (1/s) per part feel.
+const SOFT = { k: 45, c: 5 };
+const FIRM = { k: 90, c: 9 };
+const STIFF = { k: 160, c: 16 };
+const SOFT_PARTS = new Set(['pili', 'cilia', 'filterComb', 'adhesin', 'paddle']);
+const STIFF_PARTS = new Set(['jaw', 'mandible', 'eye', 'spike', 't6ss', 'jet', 'filter']);
+const PART_LAG = 0.08; // rad of trailing per rad/s of turning
+const PART_PUSH = 0.05; // rad per cell radius/s² of sideways acceleration
+const PART_SWING = 0.5; // rad, at most
+const SLOSH = 0.02; // an organelle shifts this many cell radii per radius/s² of acceleration...
+const SLOSH_MAX = 0.08; // ...up to this
+// The body bows into a turn (rods and crescents most), on a spring so it overshoots a little as the turn ends.
+const FLEX = 0.08; // extra bend per rad/s of turning
+const FLEX_MAX = 0.25;
+const FLEX_SPRING = { k: 60, c: 8 };
+const clamp = (v: number, max: number) => Math.max(-max, Math.min(max, v));
 
 const material = (vertexShader: string, fragmentShader: string, uniforms: Record<string, THREE.IUniform>) =>
   new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader, transparent: true, depthWrite: false, premultipliedAlpha: true });
@@ -476,14 +514,17 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uCarapace: { value: 0 },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uKind: { value: 0 }, uActive: { value: 0 }, uColor: { value: new THREE.Color() },
 });
 const flagellumGeometry = new THREE.PlaneGeometry(1, 1, 48, 1).translate(0.5, 0, 0);
-const flagellumMaterial = material(FLAGELLUM_VERTEX, FLAGELLUM_FRAGMENT, { uBeat: { value: 0 }, uColor: { value: new THREE.Color() } });
+const flagellumMaterial = material(FLAGELLUM_VERTEX, FLAGELLUM_FRAGMENT, {
+  uBeat: { value: 0 }, uWidth: { value: 1 }, uColor: { value: new THREE.Color() },
+  uChain: { value: Array.from({ length: WHIP_POINTS }, (_, i) => new THREE.Vector2(i / (WHIP_POINTS - 1), 0)) },
+});
 
 /** Stable pseudo-random [0, 1) from a string id. */
 export function hashId(id: string) {
@@ -503,7 +544,34 @@ export interface Look {
 
 type ShaderMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
-/** One drawable cell: a body plus its placed parts in a frame that turns with the heading. */
+/** A placed part as drawn: its canonical spot, plus the soft rig moving it. */
+interface PartView {
+  mesh: ShaderMesh; mouth: boolean; internal: boolean;
+  /** Canonical spot and facing (a whip's root sits just inside the membrane). */
+  x: number; y: number; angle: number;
+  /** Quad size (or a whip's length) and outward offset, cell radii. */
+  size: number; out: number;
+  /** The animal segment it rides (-1: the body itself). */
+  seg: number;
+  /** A whip's chain; otherwise the part's springs: swing angle, slosh offset. */
+  whip?: Chain; feel: { k: number; c: number }; swing: Spring; sx: Spring; sy: Spring;
+}
+
+/** Index of the segment whose outline is nearest a canonical point. */
+const nearestSegment = (x: number, y: number, segments: readonly Segment[]) => {
+  let best = 0;
+  for (const [i, [sx, sy, r]] of segments.entries()) {
+    const [bx, by, br] = segments[best]!;
+    if (Math.hypot(x - sx, y - sy) - r < Math.hypot(x - bx, y - by) - br) best = i;
+  }
+  return best;
+};
+
+/**
+ * One drawable cell: a body plus its placed parts in a frame that turns with the heading. A soft rig
+ * (rig.ts, visual only) gives it secondary motion: whips trail through the water, an animal's spine follows
+ * its head, the body bows into turns, parts lag and spring back.
+ */
 export function createCellView(parent: THREE.Object3D, seed: number) {
   const color = new THREE.Color();
   const body: ShaderMesh = new THREE.Mesh(bodyGeometry, bodyMaterial.clone()); // clones share the program
@@ -513,14 +581,19 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   const frame = new THREE.Group(); // body frame: +x forward, units of cell radii
   parent.add(body, frame);
   let partsKey = '';
-  let parts: { mesh: ShaderMesh; flagellum: boolean; mouth: boolean }[] = [];
+  let parts: PartView[] = [];
   /** Reactions (CPU side, decaying): impacts, hurt, smoothed contact and speed, bites, gulps. */
   const feel = { jiggle: 0, hurt: 0, depth: 0, angle: 0, speed: 0, bites: -1, biteAt: -10, health: -1 };
   const gulps: { angle: number; at: number }[] = [];
   let lastPose = { x: 0, y: 0, heading: 0, radius: 1 };
   let beat = 1;
+  /** Motion seen frame to frame (world), smoothed: turn rate, velocity, acceleration. Drives the rig. */
+  const motion = { live: false, x: 0, y: 0, heading: 0, omega: 0, vx: 0, vy: 0, ax: 0, ay: 0 };
+  const flex = spring();
+  let spine = chain(0);
+  let radial = false;
 
-  const rebuild = (placements: readonly Placement<string>[], tier: number, form: number, segments: readonly Segment[]) => {
+  const rebuild = (placements: readonly Placement<string>[], tier: number, segments: readonly Segment[]) => {
     for (const { mesh } of parts) {
       frame.remove(mesh);
       mesh.material.dispose();
@@ -529,37 +602,34 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
     beat = WHIP[tier]!.beat;
     for (const [i, raw] of placements.entries()) {
       const kind = kindOf(tier, raw.gene);
-      // An animal's membrane parts sit on its segmented outline, not the unit circle.
-      const onRim = tier === 3 && catalogFor(3).GENES[raw.gene]!.slot === 'membrane' ? animalRim(raw.angle, segments) : 1;
-      const pl = { ...raw, x: raw.x * onRim, y: raw.y * onRim };
-      if (pl.gene === 'flagellum' || pl.gene === 'tail') {
-        const mesh: ShaderMesh = new THREE.Mesh(flagellumGeometry, flagellumMaterial.clone());
-        mesh.material.uniforms.uColor!.value = color;
-        mesh.material.uniforms.uBeat!.value = seed * 100 + i * 1.7;
-        const root = deform(form, pl.x * 0.92, pl.y * 0.92, pl.angle); // where it leaves the shaped body
-        mesh.position.set(root.x, root.y, 0);
-        mesh.rotation.z = root.angle;
-        mesh.scale.set(FLAGELLUM_LENGTH[tier]! * pl.scale, WHIP[tier]!.width * pl.scale, 1);
-        mesh.renderOrder = 9;
-        frame.add(mesh);
-        parts.push({ mesh, flagellum: true, mouth: false });
-        continue;
-      }
+      const slot = catalogFor(tier).GENES[raw.gene]!.slot;
+      const whip = raw.gene === 'flagellum' || raw.gene === 'tail';
       const shape = PART_SHAPE[kind];
-      if (!shape) continue; // coats are drawn by the body shader
-      const mesh: ShaderMesh = new THREE.Mesh(partGeometry, partMaterial.clone());
+      if (!whip && !shape) continue; // coats are drawn by the body shader
+      // An animal's membrane parts sit on its segmented outline, not the unit circle; a whip leaves from just inside.
+      const onRim = (tier === 3 && slot === 'membrane' ? animalRim(raw.angle, segments) : 1) * (whip ? 0.92 : 1);
+      const x = raw.x * onRim;
+      const y = raw.y * onRim;
+      const mesh: ShaderMesh = new THREE.Mesh(whip ? flagellumGeometry : partGeometry, (whip ? flagellumMaterial : partMaterial).clone());
       const u = mesh.material.uniforms;
-      u.uKind!.value = kind;
-      u.uSeed!.value = seed + i * 0.37;
       u.uColor!.value = color;
-      const size = shape.size * pl.scale;
-      const at = deform(form, pl.x, pl.y, pl.angle); // on the shaped body, facing its normal there
-      mesh.position.set(at.x + Math.cos(at.angle) * size * shape.out, at.y + Math.sin(at.angle) * size * shape.out, 0);
-      mesh.rotation.z = at.angle;
-      mesh.scale.setScalar(size);
-      mesh.renderOrder = 11;
+      if (whip) {
+        u.uBeat!.value = seed * 100 + i * 1.7;
+        u.uWidth!.value = WHIP[tier]!.width * raw.scale;
+        mesh.frustumCulled = false; // drawn along its chain, far from the plane geometry's bounds
+        mesh.renderOrder = 9;
+      } else {
+        u.uKind!.value = kind;
+        u.uSeed!.value = seed + i * 0.37;
+        mesh.renderOrder = 11;
+      }
       frame.add(mesh);
-      parts.push({ mesh, flagellum: false, mouth: raw.gene === 'jaw' || raw.gene === 'mandible' });
+      parts.push({
+        mesh, mouth: raw.gene === 'jaw' || raw.gene === 'mandible', internal: slot === 'internal', x, y, angle: raw.angle,
+        size: whip ? FLAGELLUM_LENGTH[tier]! * raw.scale : shape!.size * raw.scale, out: shape?.out ?? 0,
+        seg: tier === 3 ? nearestSegment(x, y, segments) : -1, whip: whip ? chain(WHIP_POINTS) : undefined,
+        feel: SOFT_PARTS.has(raw.gene) ? SOFT : STIFF_PARTS.has(raw.gene) ? STIFF : FIRM, swing: spring(), sx: spring(), sy: spring(),
+      });
     }
   };
 
@@ -571,13 +641,65 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const key = `${look.tier}/${form}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
         partsKey = key;
-        rebuild(look.parts, look.tier, form, segments);
+        rebuild(look.parts, look.tier, segments);
         const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
         for (const [i, v] of seg.entries()) v.set(...(segments[i] ?? [0, 0, 0]));
         body.material.uniforms.uSegN!.value = segments.length;
-        const s = shapeUniform(form);
-        body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend);
-        body.material.uniforms.uCentre!.value = s.centre;
+        radial = segments[0]![0] === 0 && segments[0]![1] === 0; // segmentsOf: only a radial centre sits exactly at the origin
+        body.material.uniforms.uRadial!.value = radial ? 1 : 0;
+        body.material.uniforms.uCentre!.value = shapeUniform(form).centre;
+        spine = chain(segments.length);
+      }
+
+      // What the body did since the last frame. No motion to react to (editor, card, first frame, a jump
+      // such as a respawn): the rig snaps to rest.
+      const m = motion;
+      const still = dt <= 0 || !m.live || Math.hypot(pose.x - m.x, pose.y - m.y) > 2 * radius;
+      if (still) {
+        m.omega = m.vx = m.vy = m.ax = m.ay = 0;
+        spine.live = false;
+        for (const part of parts) if (part.whip) part.whip.live = false;
+      } else {
+        const k = Math.min(1, dt * 10);
+        m.omega += (wrapAngle(pose.heading - m.heading) / dt - m.omega) * k;
+        const vx = m.vx + ((pose.x - m.x) / dt - m.vx) * k;
+        const vy = m.vy + ((pose.y - m.y) / dt - m.vy) * k;
+        m.ax += ((vx - m.vx) / dt - m.ax) * k;
+        m.ay += ((vy - m.vy) / dt - m.ay) * k;
+        [m.vx, m.vy] = [vx, vy];
+      }
+      [m.live, m.x, m.y, m.heading] = [true, pose.x, pose.y, pose.heading];
+      const step = still ? 0 : dt;
+      const ch = Math.cos(pose.heading);
+      const sh = Math.sin(pose.heading);
+      const toWorld = (bx: number, by: number) => ({ x: pose.x + (bx * ch - by * sh) * radius, y: pose.y + (bx * sh + by * ch) * radius });
+      const toBody = (wx: number, wy: number) => {
+        const dx = wx - pose.x;
+        const dy = wy - pose.y;
+        return { x: (dx * ch + dy * sh) / radius, y: (dy * ch - dx * sh) / radius };
+      };
+
+      // Cells bow into a turn (an animal bends along its spine instead).
+      const s = shapeUniform(form);
+      const bow = look.tier < 3 ? 0.25 + 0.75 * (s.sx / s.sy - 1) : 0;
+      stepSpring(flex, clamp(m.omega * FLEX, FLEX_MAX) * bow, FLEX_SPRING.k, FLEX_SPRING.c, step);
+      body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend + flex.v);
+
+      // Animal: the head leads, the rest of the body follows it through the water.
+      const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
+      const turns: number[] = [];
+      if (look.tier === 3) {
+        const rest = segments.map(([x, y]) => {
+          const d = deform(form, x, y);
+          return toWorld(d.x, d.y);
+        });
+        stepSpine(spine, rest, radial, step);
+        for (const [i, [, , r]] of segments.entries()) {
+          const b = toBody(spine.x[i]!, spine.y[i]!);
+          const c = undeform(form, b.x, b.y);
+          seg[i]!.set(c.x, c.y, r);
+          turns[i] = segmentTurn(spine, rest, i, radial);
+        }
       }
       color.setHSL(look.hue, look.tier === 3 ? 0.55 : 0.8, 0.42); // animal tissue is less saturated than a cell
       body.position.set(pose.x, pose.y, 0);
@@ -603,12 +725,47 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uCall!.value = (pose.call ?? 0) > 0 ? 1 : 0;
       lastPose = { x: pose.x, y: pose.y, heading: pose.heading, radius };
       const snap = time - feel.biteAt < BITE_ANIM ? (time - feel.biteAt) / BITE_ANIM : 0;
-      for (const { mesh, flagellum, mouth } of parts) {
-        if (flagellum) mesh.material.uniforms.uBeat!.value += dt * beat * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
-        else {
-          mesh.material.uniforms.uTime!.value = time;
-          mesh.material.uniforms.uActive!.value = mouth ? snap : (pose.dash ?? 0) > 0 ? 1 : 0; // the bite; the jet's plume
+      for (const part of parts) {
+        const { mesh } = part;
+        const un = mesh.material.uniforms;
+        let { x, y, angle } = part;
+        if (part.seg >= 0) { // ride its segment: carried and turned with it
+          const [rx, ry] = segments[part.seg]!;
+          const t = turns[part.seg]!;
+          const dx = x - rx;
+          const dy = y - ry;
+          x = seg[part.seg]!.x + dx * Math.cos(t) - dy * Math.sin(t);
+          y = seg[part.seg]!.y + dx * Math.sin(t) + dy * Math.cos(t);
+          angle += t;
         }
+        const at = deform(form, x, y, angle, flex.v); // on the shaped (and flexing) body, facing its normal there
+        if (part.whip) {
+          const root = toWorld(at.x, at.y);
+          stepWhip(part.whip, root.x, root.y, pose.heading + at.angle, (part.size * radius) / (WHIP_POINTS - 1), step);
+          const points = un.uChain!.value as THREE.Vector2[];
+          for (const [i, v] of points.entries()) {
+            const b = toBody(part.whip.x[i]!, part.whip.y[i]!);
+            v.set(b.x, b.y);
+          }
+          un.uBeat!.value += dt * beat * (dormant ? 0 : pose.tumble > 0 ? BEAT_TUMBLE : BEAT_RUN);
+          continue;
+        }
+        if (part.internal) { // organelles slosh against the acceleration
+          const alx = (m.ax * ch + m.ay * sh) / radius;
+          const aly = (m.ay * ch - m.ax * sh) / radius;
+          stepSpring(part.sx, clamp(-alx * SLOSH, SLOSH_MAX), part.feel.k, part.feel.c, step);
+          stepSpring(part.sy, clamp(-aly * SLOSH, SLOSH_MAX), part.feel.k, part.feel.c, step);
+        } else { // membrane parts trail the turn and swing against a sideways push
+          const phi = pose.heading + at.angle;
+          const push = (m.ay * Math.cos(phi) - m.ax * Math.sin(phi)) / radius;
+          stepSpring(part.swing, clamp(-m.omega * PART_LAG - push * PART_PUSH, PART_SWING), part.feel.k, part.feel.c, step);
+        }
+        const a = at.angle + part.swing.v;
+        mesh.position.set(at.x + part.sx.v + Math.cos(a) * part.size * part.out, at.y + part.sy.v + Math.sin(a) * part.size * part.out, 0);
+        mesh.rotation.z = a;
+        mesh.scale.setScalar(part.size);
+        un.uTime!.value = time;
+        un.uActive!.value = part.mouth ? snap : (pose.dash ?? 0) > 0 ? 1 : 0; // the bite; the jet's plume
       }
       u.uJiggle!.value = feel.jiggle;
       u.uHurt!.value = feel.hurt;
@@ -660,7 +817,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       frame.scale.multiplyScalar(k);
     },
     dispose() {
-      rebuild([], 1, 0, DEFAULT_SEGMENTS);
+      rebuild([], 1, DEFAULT_SEGMENTS);
       parent.remove(body, frame);
       body.material.dispose();
     },
