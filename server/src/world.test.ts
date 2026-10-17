@@ -3,7 +3,7 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  radiusOf, formOf, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -607,6 +607,18 @@ test('fights span one tier: a spiked eukaryote stabs an animal but not an arthro
     run(state, 1);
     expect(big.health < 1000).toBe(hurtExpected);
   }
+});
+
+test('a sculpted body shape is validated and kept on the species', () => {
+  const { state, player, lineage } = species();
+  player.cyst = CYST_TIME;
+  const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
+  const design = { parts: keep, hue: 0.4, children: 0, name: lineage.name };
+  expect(submitDesign(state, 'p', { ...design, form: { sx: 3, sy: 1, bend: 0 } }, false)).toBe('bad form'); // too long
+  expect(submitDesign(state, 'p', { ...design, form: { sx: 1.3, sy: 'wide', bend: 0 } }, false)).toBe('bad form');
+  expect(submitDesign(state, 'p', { ...design, form: { sx: 1.3, sy: 0.7, bend: -0.2 } })).toBeUndefined();
+  expect([lineage.sx, lineage.sy, lineage.bend].map((v) => Math.round(v * 100) / 100)).toEqual([1.3, 0.7, -0.2]);
+  expect(formOf(lineage).sx).toBeCloseTo(1.3, 5);
 });
 
 test('small jaws on a big body: an animal bites an arthropod for half damage', () => {

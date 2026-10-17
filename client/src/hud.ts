@@ -18,7 +18,7 @@ export interface HudState {
 }
 
 /** Child icons by tier: a cell, a cell with a nucleus, an egg, a cocoon. */
-const CHILD_ICON = [
+export const CHILD_ICON = [
   '',
   '<circle cx="8" cy="8" r="5.5"/>',
   '<circle cx="8" cy="8" r="6"/><circle cx="9.5" cy="7" r="2" class="in"/>',

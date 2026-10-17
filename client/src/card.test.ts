@@ -13,6 +13,8 @@ test('a card survives the link round trip (UTF-8 names included)', () => {
   expect(decodeCard(encodeCard(eu))).toEqual(eu);
   const animal: CardData = { ...card, tier: 3, plan: 1, radii: [0.6, 0.4, 0.4, 0.4], parts: [{ gene: 'paddle', x: 0, y: 1, angle: 1.57, scale: 1, group: 0 }] };
   expect(decodeCard(encodeCard(animal))).toEqual(animal);
+  const sculpted: CardData = { ...card, form: { sx: 1.3, sy: 0.7, bend: -0.2 } };
+  expect(decodeCard(encodeCard(sculpted))).toEqual(sculpted);
   const accented = { ...card, name: 'Ébauche lucida' };
   expect(decodeCard(encodeCard(accented))!.name).toBe('Ébauche lucida');
 });
@@ -31,6 +33,7 @@ test('tampered or junk links are refused, never rendered', () => {
     [...ok, 3, 0, 9, [0.5, 0.5]], // unknown body plan
     [...ok, 3, 0, 0, [0.5, 5]], // segment out of range
     [...ok, 3, 0, 0, Array(7).fill(0.5)], // too many segments
+    [...ok, 1, 0, 0, [0.5, 0.5], [9, 0.7, 0]], // sculpted far beyond the limits
   ]) expect(decodeCard(tamper(bad))).toBeUndefined();
   expect(decodeCard('not base64 at all!!')).toBeUndefined();
 });

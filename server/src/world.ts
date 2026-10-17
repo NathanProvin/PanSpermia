@@ -8,7 +8,7 @@ import {
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, fitsPlan, SEGMENT_MIN,
-  ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
+  cleanForm, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
@@ -298,6 +298,8 @@ export function hatch(state: PoolState, id: string) {
 
 interface Design {
   genome: number; placed: Part[]; hue: number; shape: number; children: number; name: string; evolve: boolean; cost: number;
+  /** A sculpted shape (Form), or undefined: keep the current one. */
+  form?: { sx: number; sy: number; bend: number };
   /** Animals only: body plan and segment sizes (undefined for other tiers). */
   body?: { plan: number; radii: number[] };
 }
@@ -310,9 +312,11 @@ const drafts = new WeakMap<Lineage, Design>();
  */
 function parseDesign(l: Lineage, design: unknown): Design | string {
   if (typeof design !== 'object' || design === null) return 'bad design';
-  const { parts, hue, children, name: rawName, evolve = false, shape = 0, plan = l.plan,
+  const { parts, hue, children, name: rawName, evolve = false, shape = 0, form: rawForm, plan = l.plan,
     radii = l.radii.length ? [...l.radii] : DEFAULT_RADII_OF[l.plan] } = design as Record<string, unknown>; // omitted: the current body
   if (typeof shape !== 'number' || !Number.isInteger(shape) || !SHAPES[shape]) return 'bad shape';
+  const form = rawForm === undefined ? undefined : cleanForm(rawForm);
+  if (rawForm !== undefined && !form) return 'bad form';
   const name = cleanName(rawName);
   if (!name) return 'bad name';
   if (typeof evolve !== 'boolean') return 'bad evolve';
@@ -351,7 +355,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   }
   const cost = cat.priceOf(genome) - cat.priceOf(l.genome) + children * CHILD_PRICE;
   if (cost > l.dna) return 'not enough DNA';
-  return { genome, placed, hue, shape, children, name, evolve, cost, body };
+  return { genome, placed, hue, shape, form, children, name, evolve, cost, body };
 }
 
 /**
@@ -406,6 +410,7 @@ function apply(l: Lineage, d: Design) {
   l.hue = d.hue;
   l.name = d.name;
   l.shape = d.shape;
+  if (d.form) Object.assign(l, { sx: d.form.sx, sy: d.form.sy, bend: d.form.bend });
   l.children += d.children;
   if (d.body) {
     l.plan = d.body.plan;

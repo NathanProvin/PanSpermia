@@ -127,6 +127,10 @@ export const Lineage = schema({
   hue: t.float32(),
   shape: t.uint8().default(0),
   /** Animals (tier 3 up): body plan (PLAN_NAMES index) and relative segment sizes (see segmentsOf). */
+  /** A sculpted body shape (polish S4: shapes.ts Form); sx 0 = the shape preset above. */
+  sx: t.float32().default(0),
+  sy: t.float32().default(0),
+  bend: t.float32().default(0),
   plan: t.uint8().default(0),
   radii: t.array('float32'),
   /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */

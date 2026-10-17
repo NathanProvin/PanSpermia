@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, MOLLUSK, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
+  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, MOLLUSK, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
   deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -816,7 +816,9 @@ export function hashId(id: string) {
 export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number; call?: number; cocoon?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
 export interface Look {
-  tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number;
+  tier: number; genome: number; parts: readonly Placement<string>[]; hue: number;
+  /** A shape preset id, or a sculpted Form. */
+  shape?: number | Form;
   /** An animal's body (segmentsOf); the default body when absent. */
   segments?: readonly Segment[];
   /** Its body plan (PLAN_NAMES): a tier-4 arthropod or mollusk. */
@@ -918,7 +920,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
     update(pose: Pose, radius: number, look: Look, time: number, dt: number) {
       const form = look.shape ?? 0;
       const segments = look.segments ?? DEFAULT_SEGMENTS;
-      const key = `${look.tier}/${form}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
+      const formKey = typeof form === 'number' ? form : `${form.sx.toFixed(3)},${form.sy.toFixed(3)},${form.bend.toFixed(3)}`;
+      const key = `${look.tier}/${formKey}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
         partsKey = key;
         rebuild(look.parts, look.tier, segments);
@@ -965,7 +968,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       stepSpring(flex, clamp(m.omega * FLEX, FLEX_MAX) * bow, FLEX_SPRING.k, FLEX_SPRING.c, step);
       if (isAnimal(look.tier)) { // the shape is in the segment layout and the plates (PLATE), not a body stretch
         body.material.uniforms.uShape!.value.set(1, 1, 0);
-        (body.material.uniforms.uPlate!.value as THREE.Vector2).set(...(PLATE[form] ?? PLATE[0]!));
+        (body.material.uniforms.uPlate!.value as THREE.Vector2).set(...((typeof form === 'number' ? PLATE[form] : undefined) ?? PLATE[0]!));
       } else body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend + flex.v);
 
       // Animal: the head leads, the rest of the body follows it through the water.

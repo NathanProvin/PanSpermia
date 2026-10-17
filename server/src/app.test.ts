@@ -210,7 +210,9 @@ test('a starved player is told why and respawns as a fresh instance', async () =
 });
 
 test('room caps at MAX_PLAYERS, overflow opens a second room', async () => {
-  const rooms = await Promise.all(Array.from({ length: MAX_PLAYERS + 1 }, join));
+  // In batches: 51 simultaneous full-pool snapshots on a busy machine time the clients out (ws 1006).
+  const rooms: Room<any, PoolState>[] = [];
+  while (rooms.length < MAX_PLAYERS + 1) rooms.push(...await Promise.all(Array.from({ length: Math.min(10, MAX_PLAYERS + 1 - rooms.length) }, join)));
   expect(new Set(rooms.map((r) => r.roomId)).size).toBe(2);
   await Promise.all(rooms.map((r) => r.leave()));
 }, 60_000); // 51 clients each decode the whole pool

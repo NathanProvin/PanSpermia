@@ -45,7 +45,7 @@
       .chip.ready span { opacity: 1; }
       .chip.active { background: var(--evolve); }
       .chip.active span { opacity: 1; }
-      .hud-toasts { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; }
+      .hud-toasts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; }
       .toast { padding: 6px 14px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line);
         backdrop-filter: var(--blur); animation: toast 4.5s ease forwards; white-space: nowrap; }
       @keyframes toast { 0% { opacity: 0; transform: translateY(-6px); } 8%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
@@ -55,38 +55,73 @@
       .hud-perf { position: absolute; left: 12px; bottom: 8px; font: 11px ui-monospace, monospace; color: var(--ink-soft); }
       @media (prefers-reduced-motion: reduce) { .toast { animation-duration: 0.01s; animation-delay: 4s; } .gauge i { transition: none; } }
       #extinct { position: fixed; inset: 0; display: grid; place-content: center; gap: 16px; text-align: center;
-        background: rgb(2 18 26 / 0.7); font: 18px system-ui, sans-serif; color: #9fe7e0; }
+        background: rgb(4 18 22 / 0.55); backdrop-filter: var(--blur); font: 18px system-ui, sans-serif; color: var(--ink); }
       #extinct[hidden] { display: none; }
-      #extinct button { justify-self: center; font: inherit; padding: 10px 20px; border: 1px solid #9fe7e0; border-radius: 6px;
-        background: transparent; color: inherit; cursor: pointer; }
+      #extinct button { justify-self: center; font: inherit; padding: 10px 20px; border: 1px solid var(--accent); border-radius: var(--radius);
+        background: var(--glass-strong); color: inherit; cursor: pointer; }
       #extinct button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-      #editor { position: fixed; inset: 0; pointer-events: none; font: 14px system-ui, sans-serif; color: #9fe7e0; }
-      #editor[hidden], #editor [hidden] { display: none; }
-      #editor .panel { position: absolute; top: 44px; width: 210px; max-height: calc(100% - 60px); overflow: auto;
-        pointer-events: auto; padding: 12px; border: 1px solid rgb(159 231 224 / 0.3); border-radius: 8px;
-        background: rgb(2 18 26 / 0.75); box-sizing: border-box; scrollbar-color: rgb(159 231 224 / 0.35) transparent; }
-      #palette { left: 16px; }
-      #editor-side { right: 16px; display: grid; gap: 10px; }
-      #editor h2 { margin: 0 0 8px; font-size: 15px; }
-      #editor .parts { display: grid; gap: 6px; }
-      #editor button { font: inherit; color: inherit; background: rgb(159 231 224 / 0.08); cursor: pointer;
-        border: 1px solid rgb(159 231 224 / 0.35); border-radius: 6px; padding: 6px 10px; touch-action: none; }
-      #editor .parts button { display: grid; text-align: left; }
-      #editor .parts small { opacity: 0.7; }
+      /* The editor: same tokens as the HUD. Two glass panels, a parts grid of icons, swatches, handles on the body. */
+      #editor { position: fixed; inset: 0; pointer-events: none; font: var(--font); color: var(--ink); }
+      #editor[hidden], #editor [hidden] { display: none !important; }
+      #editor .panel { position: absolute; top: 52px; max-height: calc(100% - 100px); overflow: auto; pointer-events: auto;
+        padding: 12px; box-sizing: border-box; background: var(--glass-strong); border: 1px solid var(--line);
+        border-radius: var(--radius); backdrop-filter: var(--blur); scrollbar-color: var(--line) transparent; }
+      #palette { left: 12px; width: 232px; }
+      #editor-side { right: 12px; width: 232px; display: grid; gap: 10px; align-content: start; }
+      #editor h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink-soft); letter-spacing: 0.04em; text-transform: uppercase; }
+      #editor .parts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      #editor .part { position: relative; aspect-ratio: 1; padding: 0; border-radius: 8px; cursor: grab; touch-action: none;
+        background: rgb(143 179 166 / 0.55); border: 1px solid var(--line); overflow: hidden; }
+      #editor .part img { width: 100%; height: 100%; display: block; pointer-events: none; }
+      #editor .part .price { position: absolute; top: 3px; right: 4px; font-size: 10px; font-weight: 600; padding: 0 4px;
+        border-radius: 6px; background: var(--glass-strong); color: var(--dna); }
+      #editor .part .pips { position: absolute; bottom: 2px; left: 0; right: 0; font-size: 8px; letter-spacing: 1px; color: var(--ink); text-shadow: 0 1px 2px #000; }
+      #editor .part .coat { position: absolute; top: 3px; left: 4px; font-size: 9px; color: var(--ink-soft); }
+      #editor .part.used { border-color: var(--accent); }
+      #editor .part.locked { cursor: default; background: rgb(255 255 255 / 0.04); }
+      #editor .part .q { font-size: 20px; color: var(--ink-soft); opacity: 0.6; }
+      #editor .part-info { min-height: 2.6em; margin: 8px 0 0; color: var(--ink-soft); font-size: 12px; }
+      #editor button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); border-radius: 8px;
+        background: rgb(255 255 255 / 0.06); padding: 6px 10px; }
+      #editor button:hover:not(:disabled) { background: rgb(255 255 255 / 0.12); }
       #editor button:disabled { opacity: 0.4; cursor: default; }
-      #editor button[aria-pressed="true"] { background: rgb(159 231 224 / 0.3); }
-      #editor button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-      #editor fieldset { border: 1px solid rgb(159 231 224 / 0.2); border-radius: 6px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
-      #editor fieldset button { padding: 6px 8px; }
-      #editor label { display: grid; gap: 4px; }
+      #editor button:focus-visible, #editor .handle:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+      #editor .icon { width: 34px; height: 34px; padding: 4px; display: inline-grid; place-items: center; }
+      #editor .icon svg { width: 22px; height: 22px; fill: rgb(238 247 242 / 0.2); stroke: var(--ink); stroke-width: 1.2; }
+      #editor .icon svg .ink { fill: var(--ink); stroke: none; }
+      #editor .icon svg .line { fill: none; }
+      #editor [aria-pressed='true'], #editor [aria-checked='true'] { border-color: var(--accent); background: rgb(159 231 208 / 0.18); }
+      #editor .name { font: 600 15px/1.2 system-ui, sans-serif; color: var(--ink); background: rgb(255 255 255 / 0.06);
+        border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%; box-sizing: border-box; }
       #editor p { margin: 0; }
-      #editor .short { color: #ff8a7a; }
-      #editor .hatch { font-size: 16px; padding: 10px; background: rgb(159 231 224 / 0.25); }
-      @media (max-width: 640px) { #editor .panel { width: 46%; } }
-      #editor input[type="text"] { font: inherit; color: inherit; background: rgb(159 231 224 / 0.08);
-        border: 1px solid rgb(159 231 224 / 0.35); border-radius: 6px; padding: 6px 8px; }
-      #editor progress { width: 100%; accent-color: #9fe7e0; }
-      #editor .evolve:not(:disabled) { background: rgb(255 214 120 / 0.25); border-color: #ffd678; color: #ffe6a8; }
+      #editor .dna { color: var(--ink-soft); }
+      #editor .dna b { font-size: 20px; color: var(--dna); }
+      #editor .dna.short b { color: var(--danger); }
+      #editor .ed-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      #editor .swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid rgb(0 0 0 / 0.25); }
+      #editor .swatch[aria-checked='true'] { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); background: var(--c); }
+      #editor .tools .plans { display: inline-flex; gap: 6px; margin-left: auto; }
+      #editor .kids { gap: 4px; }
+      #editor .eggs { display: flex; flex-wrap: wrap; gap: 2px; flex: 1; min-height: 16px; }
+      #editor .eggs svg { width: 15px; height: 15px; fill: rgb(238 247 242 / 0.15); stroke: var(--ink-soft); stroke-width: 1.1; }
+      #editor .eggs svg.new { fill: rgb(240 199 94 / 0.45); stroke: var(--energy); }
+      #editor .eggs svg .in { fill: none; }
+      #editor .stats { color: var(--ink-soft); font-size: 11px; }
+      #editor .message { color: var(--danger); font-size: 12px; min-height: 1em; }
+      #editor .primary { font-size: 15px; font-weight: 600; padding: 10px; background: rgb(159 231 208 / 0.22); border-color: var(--accent); }
+      #editor .evolution { display: grid; gap: 6px; }
+      #editor .evolve:not(:disabled) { background: rgb(255 214 120 / 0.22); border-color: var(--evolve); color: #ffe6a8; }
+      #editor .gauge.dna.ready i { background: var(--evolve); }
+      #editor .ed-timer { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 5px 14px; border-radius: 999px;
+        background: var(--glass-strong); border: 1px solid var(--line); backdrop-filter: var(--blur); white-space: nowrap; }
+      #editor .ed-help { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); color: var(--ink-soft); font-size: 12px;
+        text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); white-space: nowrap; }
+      #editor .handle { position: fixed; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; pointer-events: auto;
+        cursor: grab; touch-action: none; background: rgb(255 255 255 / 0.85); border: 2px solid var(--glass-strong);
+        box-shadow: 0 0 0 3px rgb(159 231 208 / 0.45); }
+      #editor .handle:hover { box-shadow: 0 0 0 5px rgb(159 231 208 / 0.6); }
+      #editor .drag-ghost { position: fixed; left: -32px; top: -32px; width: 64px; height: 64px; pointer-events: none; opacity: 0.85; }
+      @media (max-width: 760px) { #palette, #editor-side { width: 40%; } #editor .ed-help { display: none; } }
       #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
       #labels div { position: absolute; left: 0; top: 0; font: 12px system-ui, sans-serif; color: rgb(220 245 240 / 0.8);
         white-space: nowrap; text-shadow: 0 1px 3px #000; will-change: transform; }
@@ -97,16 +132,16 @@
       #leaders li { white-space: nowrap; }
       #leaders .self { color: #fff; font-weight: 600; }
       #stageup { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none;
-        font: 600 34px system-ui, sans-serif; color: #ffe6a8; text-shadow: 0 2px 12px #000; opacity: 0; transition: opacity 1.5s; }
-      #stageup small { display: block; font-size: 17px; font-weight: 400; color: #9fe7e0; margin-top: 8px; }
+        font: 600 34px system-ui, sans-serif; color: #ffe6a8; text-shadow: 0 2px 12px rgb(0 0 0 / 0.7); opacity: 0; transition: opacity 1.5s; }
+      #stageup small { display: block; font-size: 17px; font-weight: 400; color: var(--ink); margin-top: 8px; }
       #stageup.on { opacity: 1; }
       #card { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; padding: 16px;
-        background: rgb(2 18 26 / 0.8); font: 15px system-ui, sans-serif; color: #9fe7e0; }
+        background: rgb(4 18 22 / 0.6); backdrop-filter: var(--blur); font: 15px system-ui, sans-serif; color: var(--ink); }
       #card[hidden] { display: none; }
       #card img { width: min(900px, 92vw); border-radius: 12px; box-shadow: 0 8px 40px #000; }
       #card .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
       #card button, #card a { font: inherit; color: inherit; text-decoration: none; padding: 9px 16px; cursor: pointer;
-        border: 1px solid #9fe7e0; border-radius: 6px; background: transparent; }
+        border: 1px solid var(--accent); border-radius: var(--radius); background: var(--glass-strong); }
       #card button:focus-visible, #card a:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     </style>
   </head>

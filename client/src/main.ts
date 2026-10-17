@@ -2,7 +2,7 @@ import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
   BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, MOLLUSK, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
-  JET_COOLDOWN, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -196,7 +196,7 @@ if (sharedCard) {
 const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogFor(l.tier).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
-  tier: l.tier, shape: l.shape, plan: l.plan, radii: [...l.radii],
+  tier: l.tier, shape: l.shape, ...(l.sx > 0 ? { form: formOf(l) } : {}), plan: l.plan, radii: [...l.radii],
 });
 
 try {
@@ -249,7 +249,7 @@ try {
     const segments = l && isAnimal(p.tier) && l.tier === p.tier && l.radii.length ? segmentsOf(l.plan, [...l.radii])
       : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : undefined;
     const plan = l && l.tier === p.tier ? l.plan : bot?.plan;
-    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: p.shape, segments, plan };
+    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: l ? formOf(l) : p.shape, segments, plan };
   };
 
   const input = room.input({ type: Input, mode: 'reliable' });
