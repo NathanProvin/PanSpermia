@@ -9,6 +9,7 @@ import { createSprites } from './sprites.ts';
 // Kind rides in the integer part of aSeed (9 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
+uniform float uFocus;
 varying vec2 vUv;
 varying float vSeed;
 float segment(vec2 p, vec2 a, vec2 b) {
@@ -89,6 +90,8 @@ void main() {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.8, 0.74, 0.58) * exp(-r2 * 3.5) * 0.1 * breathe; // a food source: a soft warm glow
   }
+  // Seen from high up (big bodies), a plume's ~60 packets pile up additively into a white bloom: dim them with height.
+  color *= mix(1.0, 0.4, smoothstep(1500.0, 6500.0, uFocus));
   gl_FragColor = vec4(color, 1.0);
 }
 `;

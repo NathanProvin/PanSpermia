@@ -2,8 +2,8 @@ import { currentAt } from '@panspermia/shared';
 import type * as THREE from 'three';
 import { createSprites } from './sprites.ts';
 
-// Suspended matter drifting on the pool currents at many depths: a natural pond's water is full of silt
-// and dust, brown flakes of detritus, fluffy marine snow, a few algae cells and diatoms, and the odd large
+// Suspended matter drifting on the pool currents at many depths: a sunny pond's water is full of grey dust,
+// brown flakes of detritus, fluffy marine snow, mossy and leaf-green algae, golden diatoms, and the odd large
 // translucent organism deep down. It is matter, not light: drawn over the water (premultiplied alpha), so
 // brown flakes darken it instead of glowing. Depth, not distance in the plane, does the work: perspective
 // gives parallax, the sprite lens gives depth of field; every mote tumbles slowly and sinks.
@@ -31,26 +31,26 @@ void main() {
   float r;
   vec3 col;
   float opacity;
-  if (pick < 0.38) { // silt and dust: tan and beige grains
+  if (pick < 0.3) { // dust: warm greys to stone
     r = length(p * vec2(1.0, 1.3)) * (1.0 + 0.3 * ragged);
-    col = mix(vec3(0.14, 0.115, 0.08), vec3(0.24, 0.2, 0.14), tone);
-    opacity = 0.75;
-  } else if (pick < 0.68) { // detritus: ragged, elongated brown flakes
+    col = mix(vec3(0.15, 0.15, 0.14), vec3(0.3, 0.29, 0.25), tone);
+    opacity = 0.6;
+  } else if (pick < 0.55) { // detritus: ragged, elongated flakes, umber to chestnut brown
     r = length(p * vec2(1.0, 1.8 + 1.6 * fract(vSeed * 5.3))) + 0.45 * ragged;
-    col = mix(vec3(0.045, 0.03, 0.014), vec3(0.11, 0.07, 0.035), tone);
-    opacity = 0.9;
-  } else if (pick < 0.83) { // marine snow: pale, fluffy aggregates
+    col = mix(vec3(0.15, 0.09, 0.04), vec3(0.34, 0.21, 0.09), tone);
+    opacity = 0.85;
+  } else if (pick < 0.68) { // marine snow: pale, fluffy aggregates
     r = length(p) + 0.3 * sin(p.x * 7.0 + vSeed * 13.0) * sin(p.y * 6.0 + vSeed * 23.0) * detail;
-    col = mix(vec3(0.16, 0.16, 0.13), vec3(0.22, 0.21, 0.17), tone);
-    opacity = 0.4;
-  } else if (pick < 0.95) { // algae cells: olive to green
-    r = length(p);
-    col = mix(vec3(0.05, 0.1, 0.035), vec3(0.09, 0.15, 0.05), tone);
-    opacity = 0.65;
-  } else { // diatoms: golden-brown rods
+    col = mix(vec3(0.4, 0.39, 0.33), vec3(0.52, 0.5, 0.42), tone);
+    opacity = 0.22; // pale and many: more would veil the pond in milk
+  } else if (pick < 0.93) { // algae and moss fragments: mossy olive to fresh leaf green
+    r = length(p * vec2(1.0, 1.0 + 0.8 * fract(vSeed * 2.9))) + 0.25 * ragged;
+    col = mix(vec3(0.15, 0.24, 0.06), vec3(0.2, 0.46, 0.1), tone);
+    opacity = 0.75;
+  } else { // diatoms: golden rods
     r = length(p * vec2(1.0, 3.2));
-    col = mix(vec3(0.16, 0.12, 0.05), vec3(0.24, 0.19, 0.08), tone);
-    opacity = 0.7;
+    col = mix(vec3(0.42, 0.31, 0.1), vec3(0.56, 0.43, 0.15), tone);
+    opacity = 0.75;
   }
   float soft = max(1.0 - vSharp, 0.15);
   float disc = 1.0 - smoothstep(1.0 - soft, 1.0, r);
@@ -58,7 +58,7 @@ void main() {
   float big = smoothstep(30.0, 90.0, vSize);
   float ring = smoothstep(0.55 - soft * 0.5, 0.85, length(p)) * (1.0 - smoothstep(1.0 - soft, 1.0, length(p)));
   disc = mix(disc, 0.15 * disc + 0.5 * ring, big);
-  col = mix(col, vec3(0.07, 0.1, 0.07), big);
+  col = mix(col, vec3(0.2, 0.3, 0.22), big);
   // Depth of field: a blurred mote spreads its matter over a larger disc. Physically it fades with vSharp²;
   // vSharp^1.5 keeps the water visibly full of matter at every depth.
   float alpha = disc * opacity * pow(vSharp, 1.5) * uFade;
@@ -71,7 +71,7 @@ interface Mote { x: number; y: number; z: number; sink: number }
 export function createPlankton(camera: THREE.PerspectiveCamera) {
   const back = createSprites(COUNT, FRAGMENT, 1, true);
   const front = createSprites(Math.ceil(COUNT * FOREGROUND_SHARE), FRAGMENT, 20, true);
-  front.mesh.material.uniforms.uFade!.value = 0.45; // right in front of the lens: a faint veil, never a blot
+  front.mesh.material.uniforms.uFade!.value = 0.3; // right in front of the lens: a faint veil, never a blot
   // Alpha is ≤ opacity × sharpness^1.5: below ~2 % coverage a mote is invisible, but its blurred quad isn't free.
   for (const s of [back, front]) s.mesh.material.uniforms.uCull!.value = 0.006;
   const motes: Mote[] = [];
