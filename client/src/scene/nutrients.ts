@@ -91,7 +91,7 @@ void main() {
     color = vec3(0.8, 0.74, 0.58) * exp(-r2 * 3.5) * 0.1 * breathe; // a food source: a soft warm glow
   }
   // Seen from high up (big bodies), a plume's ~60 packets pile up additively into a white bloom: dim them with height.
-  color *= mix(1.0, 0.4, smoothstep(1500.0, 6500.0, uFocus));
+  color *= mix(1.0, 0.35, smoothstep(700.0, 3000.0, uFocus));
   gl_FragColor = vec4(color, 1.0);
 }
 `;

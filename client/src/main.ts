@@ -357,6 +357,10 @@ try {
       const targetZ = (140 + 12 * Math.min(r, 126) + 5 * Math.max(0, Math.min(r, 680) - 126) + 3 * Math.max(0, r - 680)) * sight;
       const at = selfView!.at; // the cell's centre (an animal's quad is offset to fit its body)
       camera.position.set(at.x, at.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
+      // Bloom fades out as the camera rises: from an animal's height, piles of small additive lights (a plume of food,
+      // toxin rings, shards) bloomed into big white glows popping in and out (user report, polish).
+      const high = Math.min(1, Math.max(0, (camera.position.z - 900) / 2100));
+      post.bloom.strength = 0.25 * (1 - 0.85 * high * high * (3 - 2 * high));
       // Ripples at key moments: a new individual (hatching, emerging), a dash or a spore starting, hard
       // acceleration, swimming into a strong current.
       const w = rippleWatch;
