@@ -7,7 +7,7 @@ import {
   BITE_DAMAGE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
-  MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN,
+  MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, fitsPlan, SEGMENT_MIN,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
@@ -297,7 +297,8 @@ const drafts = new WeakMap<Lineage, Design>();
  */
 function parseDesign(l: Lineage, design: unknown): Design | string {
   if (typeof design !== 'object' || design === null) return 'bad design';
-  const { parts, hue, children, name: rawName, evolve = false, shape = 0, plan = 0, radii = DEFAULT_RADII } = design as Record<string, unknown>;
+  const { parts, hue, children, name: rawName, evolve = false, shape = 0, plan = l.plan,
+    radii = l.radii.length ? [...l.radii] : DEFAULT_RADII_OF[l.plan] } = design as Record<string, unknown>; // omitted: the current body
   if (typeof shape !== 'number' || !Number.isInteger(shape) || !SHAPES[shape]) return 'bad shape';
   const name = cleanName(rawName);
   if (!name) return 'bad name';
@@ -311,7 +312,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   }
   let body: Design['body'];
   if (isAnimal(l.tier)) {
-    if (typeof plan !== 'number' || !Number.isInteger(plan) || !PLAN_NAMES[plan]) return 'bad plan';
+    if (typeof plan !== 'number' || !PLANS_OF[l.tier]!.includes(plan)) return 'bad plan';
     if (!Array.isArray(radii) || radii.length < MIN_SEGMENTS || radii.length > MAX_SEGMENTS
       || !radii.every((r) => typeof r === 'number' && r >= SEGMENT_MIN && r <= SEGMENT_MAX)) return 'bad segments';
     body = { plan, radii: radii as number[] };
@@ -324,6 +325,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
     if (typeof gene !== 'string' || !Object.hasOwn(cat.GENES, gene)) return 'unknown part';
     const g = cat.GENES[gene]!;
     if (!(l.library & g.bit)) return 'part not unlocked';
+    if (!fitsPlan(body?.plan ?? 0, g.bit)) return 'part does not fit the body plan';
     if (typeof x !== 'number' || typeof y !== 'number' || typeof angle !== 'number' || typeof scale !== 'number'
       || !Number.isFinite(angle) || !(Math.hypot(x, y) <= 1.5) || !(scale >= 0.5 && scale <= 2)
       || typeof group !== 'number' || !Number.isInteger(group) || group < 0 || group > 255) {
@@ -377,9 +379,9 @@ function evolve(l: Lineage) {
   l.parts.push(...cat.defaultParts(genome).map((p) => new Part({ ...p, gene: cat.GENES[p.gene]!.index })));
   l.library = library; // the old tier's parts mean nothing to the new body plan
   if (isAnimal(l.tier)) {
-    l.plan = 0;
+    l.plan = PLANS_OF[l.tier]![0]!;
     l.radii.clear();
-    l.radii.push(...DEFAULT_RADII);
+    l.radii.push(...DEFAULT_RADII_OF[l.plan]!);
   }
 }
 

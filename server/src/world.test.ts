@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, ARTHROPOD, MOLLUSK, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
@@ -621,6 +621,18 @@ test('tier 4: claws swallow smaller animals and crush rivals through their armou
   stepWorld(s2);
   expect(T4_HEALTH_MAX - b.health).toBeCloseTo(BITE_DAMAGE[4]! * 1.5 * SHELL_ARMOUR, 6);
   expect(T4_HEALTH_MAX - a.health).toBeCloseTo(BITE_DAMAGE[4]!, 6);
+  // The body plan decides which parts fit: a mollusk can't walk on legs, an arthropod can't wear a shell.
+  const { state: s4, player: p4, lineage: l4 } = species();
+  Object.assign(l4, { tier: 4, genome: 0, library: ~0 >>> 0, dna: 1e4 });
+  Object.assign(p4, { tier: 4, genome: 0, genome4: 0, mass: T4_SPAWN_MASS, cyst: CYST_TIME });
+  const part = (gene: string, angle = 0) => ({ gene, x: Math.cos(angle), y: Math.sin(angle), angle, scale: 1, group: 0 });
+  const design = (plan: number, ...genes: string[]) =>
+    ({ parts: genes.map((g) => part(g)), hue: 0.2, children: 0, name: l4.name, plan, radii: [0.4, 0.9] });
+  expect(submitDesign(s4, 'p', design(0, 'eye'), false)).toBe('bad plan'); // a tier-3 plan
+  expect(submitDesign(s4, 'p', design(MOLLUSK, 'legs'), false)).toBe('part does not fit the body plan');
+  expect(submitDesign(s4, 'p', design(ARTHROPOD, 'shell'), false)).toBe('part does not fit the body plan');
+  expect(submitDesign(s4, 'p', design(MOLLUSK, 'foot', 'radula', 'shell', 'eye'))).toBeUndefined();
+  expect([l4.plan, s4.players.get('p')!.genome4]).toEqual([MOLLUSK, TIER4.genomeOf(['foot', 'radula', 'shell', 'eye'])]);
   // An arthropod at its cap calls a mate of its own kind.
   const { state: s3, player, lineage } = species();
   lineage.tier = 4;

@@ -83,7 +83,7 @@ function renderCell(d: CardData, size: number) {
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
   createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
     { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.shape,
-      segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii) : undefined }, 1.7, 0);
+      segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii) : undefined, plan: d.plan }, 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;
@@ -120,7 +120,7 @@ export function renderCard(d: CardData) {
   g.fillText(d.name, x, 150, 520);
   g.fillStyle = '#9fe7e0';
   g.font = '24px system-ui, sans-serif';
-  g.fillText(`Tier ${d.tier} · ${TIER_NAMES[d.tier]}`, x, 195);
+  g.fillText(`Tier ${d.tier} · ${d.tier === 4 ? PLAN_NAMES[d.plan] : TIER_NAMES[d.tier]}`, x, 195); // tier 4: arthropod or mollusk
   const fate = { evolved: '✦ Evolved into eukaryotes', extinct: '✝ Extinct', living: '● Still dividing' }[d.fate];
   g.fillStyle = d.fate === 'evolved' ? '#ffd678' : d.fate === 'extinct' ? '#ff9a8a' : '#9fe7e0';
   g.font = '600 26px system-ui, sans-serif';

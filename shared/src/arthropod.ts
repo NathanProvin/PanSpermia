@@ -27,6 +27,14 @@ export const STARTER_GENOME4 = TIER4.genomeOf(['legs', 'legs', 'maxillae', 'eye'
 export const STARTER_LIBRARY4 = TIER4.GENES.legs.bit | TIER4.GENES.tailFan.bit | TIER4.GENES.claw.bit
   | TIER4.GENES.maxillae.bit | TIER4.GENES.eye.bit | TIER4.GENES.foot.bit | TIER4.GENES.radula.bit | TIER4.GENES.beak.bit;
 
+/** What each tier-4 plan can wear (one-copy bits; the eye fits both). */
+const PLAN_PARTS: Readonly<Record<number, number>> = {
+  2: ['legs', 'tailFan', 'claw', 'maxillae', 'exoskeleton', 'eye'].reduce((m, g) => m | TIER4.GENES[g as Gene4].bit, 0),
+  3: ['foot', 'siphon', 'radula', 'beak', 'shell', 'eye'].reduce((m, g) => m | TIER4.GENES[g as Gene4].bit, 0),
+};
+/** Whether a part (its one-copy bit) fits a body plan; plans without a list take any part of their tier. */
+export const fitsPlan = (plan: number, bit: number) => ((PLAN_PARTS[plan] ?? ~0) & bit) !== 0;
+
 /** Mouthparts that sweep up plant food (and bacteria, as specks), and those that take meat, bite and swallow. */
 export const grazes4 = (genome4: number) => TIER4.hasGene(genome4, 'maxillae') || TIER4.hasGene(genome4, 'radula');
 export const hunts4 = (genome4: number) => TIER4.hasGene(genome4, 'claw') || TIER4.hasGene(genome4, 'beak');

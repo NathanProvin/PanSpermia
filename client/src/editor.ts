@@ -1,6 +1,7 @@
 import {
   CHILD_PRICE, evolveDnaOf, type Catalog, type Lineage, MAX_CHILDREN, MAX_PARTS, MAX_TIER, NAME_MAX, type Placement, TIER_NAMES,
-  SHAPE_NAMES, catalogFor, cleanName, undeform, DEFAULT_RADII, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN,
+  SHAPE_NAMES, catalogFor, cleanName, undeform, DEFAULT_RADII, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, PLANS_OF,
+  SEGMENT_MAX, SEGMENT_MIN, fitsPlan,
   animalRim, isAnimal, segmentsOf,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -108,7 +109,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       </fieldset>
       <fieldset class="shapes"><legend>Shape</legend></fieldset>
       <fieldset class="body"><legend>Body <small>(drag a segment's edge to resize)</small></legend>
-        ${PLAN_NAMES.map((p, i) => `<button type="button" data-plan="${i}">${p}</button>`).join('')}
+        <span class="plans"></span>
         <span class="segments-control">
           <button type="button" class="seg-fewer" aria-label="One segment fewer">−</button>
           <output class="segments"></output>
@@ -210,11 +211,15 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       const button = document.createElement('button');
       button.type = 'button';
       const unlocked = (lineage!.library & cat.GENES[gene]!.bit) !== 0;
-      button.disabled = !unlocked;
+      // A part of the other body plan (tier 4): shown, but it can't go on this body.
+      const fits = !animal() || fitsPlan(plan, cat.GENES[gene]!.bit);
+      button.disabled = !unlocked || !fits;
       button.dataset.gene = gene;
       const { label, slot } = cat.GENES[gene]!;
-      button.innerHTML = unlocked ? `<span>${label}</span><small></small>` : '<span>???</span><small>find its DNA</small>';
-      if (unlocked) button.title = slot === 'coat' ? 'Click to toggle' : 'Drag onto the cell, or click to place';
+      const other = PLANS_OF[lineage!.tier]?.find((q) => fitsPlan(q, cat.GENES[gene]!.bit));
+      button.innerHTML = !unlocked ? '<span>???</span><small>find its DNA</small>'
+        : fits ? `<span>${label}</span><small></small>` : `<span>${label}</span><small>${PLAN_NAMES[other ?? 0]} part</small>`;
+      if (unlocked && fits) button.title = slot === 'coat' ? 'Click to toggle' : 'Drag onto the cell, or click to place';
       return button;
     }));
   };
@@ -343,15 +348,27 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) {
     b.addEventListener('click', () => { symmetry = b.dataset.sym as Symmetry; render(); });
   }
-  for (const b of root.querySelectorAll<HTMLButtonElement>('[data-plan]')) {
-    b.addEventListener('click', () => {
-      const next = Number(b.dataset.plan);
-      // A radial body wants a centre and equal lobes; a spine starts over from the default.
-      if (next !== plan) radii = next === 1 ? [0.6, 0.4, 0.4, 0.4, 0.4] : [...DEFAULT_RADII];
-      plan = next;
-      render();
-    });
-  }
+  /** Plan buttons for the tier being edited (built when the editor opens). */
+  const buildPlans = () => {
+    $('.plans').replaceChildren(...(PLANS_OF[lineage!.tier] ?? []).map((i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.plan = String(i);
+      b.textContent = PLAN_NAMES[i]!;
+      b.addEventListener('click', () => {
+        if (i === plan) return;
+        plan = i;
+        radii = [...DEFAULT_RADII_OF[i]!]; // each plan starts from its own body
+        // Parts the new plan can't wear come off (refunded); the palette follows the plan.
+        const kept = groups.filter((g) => fitsPlan(plan, cat.GENES[g.gene]!.bit));
+        if (kept.length < groups.length) message = `Parts that don't fit a ${PLAN_NAMES[i]!.toLowerCase()} came off.`;
+        groups = kept;
+        buildPalette();
+        render();
+      });
+      return b;
+    }));
+  };
   $('.seg-fewer').addEventListener('click', () => {
     if (radii.length > MIN_SEGMENTS) radii.pop();
     render();
@@ -401,7 +418,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       hue = l.hue;
       shape = l.shape;
       plan = l.plan;
-      radii = l.radii.length ? [...l.radii] : [...DEFAULT_RADII];
+      radii = l.radii.length ? [...l.radii] : [...(DEFAULT_RADII_OF[l.plan] ?? DEFAULT_RADII)];
       resize = undefined;
       // Shape names depend on the tier (coccus/rod/vibrio for bacteria); the shapes themselves don't.
       $('.shapes').replaceChildren($('.shapes legend'), ...SHAPE_NAMES[l.tier as 1 | 2 | 3 | 4].map((label, i) => {
@@ -421,6 +438,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       drag = undefined;
       submit = onSubmit;
       root.hidden = false;
+      buildPlans();
       buildPalette();
       render();
       $<HTMLButtonElement>('.hatch').focus();
@@ -440,7 +458,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       camera.updateProjectionMatrix();
       const gs = working();
       cell.update({ x: 0, y: 0, heading: FORWARD, tumble: 0, spore: 0, cyst: 0 }, 1,
-        { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue, shape, segments: segments() }, time, dt);
+        { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue, shape, segments: segments(), plan }, time, dt);
       const what = evolving ? `Evolved: design your first ${TIER_NAMES[lineage!.tier]!.toLowerCase()}` : animal() ? 'Mating' : 'Dividing';
       $('.timer').textContent = `${what} — ${Math.ceil(secondsLeft)} s left`;
       return { scene, camera };

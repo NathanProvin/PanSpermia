@@ -19,8 +19,16 @@ export const STARTER_GENOME3 = TIER3.genomeOf(['paddle', 'paddle', 'filterComb',
 export const STARTER_LIBRARY3 = TIER3.GENES.paddle.bit | TIER3.GENES.tail.bit | TIER3.GENES.filterComb.bit
   | TIER3.GENES.mandible.bit | TIER3.GENES.eye.bit;
 
-/** Body plans: segments in a chain along the spine (worms, larvae, crustaceans), or lobes around a centre. */
-export const PLAN_NAMES = ['Spine', 'Radial'] as const;
+/**
+ * Body plans. Tier 3: segments in a chain along the spine (worms, larvae), or lobes around a centre. Tier 4: an
+ * arthropod (hard segmented plates) or a mollusk (a soft body: a head and a big visceral mass, under a shell if
+ * it has one); both lay their segments out along a spine. Only plan 1 (radial) is laid out around a centre.
+ */
+export const PLAN_NAMES = ['Spine', 'Radial', 'Arthropod', 'Mollusk'] as const;
+export const ARTHROPOD = 2;
+export const MOLLUSK = 3;
+/** The plans each animal tier offers (PLAN_NAMES indices); the first is a new species' default. */
+export const PLANS_OF: Readonly<Record<number, readonly number[]>> = { 3: [0, 1], 4: [ARTHROPOD, MOLLUSK] };
 export const MIN_SEGMENTS = 2;
 export const MAX_SEGMENTS = 6;
 /** Relative segment sizes the editor allows (the body is then fitted to the cell, so only proportions matter). */
@@ -28,6 +36,8 @@ export const SEGMENT_MIN = 0.3;
 export const SEGMENT_MAX = 1;
 /** A head, a thorax, an abdomen. */
 export const DEFAULT_RADII: readonly number[] = [0.45, 0.75, 0.5];
+/** Each plan's starting body: a spine; a radial centre with lobes; a crayfish's head, thorax and tapering tail; a snail's head and body. */
+export const DEFAULT_RADII_OF: readonly (readonly number[])[] = [DEFAULT_RADII, [0.6, 0.4, 0.4, 0.4, 0.4], [0.42, 0.6, 0.55, 0.42, 0.3], [0.4, 0.9]];
 
 export type Segment = readonly [x: number, y: number, r: number];
 

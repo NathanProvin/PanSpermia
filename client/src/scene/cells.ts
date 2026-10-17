@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, TIER4, animalRim, catalogFor,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, MOLLUSK, TIER2, TIER3, TIER4, animalRim, catalogFor,
   deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -66,6 +66,10 @@ uniform vec2 uGulp[4]; // body-frame angle, age 0..1 (≥ 1: none)
 uniform float uHurt; // 0..1 flash
 uniform vec4 uQuad; // the quad in the body frame: centre xy, half extents zw (cell radii)
 uniform vec2 uPlate; // animals: a plate's half-length along its segment's axis and half-width across, × its radius
+uniform float uBody; // 0 a tier-3 animal, 1 an arthropod, 2 a mollusk
+uniform float uShell; // a mollusk's shell...
+uniform vec3 uShellAt; // ...over this spot (body frame xy, radius)
+uniform float uFoot; // a mollusk's foot skirt
 varying vec2 vUv;
 ${NOISE}
 float angDiff(float x, float y) { float d = x - y; return atan(sin(d), cos(d)); }
@@ -86,16 +90,22 @@ vec3 lightDir() {
 // down the body (metachronal, faster as it swims), antennae on the head and two tail filaments. Radial bodies
 // wave tentacles instead. The segments come from the soft rig (the body bends as it follows its head).
 // No membrane, nucleus or glow.
+// Tier 4 (uBody): an arthropod is hard, crisply jointed chitin plates with dark sutures and a glossy sheen, and
+// walks on the legs placed in the editor (no generic legs); a mollusk is one soft, slick body with eye stalks,
+// gliding on a rippling foot skirt (foot), the biggest segment under a coiled shell (shell).
 vec2 segAxis(int i) { // a segment's forward direction: toward the one ahead (the head: away from the next)
   if (uRadial > 0.5) return i == 0 ? vec2(1.0, 0.0) : normalize(uSeg[i].xy - uSeg[0].xy);
   if (i == 0) return uSegN > 1 ? normalize(uSeg[0].xy - uSeg[1].xy) : vec2(1.0, 0.0);
   return normalize(uSeg[i - 1].xy - uSeg[i].xy);
 }
 vec4 drawAnimal(vec2 p, float t) {
-  float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3;
+  float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3, eyes = 1e3;
   vec2 q1 = vec2(0.0);
   float r1 = 1.0;
   float row = 3.0 + 9.0 * uSpeed; // leg strokes, rad/s
+  float mollusk = step(1.5, uBody);
+  float arthropod = step(0.5, uBody) * (1.0 - mollusk);
+  float blend = mix(mix(0.06, 0.025, arthropod), 0.28, mollusk); // crisp chitin joints, one soft mollusk body
   for (int i = 0; i < 8; i++) {
     if (i >= uSegN) break;
     vec3 s = uSeg[i];
@@ -108,8 +118,8 @@ vec4 drawAnimal(vec2 p, float t) {
     vec2 q = vec2(dot(p - s.xy, ax), dot(p - s.xy, side));
     float di = (length(q / uPlate) - s.z) * min(uPlate.x, uPlate.y);
     if (uJiggle > 0.001) di += uJiggle * 0.03 * s.z * sin(atan(q.y, q.x) * 5.0 + t * 15.0); // impacts only
-    float h = clamp(0.5 + 0.5 * (di - sd) / 0.06, 0.0, 1.0);
-    sd = i == 0 ? di : mix(di, sd, h) - 0.06 * h * (1.0 - h); // joined, but each plate still reads
+    float h = clamp(0.5 + 0.5 * (di - sd) / blend, 0.0, 1.0);
+    sd = i == 0 ? di : mix(di, sd, h) - blend * h * (1.0 - h); // joined, but each plate still reads
     if (di < d1) { d2 = d1; d1 = di; q1 = q; r1 = s.z; } else if (di < d2) d2 = di;
     for (int k = -1; k <= 1; k += 2) {
       float fk = float(k);
@@ -120,13 +130,20 @@ vec4 drawAnimal(vec2 p, float t) {
         vec2 mid = base + dir * s.z * 0.7;
         vec2 tip = mid + turn(dir, 0.5 * sin(t * 2.3 + float(i))) * s.z * 0.6;
         limbs = min(limbs, min(segment(p, base, mid) - 0.05 * s.z, segment(p, mid, tip) - 0.03 * s.z));
+      } else if (i == 0 && mollusk > 0.5) { // eye stalks with an eye at each tip, and short oral tentacles below
+        vec2 base = s.xy + ax * s.z * 0.55 + side * fk * s.z * 0.35;
+        vec2 tip = base + turn(ax, fk * (0.35 + 0.08 * sin(t * 1.3 + fk))) * s.z * (0.95 + 0.1 * sin(t * 0.9 + fk));
+        limbs = min(limbs, segment(p, base, tip) - mix(0.08, 0.05, clamp(dot(p - base, ax) / s.z, 0.0, 1.0)) * s.z);
+        eyes = min(eyes, length(p - tip) - 0.1 * s.z);
+        vec2 oral = s.xy + ax * s.z * 0.85 + side * fk * s.z * 0.18;
+        limbs = min(limbs, segment(p, oral, oral + turn(ax, fk * (0.9 + 0.15 * sin(t * 2.0 + fk))) * s.z * 0.45) - 0.05 * s.z);
       } else if (i == 0) { // antennae
         vec2 base = s.xy + ax * s.z * 0.85 * uPlate.x + side * fk * s.z * 0.3 * uPlate.y;
         vec2 dir = turn(ax, fk * (0.45 + 0.1 * sin(t * 1.7 + fk)));
-        vec2 mid = base + dir * s.z * 0.9;
-        vec2 tip = mid + turn(dir, fk * (0.35 + 0.15 * sin(t * 2.1 - fk))) * s.z * 0.8;
+        vec2 mid = base + dir * s.z * (0.9 + 0.3 * arthropod);
+        vec2 tip = mid + turn(dir, fk * (0.35 + 0.15 * sin(t * 2.1 - fk))) * s.z * (0.8 + 0.4 * arthropod);
         limbs = min(limbs, min(segment(p, base, mid), segment(p, mid, tip)) - 0.025 * s.z);
-      } else { // a jointed leg each side, swept back, rowing (left and right in antiphase)
+      } else if (uBody < 0.5) { // tier 3: a jointed leg each side, swept back, rowing (left and right in antiphase)
         float b = 0.55 + 0.4 * sin(t * row - float(i) * 1.2 + (fk > 0.0 ? 0.0 : 3.14159));
         vec2 base = s.xy + side * fk * s.z * 0.95 * uPlate.y;
         vec2 knee = base + (side * fk * cos(b) - ax * sin(b)) * s.z * 0.6;
@@ -140,33 +157,68 @@ vec4 drawAnimal(vec2 p, float t) {
       }
     }
   }
+  limbs = min(limbs, eyes);
   // Edge softness from the pixel size, not fwidth(sd): skipped segments leave sd and limbs at 1e3, and that
   // jump between neighbouring pixels made fwidth huge along each skip circle (drew faint rings around bodies).
   float aa = length(fwidth(p)) * 1.2;
   float body = 1.0 - smoothstep(-aa, aa, sd);
+  // A mollusk's foot: a translucent muscular skirt around the body, its rim rippling with pedal waves.
+  float pa = atan(p.y, p.x);
+  float skirtW = uFoot * mollusk * (0.11 + 0.025 * sin(pa * 14.0 - t * 3.0));
+  float skirt = (1.0 - smoothstep(skirtW - aa, skirtW + aa, sd)) * (1.0 - body) * step(0.001, skirtW);
   float limb = (1.0 - smoothstep(-aa, aa, limbs)) * (1.0 - body);
-  if (body + limb <= 0.0 && uCall <= 0.0) return vec4(0.0); // open water: most of the quad, skip the shading
-  // Each plate bulges like a squashed sphere.
+  if (body + limb + skirt <= 0.0 && uCall <= 0.0) return vec4(0.0); // open water: most of the quad, skip the shading
+  // Each plate bulges like a squashed sphere (a mollusk is one soft mound).
   vec2 qn = q1 / uPlate / r1;
-  vec3 n = normalize(vec3(qn * 0.9, sqrt(max(0.0, 1.0 - dot(qn, qn)))));
+  vec3 n = normalize(vec3(qn * mix(0.9, 0.6, mollusk), sqrt(max(0.0, 1.0 - dot(qn, qn)))));
   vec3 L = lightDir();
   float lambert = max(0.0, dot(n, L));
-  float furrow = exp(-pow((d2 - d1) / 0.03, 2.0));
+  float furrow = exp(-pow((d2 - d1) / mix(0.03, 0.022, arthropod), 2.0)) * (1.0 - mollusk);
   float ridge = exp(-pow(q1.y / (r1 * 0.22), 2.0));
   float edge = smoothstep(-0.12, 0.0, sd);
   float mottle = valueNoise(p * 9.0 + uSeed * 30.0);
-  vec3 base = mix(uColor, vec3(0.32, 0.26, 0.17), 0.35); // earthy, not a glowing cell
+  // Earthy, not a glowing cell: chitin is browner, a mollusk's skin paler and greyer.
+  vec3 base = mix(uColor, mix(mix(vec3(0.32, 0.26, 0.17), vec3(0.36, 0.22, 0.12), arthropod), vec3(0.55, 0.52, 0.45), mollusk),
+    0.35 + 0.1 * arthropod);
   vec3 col = base * (0.35 + 0.65 * lambert) * (0.85 + 0.25 * mottle);
-  col = mix(col, base * 1.25 + 0.03, ridge * 0.35);
-  col *= 1.0 - 0.55 * furrow - 0.35 * edge;
-  col += pow(max(0.0, dot(reflect(-L, n), vec3(0.0, 0.0, 1.0))), 20.0 - 12.0 * uCarapace) * (0.1 + 0.3 * uCarapace);
-  col = mix(col, col * 1.1 + vec3(0.05, 0.045, 0.03), uCarapace * 0.5); // a carapace: a paler, glossier shell
+  col = mix(col, base * 1.25 + 0.03, ridge * 0.35 * (1.0 - mollusk));
+  col *= 1.0 - (0.55 + 0.3 * arthropod) * furrow - (0.35 + 0.2 * arthropod) * edge;
+  float hard = max(uCarapace, arthropod * 0.6);
+  col += pow(max(0.0, dot(reflect(-L, n), vec3(0.0, 0.0, 1.0))), 20.0 - 12.0 * hard) * (0.1 + 0.3 * hard);
+  col = mix(col, col * 1.1 + vec3(0.05, 0.045, 0.03), uCarapace * 0.5 * (1.0 - mollusk)); // a carapace: a paler, glossier shell
+  // Mollusk skin: dark speckles and a wet, broad sheen.
+  col *= 1.0 - mollusk * 0.25 * smoothstep(0.5, 0.9, valueNoise(p * 6.0 + uSeed * 11.0));
+  col += mollusk * 0.12 * pow(lambert, 6.0);
+  // The shell: a coiled cone over the biggest segment (body frame centre, radius), whorls spiralling out from an apex
+  // set back toward the tail, growth lines across them, banded, glossy.
+  float shellD = length(p - uShellAt.xy) - uShellAt.z * (1.0 + 0.04 * sin(atan(p.y - uShellAt.y, p.x - uShellAt.x) * 3.0));
+  float shell = uShell * mollusk * (1.0 - smoothstep(-aa, aa, shellD));
+  if (shell > 0.0) {
+    vec2 c = p - uShellAt.xy + uShellAt.z * vec2(0.3, 0.12); // the apex, off-centre
+    float rho = max(length(c), 1e-3) / uShellAt.z;
+    float theta = atan(c.y, c.x) / 6.2831853;
+    float whorl = fract(log(rho) * 0.95 - theta); // a few broad whorls, each a rounded tube wound round the apex
+    float suture = smoothstep(0.07, 0.0, whorl) + smoothstep(0.96, 1.0, whorl);
+    float tube = sin(whorl * 3.14159);
+    float band = smoothstep(0.5, 0.56, whorl) * smoothstep(0.78, 0.72, whorl); // a coloured band along each whorl
+    float growth = 0.5 + 0.5 * sin(theta * 160.0 + rho * 6.0);
+    vec3 shellCol = mix(vec3(0.86, 0.76, 0.58), vec3(0.45, 0.28, 0.16), band) * (0.6 + 0.4 * tube);
+    shellCol = mix(shellCol, uColor * 0.5 + 0.25, 0.2);
+    vec3 sn = normalize(vec3(-(p - uShellAt.xy) / uShellAt.z * 0.8, 0.7));
+    shellCol *= (0.45 + 0.55 * max(0.0, dot(sn, L))) * (0.92 + 0.08 * growth) * (1.0 - 0.45 * suture);
+    shellCol *= 1.0 - 0.4 * smoothstep(-0.08, 0.0, shellD); // the lip's shadow on the body
+    shellCol += pow(max(0.0, dot(reflect(-L, sn), vec3(0.0, 0.0, 1.0))), 30.0) * 0.35;
+    col = mix(col, shellCol, shell);
+  }
   col = mix(col, vec3(0.8, 0.1, 0.06), uHurt * 0.45);
   // Mate call: rings pulsing out from a calling animal.
   float ping = fract(t * 0.6);
   float callRing = uCall * exp(-pow((length(p) - (1.5 + 0.7 * ping)) / 0.04, 2.0)) * (1.0 - ping) * (1.0 - body);
-  vec3 color = col * body + base * 0.45 * limb * 0.9 + (uColor * 0.4 + 0.55) * callRing * 0.5;
-  return vec4(color, clamp(body + limb * 0.9 + callRing, 0.0, 1.0)); // premultiplied
+  vec3 limbCol = mix(base * 0.45, base * 0.75, mollusk);
+  limbCol = mix(limbCol, vec3(0.03), mollusk * (1.0 - smoothstep(-aa, aa, eyes))); // eyes on the stalks
+  vec3 skirtCol = (base * 1.1 + 0.05) * (0.6 + 0.15 * sin(sd * 90.0 - t * 4.0)); // pedal waves
+  vec3 color = col * max(body, shell) + limbCol * limb * 0.9 + skirtCol * skirt * 0.55 + (uColor * 0.4 + 0.55) * callRing * 0.5;
+  return vec4(color, clamp(max(body, shell) + limb * 0.9 + skirt * 0.55 + callRing, 0.0, 1.0)); // premultiplied
 }
 
 void main() {
@@ -674,7 +726,7 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -702,6 +754,8 @@ export interface Look {
   tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number;
   /** An animal's body (segmentsOf); the default body when absent. */
   segments?: readonly Segment[];
+  /** Its body plan (PLAN_NAMES): a tier-4 arthropod or mollusk. */
+  plan?: number;
 }
 
 type ShaderMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
@@ -894,7 +948,17 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uHeading!.value = pose.heading;
       u.uTier!.value = look.tier - 1;
       u.uCarapace!.value = look.tier === 3 ? (TIER3.hasGene(look.genome, 'carapace') ? 1 : 0)
-        : look.tier === 4 && (TIER4.hasGene(look.genome, 'exoskeleton') || TIER4.hasGene(look.genome, 'shell')) ? 1 : 0;
+        : look.tier === 4 && TIER4.hasGene(look.genome, 'exoskeleton') ? 1 : 0;
+      const mollusk = look.tier === 4 && look.plan === MOLLUSK;
+      u.uBody!.value = look.tier === 4 ? (mollusk ? 2 : 1) : 0;
+      u.uShell!.value = mollusk && TIER4.hasGene(look.genome, 'shell') ? 1 : 0;
+      u.uFoot!.value = mollusk && TIER4.hasGene(look.genome, 'foot') ? 1 : 0;
+      if (mollusk) { // the shell rides the biggest segment, wherever the rig has it
+        let big = 0;
+        for (const [i, s] of segments.entries()) if (s[2] > segments[big]![2]) big = i;
+        const v = seg[big]!;
+        (u.uShellAt!.value as THREE.Vector3).set(v.x, v.y, v.z * 0.92);
+      }
       u.uSidero!.value = hasGene(g1, 'siderophores') ? 1 : 0;
       u.uExo!.value = hasGene(g1, 'exoenzymes') ? 1 : 0;
       u.uCapsule!.value = hasGene(g1, 'capsule') ? 1 : 0;

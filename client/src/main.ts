@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TOXINS, isAnimal, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TOXINS, MOLLUSK, isAnimal, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -202,9 +202,10 @@ try {
     subtitle.textContent = [
       '', '', 'Engulf smaller cells with a jaw, graze algae with a filter mouth. Bacteria are food now.',
       'Sweep up bacteria and algae with filter combs, bite with mandibles. Single cells are food now.',
-      'Graze with mouthparts or a radula, crush with claws or a beak. Small animals are food now.',
+      l.plan === MOLLUSK ? 'Rasp algae with a radula, bite with a beak, hide in a shell. Small animals are food now.'
+        : 'Graze with mouthparts, crush with claws, armour up in an exoskeleton. Small animals are food now.',
     ][l.tier] ?? '';
-    stageup.replaceChildren(`${l.name} evolved into ${['', '', 'eukaryotes', 'animals', 'arthropods'][l.tier]}`, subtitle);
+    stageup.replaceChildren(`${l.name} evolved into ${['', '', 'eukaryotes', 'animals', l.plan === MOLLUSK ? 'mollusks' : 'arthropods'][l.tier]}`, subtitle);
     stageup.classList.add('on');
     stageupUntil = performance.now() + STAGEUP_MS;
   };
@@ -231,7 +232,8 @@ try {
     const bot = !l && isAnimal(p.tier) ? BOT_SPECIES.find((s) => s.tier === p.tier && s.name === p.name) : undefined; // bots: their species' body
     const segments = l && isAnimal(p.tier) && l.tier === p.tier && l.radii.length ? segmentsOf(l.plan, [...l.radii])
       : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : undefined;
-    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: p.shape, segments };
+    const plan = l && l.tier === p.tier ? l.plan : bot?.plan;
+    return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: p.shape, segments, plan };
   };
 
   const input = room.input({ type: Input, mode: 'reliable' });
