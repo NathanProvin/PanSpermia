@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
@@ -607,6 +607,19 @@ test('fights span one tier: a spiked eukaryote stabs an animal but not an arthro
     run(state, 1);
     expect(big.health < 1000).toBe(hurtExpected);
   }
+});
+
+test('small jaws on a big body: an animal bites an arthropod for half damage', () => {
+  const state = new PoolState();
+  const big = spawnPlayer();
+  Object.assign(big, { tier: 4, genome: 0, genome4: 0, mass: T4_SPAWN_MASS, health: T4_HEALTH_MAX, x: 0, y: 0 });
+  const biter = spawnPlayer();
+  Object.assign(biter, { tier: 3, genome: 0, genome3: TIER3.genomeOf(['mandible']), mass: 3000, health: 1200,
+    x: radiusOf(T4_SPAWN_MASS, 4) + radiusOf(3000, 3), y: 0, heading: Math.PI, graceUntil: 0 });
+  state.players.set('big', big);
+  state.players.set('a', biter);
+  stepWorld(state);
+  expect(T4_HEALTH_MAX - big.health).toBeCloseTo(BITE_DAMAGE[3]! * SMALLER_BITE, 6);
 });
 
 test('ink: a mollusk squirts a harmless cloud as it dashes; whatever is inside is hidden from others', () => {

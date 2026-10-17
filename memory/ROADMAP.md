@@ -107,7 +107,7 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] P10d (2026-10-17) Ink: mollusk-only ink sac (found part); right click/Shift = predicted squirt dash (0.9 s × 2.2, 10 s cooldown) that leaves a big harmless ink cloud (radius 700 → 1700, 7 s, drifts) around its rear; bots can't see cells inside someone else's ink; mollusk bots ink when fleeing; drawn as dense sepia billows over the water. Also: fights span one tier either way (weapons two tiers down can't harm: a spiked eukaryote was killing idle arthropods)
   - [ ] P10e (after the polish phase) Tier-4 bots (deferred by user), hazards, balance (deaths fell to 6.5/min in the bigger pool; numbers at the balance step). Frame budget at tier 4: solved (user: steady 60 fps). Tier-3 bites killing tier 4: fixed in Polish S0
 - [ ] Polish phase (2026-10-17, user request, design: DECISIONS 2026-10-17 "Polish phase"), between P10d and P10e, sliced S0 → S1 → S3 → S5 → S2 → S4:
-  - [ ] S0 Balance fix: tier-4 health 3000 → 5000, bites from a smaller tier ×0.5
+  - [x] S0 (2026-10-17) Balance fix: tier-4 health 3000 → 5000, bites from a smaller tier ×0.5 (SMALLER_BITE, test-asserted)
   - [ ] S1 Sunny, vibrant pond: lighter water, cream/light-yellow textured sand, vibrant cyan wave-caustic shallows, dark grey rock regions; thinner warmer haze (no rainy feel); colourful dust (mossy/leaf greens, browns, greys)
   - [ ] S3 Minimal HUD: energy + DNA gauges (evolve marker), children as icons, ability chips with cooldown rings, discreet state line, toasts; health hidden (hurt flash, low-health vignette); shared CSS design tokens
   - [ ] S5 Ripples around the player's body: bumps, bites, dash, hard acceleration, entering a strong current, hatching

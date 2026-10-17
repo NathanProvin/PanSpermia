@@ -4,7 +4,7 @@ import {
   ADHESIN_DRAIN, ADHESIN_SHARE, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
-  BITE_DAMAGE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
+  BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, fitsPlan, SEGMENT_MIN,
@@ -175,7 +175,8 @@ function bite(state: PoolState, tick: number) {
     const nx = d > 1e-6 ? target.dx / d : Math.cos(a.heading);
     const ny = d > 1e-6 ? target.dy / d : Math.sin(a.heading);
     const claws = a.tier === 4 ? Math.max(1, stack(TIER4.copiesOf(a.genome4, 'claw'))) : 1; // a second claw crushes harder
-    hurt(v, BITE_DAMAGE[a.tier]! * claws * armourOf(v), aid, tick);
+    const small = v.tier > a.tier ? SMALLER_BITE : 1; // small jaws on a bigger body
+    hurt(v, BITE_DAMAGE[a.tier]! * claws * small * armourOf(v), aid, tick);
     // A torn-off bit of the victim, at the wound: food for whoever grabs it first.
     const torn = Math.min(v.tier >= 2 ? CHUNK_MASS : DEBRIS_MASS, v.mass - minMassOf(v.tier));
     if (torn > 0) {

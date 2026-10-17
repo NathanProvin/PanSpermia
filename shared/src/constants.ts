@@ -202,7 +202,7 @@ export const T4_SPAWN_MASS = 6000; // radius ≈ 870 (TIER_SCALE 2.8)
 export const T4_MIN_MASS = 3000;
 export const T4_MASS_CAP = 10000; // radius ≈ 1120
 export const T4_SPEED_COEF = 4860; // 150 u/s at spawn, 122 at cap
-export const T4_HEALTH_MAX = 3000;
+export const T4_HEALTH_MAX = 5000; // 3000 → 5000 (polish S0): tier-3 jaws mustn't kill an unarmed snail in a minute
 export const T4_METABOLISM_BASE = 1.5; // energy/s: ~3.3 at spawn, ~4.5 at cap
 export const T4_METABOLISM_RATE = 0.0003;
 export const T4_DRIFT = 0.08;
@@ -244,5 +244,7 @@ export const BUMP_SPEED = 60; // u/s of extra separation kick at full overlap, f
 export const BITE_INTERVAL = 0.8; // s between bites
 export const BITE_DAMAGE = [0, 0, 28, 45, 110]; // per bite, per tier
 export const BITE_REACH = 0.25; // × the biter's radius beyond touching
+/** Small jaws on a big body: bites on a bigger tier do this share of their damage. */
+export const SMALLER_BITE = 0.5;
 export const BITE_KNOCK = 140; // u/s pushed into the victim, away from the biter
 export const BITE_RECOIL = 80; // u/s the biter bounces back
