@@ -219,6 +219,8 @@ export const EXOSKELETON_ARMOUR = 0.55;
 export const SHELL_ARMOUR = 0.35;
 export const EXOSKELETON_SWIM = 0.92;
 export const SHELL_SWIM = 0.8;
+/** Tier-4 reproduction (P10c): after mating and the editor, the body spins a cocoon and the new design emerges from it. */
+export const COCOON_TIME = 12; // s, shielded and still
 
 // Feel (movement polish): inertia and progressive turns. Gameplay over low-Reynolds realism: a cell's
 // velocity eases toward its propulsion with this time constant (s), per tier — bigger bodies feel heavier.

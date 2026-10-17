@@ -8,7 +8,7 @@ import { type Chain, type Spring, chain, segmentTurn, spring, stepSpine, stepSpr
 
 /** Quad half-size in cell radii: room for the wobble, halo and the siderophore reach ring. */
 const QUAD_HALF = 1.9;
-/** An animal's quad while it calls a mate: room for the pulsing rings around a long curled body. */
+/** An animal's quad while it calls a mate or lies in a cocoon: room for the rings around a long curled body, or the spindle. */
 const ANIMAL_HALF = 2.8;
 /** How far a segment's drawing reaches beyond its centre, in its radii (plate, legs; the head's antennae further). */
 const REACH = 2.4;
@@ -70,6 +70,7 @@ uniform float uBody; // 0 a tier-3 animal, 1 an arthropod, 2 a mollusk
 uniform float uShell; // a mollusk's shell...
 uniform vec3 uShellAt; // ...over this spot (body frame xy, radius)
 uniform float uFoot; // a mollusk's foot skirt
+uniform float uCocoon; // tier 4: wrapped in a metamorphosis cocoon
 varying vec2 vUv;
 ${NOISE}
 float angDiff(float x, float y) { float d = x - y; return atan(sin(d), cos(d)); }
@@ -98,7 +99,34 @@ vec2 segAxis(int i) { // a segment's forward direction: toward the one ahead (th
   if (i == 0) return uSegN > 1 ? normalize(uSeg[0].xy - uSeg[1].xy) : vec2(1.0, 0.0);
   return normalize(uSeg[i - 1].xy - uSeg[i].xy);
 }
+// The metamorphosis cocoon: a silk spindle around the whole body (head to tail), fibres wound round it at two
+// slants, lit as a solid, the shape inside showing faintly through; it breathes slowly.
+vec4 drawCocoon(vec2 p, float t, vec2 head, vec2 tail, float big, float bodySd) {
+  vec2 ab = head - tail;
+  float len = length(ab);
+  vec2 dir = len > 1e-4 ? ab / len : vec2(1.0, 0.0);
+  vec2 q = vec2(dot(p - (head + tail) * 0.5, dir), dot(p - (head + tail) * 0.5, vec2(-dir.y, dir.x)));
+  vec2 hs = vec2(len * 0.5 + big * 1.1, big * 1.2) * (1.0 + 0.02 * sin(t * 1.5));
+  vec2 en = q / hs;
+  float x2 = min(1.0, en.x * en.x);
+  float d = abs(q.y) - hs.y * sqrt(1.0 - x2) * (1.0 - 0.3 * x2); // a spindle: drawn out to points at both ends
+  d = max(d, abs(q.x) - hs.x);
+  float aa = length(fwidth(p)) * 1.2;
+  float inside = 1.0 - smoothstep(-aa, aa, d);
+  if (inside <= 0.0) return vec4(0.0);
+  float wind1 = sin((q.x + 0.4 * q.y) * 55.0 + valueNoise(p * 8.0) * 6.0);
+  float wind2 = sin((q.x - 0.5 * q.y) * 47.0 + valueNoise(p * 7.0 + 3.0) * 6.0);
+  float silk = 0.55 + 0.22 * smoothstep(0.6, 1.0, wind1) + 0.22 * smoothstep(0.6, 1.0, wind2);
+  vec3 n = normalize(vec3(en * 0.8, sqrt(max(0.0, 1.0 - dot(en, en)))));
+  vec3 col = vec3(0.86, 0.82, 0.7) * (0.45 + 0.55 * max(0.0, dot(n, lightDir()))) * silk;
+  col = mix(col, uColor * 0.35, 0.2 * (1.0 - smoothstep(-0.05, 0.05, bodySd))); // the shape within, faintly
+  float rim = smoothstep(-0.12, 0.0, d);
+  float alpha = inside * (0.94 - 0.25 * rim);
+  return vec4(col * (1.0 - 0.3 * rim) * alpha, alpha); // premultiplied
+}
 vec4 drawAnimal(vec2 p, float t) {
+  vec2 head = uSeg[0].xy, tail = uSeg[0].xy;
+  float big = 0.0;
   float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3, eyes = 1e3;
   vec2 q1 = vec2(0.0);
   float r1 = 1.0;
@@ -109,6 +137,8 @@ vec4 drawAnimal(vec2 p, float t) {
   for (int i = 0; i < 8; i++) {
     if (i >= uSegN) break;
     vec3 s = uSeg[i];
+    tail = s.xy;
+    big = max(big, s.z);
     // Beyond everything this segment draws (plate, legs; the head's antennae reach further): skip it. Most of an
     // animal's quad is open water, and this loop is the costliest shader in the game.
     float reach = s.z * (i == 0 && uRadial < 0.5 ? ${HEAD_REACH.toFixed(2)} : ${REACH.toFixed(2)});
@@ -158,6 +188,7 @@ vec4 drawAnimal(vec2 p, float t) {
     }
   }
   limbs = min(limbs, eyes);
+  if (uCocoon > 0.5) return drawCocoon(p, t, head, tail, big, sd);
   // Edge softness from the pixel size, not fwidth(sd): skipped segments leave sd and limbs at 1e3, and that
   // jump between neighbouring pixels made fwidth huge along each skip circle (drew faint rings around bodies).
   float aa = length(fwidth(p)) * 1.2;
@@ -726,7 +757,7 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -748,7 +779,7 @@ export function hashId(id: string) {
 }
 
 /** Rendered (predicted or smoothed) pose of a cell. */
-export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number; call?: number }
+export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number; call?: number; cocoon?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
 export interface Look {
   tier: number; genome: number; parts: readonly Placement<string>[]; hue: number; shape?: number;
@@ -922,7 +953,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       // The body's quad: a cell's fixed square; an animal's the bounding box of what its segments draw this
       // frame (most of a fixed square would be open water, and the animal shader is the costliest in the game).
       const quad = body.material.uniforms.uQuad!.value as THREE.Vector4;
-      if (isAnimal(look.tier) && !((pose.call ?? 0) > 0)) {
+      if (isAnimal(look.tier) && !((pose.call ?? 0) > 0) && !((pose.cocoon ?? 0) > 0)) { // a cocoon reaches past its segments
         let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
         for (let i = 0; i < segments.length; i++) {
           const v = seg[i]!;
@@ -941,7 +972,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       frame.rotation.z = pose.heading;
       frame.scale.setScalar(radius);
       const dormant = pose.spore > 0 || pose.cyst > 0;
-      frame.visible = pose.spore === 0; // a spore coat hides every part; a dividing cell keeps them
+      frame.visible = pose.spore === 0 && !((pose.cocoon ?? 0) > 0); // a spore coat or a cocoon hides every part; a dividing cell keeps them
+      body.material.uniforms.uCocoon!.value = (pose.cocoon ?? 0) > 0 ? 1 : 0;
       const u = body.material.uniforms;
       const g1 = look.tier === 1 ? look.genome : 0; // whole-body features are tier-1 genes
       u.uTime!.value = time;

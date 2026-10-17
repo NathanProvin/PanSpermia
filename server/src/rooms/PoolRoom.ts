@@ -38,8 +38,8 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         let steps = 0;
         for (const cmd of this.inputs.get(id)) {
           if (!p) continue;
-          // A division cyst can't swim or act: its inputs step as no-ops (honest clients send zeros).
-          const live = p.cyst > 0 ? 0 : 1;
+          // A division cyst or a cocoon can't swim or act: its inputs step as no-ops (honest clients send zeros).
+          const live = p.cyst > 0 || p.cocoon > 0 ? 0 : 1;
           stepCell(p, p.mass, p.genome, cmd.dirX * live, cmd.dirY * live, cmd.actions * live, ctx.dt, time, p.tier, p.genome2, p.genome3, p.genome4);
           if (cmd.actions & ACTION_TOXIN) secrete(this.state, id);
           steps++;

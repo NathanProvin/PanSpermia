@@ -39,6 +39,8 @@ export const Player = schema({
   toxinCooldown: t.number().default(0),
   /** Seconds left in the division cyst (0 = active). */
   cyst: t.number().default(0),
+  /** Tier 4: seconds left in the metamorphosis cocoon (0 = none): shielded and still, the new design emerges at 0. */
+  cocoon: t.number().default(0),
   /** The cyst is a stage-up: the species just evolved and designs its first individual of the new tier. */
   evolving: t.boolean().default(false),
   /** Bites made so far (wraps at 256): clients snap the mouthparts when it changes. */

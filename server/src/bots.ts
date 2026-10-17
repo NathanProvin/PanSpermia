@@ -183,14 +183,14 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
       continue;
     }
     const gap = d - r - radiusOf(o.mass, o.tier);
-    if (archetype === 'parasite' && o.tier >= 2 && !oid.startsWith('~') && o.spore === 0 && o.cyst === 0 && d < (host?.d ?? Infinity)) {
+    if (archetype === 'parasite' && o.tier >= 2 && !oid.startsWith('~') && o.spore === 0 && o.cyst === 0 && o.cocoon === 0 && d < (host?.d ?? Infinity)) {
       host = { d, dx, dy, r: radiusOf(o.mass, o.tier) };
     }
     if (t2 && o.tier === 1 && hasGene(o.genome, 'adhesin') && gap < 0) clingers++;
     // Eukaryote and animal hunters chase what their mouth can swallow; bacterial hunters what's clearly smaller.
     // Animals only chase eukaryotes and smaller animals: bacteria are swept up in passing, not hunted.
     const catchable = t2 ? swallows(p, o) && (!isAnimal(p.tier) || o.tier >= 2) : o.mass < p.mass * PREY_RATIO;
-    const isPrey = archetype === 'hunter' && hungry && catchable && o.spore === 0 && o.cyst === 0 && state.tick >= o.graceUntil;
+    const isPrey = archetype === 'hunter' && hungry && catchable && o.spore === 0 && o.cyst === 0 && o.cocoon === 0 && state.tick >= o.graceUntil;
     if (isPrey && d < (prey?.d ?? Infinity)) prey = { d, x: dx / d, y: dy / d };
     // Everyone flees a jawed eukaryote or an animal big enough to swallow them.
     const swallower = swallows(o, p);

@@ -6,7 +6,7 @@ import {
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
-  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
+  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, fitsPlan, SEGMENT_MIN,
   ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
@@ -51,8 +51,8 @@ export function spawnNutrient(state: PoolState, x: number, y: number, kind: numb
   state.nutrients.set(String(nextNutrientId++), new Nutrient({ x0, y0, tick0: state.tick, kind, gene, x: x0, y: y0, tick: state.tick }));
 }
 
-/** Dormant cells (endospore, division cyst) neither eat, fight, metabolize nor take damage. */
-const dormant = (p: Player) => p.spore > 0 || p.cyst > 0;
+/** Dormant cells (endospore, division cyst, cocoon) neither eat, fight, metabolize nor take damage. */
+const dormant = (p: Player) => p.spore > 0 || p.cyst > 0 || p.cocoon > 0;
 
 /**
  * Mate calls: each calling animal's mate swims straight in (spawned on the first tick of the call);
@@ -260,6 +260,7 @@ let nextEggId = 0;
 /**
  * Editing done. Cells divide: a child with the lineage's current design takes over where the parent
  * divided. Animals lay a clutch instead and carry on, spent; the clutch hatches into the new design.
+ * Arthropods and mollusks spin a cocoon: the parent itself, shielded and still, until the new design emerges.
  * A stage-up cyst (just evolved) simply hatches as the designed individual.
  */
 export function hatch(state: PoolState, id: string) {
@@ -277,6 +278,11 @@ export function hatch(state: PoolState, id: string) {
     state.eggs.set(`e${nextEggId++}`, new Egg({
       x: parent.x, y: parent.y, owner: id, hatchTick: state.tick + EGG_TIME * TICK_RATE, health: EGG_HEALTH, count: Math.min(6, 1 + l.children),
     }));
+    return;
+  }
+  if (parent.tier === 4 && l.tier === 4) {
+    parent.cyst = 0;
+    parent.cocoon = COCOON_TIME;
     return;
   }
   l.generation++;
@@ -776,6 +782,15 @@ export function stepWorld(state: PoolState): Death[] {
     if (p.cyst > 0) {
       p.cyst = Math.max(0, p.cyst - TICK_DT - 1e-9);
       if (p.cyst === 0) hatching.push(id); // editor timed out: hatch with the latest draft, or the old design
+      continue;
+    }
+    if (p.cocoon > 0) {
+      p.cocoon = Math.max(0, p.cocoon - TICK_DT - 1e-9);
+      const l = state.lineages.get(id);
+      if (p.cocoon === 0 && l) { // metamorphosis done: the new design breaks out where the cocoon was
+        l.generation++;
+        state.players.set(id, nextOf(l, tick, { x: p.x, y: p.y, heading: p.heading }));
+      }
       continue;
     }
     if (p.spore > 0 || isMate(id)) continue;

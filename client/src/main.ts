@@ -300,7 +300,8 @@ try {
     // Send the due inputs before reading any predicted value (see Predict.tick).
     for (let due = predict.tick(now); due > 0; due--) {
       // The hatchling waits for the intro; a dividing cell can't act (the server ignores it too).
-      const steer = meteor.active || (room.state.players.get(room.sessionId)?.cyst ?? 0) > 0 ? 0 : 1;
+      const own = room.state.players.get(room.sessionId);
+      const steer = meteor.active || (own?.cyst ?? 0) > 0 || (own?.cocoon ?? 0) > 0 ? 0 : 1;
       input.data.dirX = (pointer.x / throttleScale()) * steer;
       input.data.dirY = (pointer.y / throttleScale()) * steer;
       input.data.actions = takeActions() * steer;
@@ -323,7 +324,7 @@ try {
     const seenH = camera.position.z * Math.tan((camera.fov * Math.PI) / 360); // last frame's view of the plane
     cells.update(players, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
-      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'), call: p.call,
+      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'), call: p.call, cocoon: p.cocoon,
     }), lookOf, { x: camera.position.x, y: camera.position.y, halfW: seenH * camera.aspect * 1.2, halfH: seenH * 1.2 });
     perf.mark('cells');
     const self = players.get(room.sessionId);
@@ -387,6 +388,7 @@ try {
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
         self.cyst > 0 ? (self.evolving ? 'EVOLVING' : isAnimal(self.tier) ? 'MATING' : 'DIVIDING') : '',
         self.call > 0 ? 'CALLING — a mate is coming' : '',
+        self.cocoon > 0 ? `METAMORPHOSIS — emerging in ${Math.ceil(self.cocoon)}s` : '',
         ...[...room.state.eggs.values()].filter((e) => e.owner === room.sessionId)
           .map((e) => `eggs hatch in ${Math.ceil((e.hatchTick - room.state.tick) / TICK_RATE)}s`),
       ].filter(Boolean).join(' · ');
