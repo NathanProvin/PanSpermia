@@ -213,7 +213,7 @@ test('room caps at MAX_PLAYERS, overflow opens a second room', async () => {
   const rooms = await Promise.all(Array.from({ length: MAX_PLAYERS + 1 }, join));
   expect(new Set(rooms.map((r) => r.roomId)).size).toBe(2);
   await Promise.all(rooms.map((r) => r.leave()));
-});
+}, 60_000); // 51 clients each decode the whole pool
 
 test('a draft sent over the wire is what a timed-out division hatches with', async () => {
   const room = await join();

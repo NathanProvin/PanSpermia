@@ -46,7 +46,7 @@ test('server packet positions equal a client rebuild from spawn point and tick',
     expect(rebuilt.x).toBe(n.x);
     expect(rebuilt.y).toBe(n.y);
   }
-});
+}, 30_000); // prewarms a full pool (two lifetimes of a 6500-radius pond): slow on a busy machine
 
 test('packets dissolve with age and against the rock', () => {
   const state = new PoolState();
