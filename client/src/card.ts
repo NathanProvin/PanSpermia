@@ -1,5 +1,5 @@
 import {
-  DEFAULT_RADII, MAX_PARTS, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN, TIER_NAMES, catalogFor, cleanName, segmentsOf,
+  DEFAULT_RADII, MAX_PARTS, MAX_TIER, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN, TIER_NAMES, catalogFor, cleanName, isAnimal, segmentsOf,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
@@ -43,7 +43,7 @@ export function decodeCard(text: string): CardData | undefined {
     const bytes = Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
     const [rawName, hue, generation, dna, kills, fate, parts, rawTier = 1, shape = 0, plan = 0, radii = DEFAULT_RADII] =
       JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
-    if (rawTier !== 1 && rawTier !== 2 && rawTier !== 3) return undefined;
+    if (typeof rawTier !== 'number' || !Number.isInteger(rawTier) || rawTier < 1 || rawTier > MAX_TIER) return undefined;
     if (typeof plan !== 'number' || !PLAN_NAMES[plan] || !Array.isArray(radii) || radii.length < MIN_SEGMENTS
       || radii.length > MAX_SEGMENTS || !radii.every((r) => typeof r === 'number' && r >= SEGMENT_MIN && r <= SEGMENT_MAX)) return undefined;
     if (shape !== 0 && shape !== 1 && shape !== 2) return undefined;
@@ -83,7 +83,7 @@ function renderCell(d: CardData, size: number) {
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
   createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
     { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.shape,
-      segments: d.tier === 3 ? segmentsOf(d.plan, d.radii) : undefined }, 1.7, 0);
+      segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii) : undefined }, 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;

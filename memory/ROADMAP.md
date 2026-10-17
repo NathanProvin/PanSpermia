@@ -100,7 +100,12 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
 - [x] Dynamic bodies (2026-10-16, user request): client-side soft rig (whips trail, animal spines follow the head, bodies bow into turns, parts and organelles on springs), visual only
 - [x] Frame budget + look (2026-10-16, user request): GPU 88 → ~14 ms at full res (no MSAA, half-res far layers with a baked floor, half-res bloom, plankton culling), adaptive resolution (GPU ≤ 12 ms), cheaper nutrient/cell CPU paths, dev perf readout; glow toned down; pond background of brown silt, detritus and marine snow
 - [x] Animals and tiers (2026-10-16, user request): animals redrawn and rigged as segmented worm/insect bodies (exact-length bend-limited spine, legs, antennae, per-segment shapes: no more separating segments), tier sizes ×1.5 / ×2.2 in a 4500 pool, head mouths for animals, evolving opens the new tier's editor
-- [ ] P10 Tier 4 Arthropod/insect/mollusk + cocoon, ink eject.
+- [ ] P10 Tier 4 arthropods + mollusks (design: DECISIONS 2026-10-17 "Tier 4 forks"), sliced:
+  - [x] P10a (2026-10-17) Arthropods exist: Player.genome4 + TIER4 catalog (walking legs, tail fan, claws, grazing mouthparts, exoskeleton; foot, siphon, radula, beak, shell; eye), stepArthropod, diets (grazers sweep plant food and bacteria, claws/beaks swallow cells and animals ≤ ½ mass and bite the rest, 2 claws ×1.5), armour (exoskeleton 0.55, shell 0.35), mate call at the cap, Evolve 3 → 4 at 15000 lifetime DNA, pool 4500 → 6500 (area rates ×2.09), tier-4 part shaders, isAnimal (tier ≥ 3) replaces tier-3 checks. Server perf: one flat packet grid per tick shared by feeding and bots (sim 4.5× → 18× real time). For now tier 4 hatches straight after mating (cocoon in P10c)
+  - [ ] P10b Plans: Arthropod / Mollusk picker, plan decides allowed parts, hard exoskeleton look vs soft body under a shell
+  - [ ] P10c Metamorphosis cocoon
+  - [ ] P10d Ink eject (mollusk)
+  - [ ] P10e Tier-4 bots, hazards, balance (deaths fell to 6.5/min in the bigger pool), frame budget at tier-4 zoom (adaptive res fell to ~60 % in the automation tab)
 - [ ] P11 Tier 5 Chordate + womb.
 - [ ] P12 Ascension + global Hall of Fame (SQLite).
 

@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf,
 } from '@panspermia/shared';
@@ -503,7 +503,7 @@ test('kills are counted for the killer species', () => {
   expect(lineage.kills).toBe(0);
 });
 
-test('evolving needs the lifetime DNA, then the next generation hatches as a eukaryote, then an animal', () => {
+test('evolving needs the lifetime DNA, then the next generation hatches as a eukaryote, an animal, an arthropod', () => {
   const { state, player, lineage } = species();
   player.cyst = CYST_TIME;
   const keep = lineage.parts.map((p) => ({ ...p.toJSON(), gene: Object.keys(GENES)[p.gene] }));
@@ -533,10 +533,22 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   expect([lineage.tier, lineage.genome, lineage.library]).toEqual([3, STARTER_GENOME3, STARTER_LIBRARY3]);
   expect(animal.evolving).toBe(true);
   const parts3 = lineage.parts.map((q) => ({ ...q.toJSON(), gene: TIER3.NAMES[q.gene] }));
-  expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBe('cannot evolve further yet');
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBe('not ready to evolve');
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3, evolve: false })).toBeUndefined();
   // A first animal hatches as itself: no mating, no clutch.
   expect([state.players.get('p')!.tier, state.players.get('p')!.cyst, state.eggs.size]).toEqual([3, 0, 0]);
+  state.players.get('p')!.cyst = CYST_TIME;
+  lineage.lifetimeDna = EVOLVE_DNA_T3;
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBeUndefined();
+  const arthropod = state.players.get('p')!;
+  expect([arthropod.tier, arthropod.genome3, arthropod.genome4, arthropod.mass, arthropod.health])
+    .toEqual([4, 0, STARTER_GENOME4, T4_SPAWN_MASS, T4_HEALTH_MAX]);
+  expect([lineage.tier, lineage.genome, lineage.library, arthropod.evolving]).toEqual([4, STARTER_GENOME4, STARTER_LIBRARY4, true]);
+  const parts4 = lineage.parts.map((q) => ({ ...q.toJSON(), gene: TIER4.NAMES[q.gene] }));
+  lineage.lifetimeDna = 1e9;
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts4 })).toBe('cannot evolve further yet');
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts4, evolve: false })).toBeUndefined();
+  expect([state.players.get('p')!.tier, state.players.get('p')!.cyst]).toEqual([4, 0]);
 });
 
 test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and bite rivals in front', () => {
@@ -578,6 +590,45 @@ test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and 
   for (let i = 0; i < BITE_INTERVAL * TICK_RATE - 2; i++) stepWorld(s2);
   expect([a.health, b.health]).toEqual([ha, hb]); // one bite per interval
   expect([a.engulfedBy, b.engulfedBy]).toEqual(['', '']); // rivals of a size are bitten, not swallowed
+});
+
+test('tier 4: claws swallow smaller animals and crush rivals through their armour; grazers sweep up bacteria', () => {
+  const state = new PoolState();
+  const arthropod = (genes: (typeof TIER4.NAMES)[number][], x: number, heading = 0) => {
+    const a = spawnPlayer();
+    Object.assign(a, { tier: 4, genome: 0, genome4: TIER4.genomeOf(genes), mass: 8000, health: T4_HEALTH_MAX, x, y: 0, heading });
+    return a;
+  };
+  const grazer = arthropod(['maxillae'], 0);
+  state.players.set('g', grazer);
+  const mouth = radiusOf(8000, 4) * ANIMAL_MOUTH_AHEAD;
+  const bug = Object.assign(spawnPlayer(), { x: mouth, y: 10, graceUntil: 0 });
+  const small = Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3: 0, mass: 3000, health: 1200, x: mouth, y: -10, graceUntil: 0 });
+  state.players.set('b', bug);
+  state.players.set('s', small);
+  stepWorld(state);
+  expect([bug.engulfedBy, small.engulfedBy]).toEqual(['g', '']); // mouthparts take specks, not animals
+  grazer.genome4 = TIER4.genomeOf(['claw']);
+  Object.assign(small, { x: mouth, y: 0 });
+  stepWorld(state);
+  expect(small.engulfedBy).toBe('g'); // an animal at most half its mass is a mouthful
+  // Two clawed arthropods face to face: two claws crush harder, a shell turns most of a bite.
+  const s2 = new PoolState();
+  const a = arthropod(['claw', 'claw'], 0, 0);
+  const b = arthropod(['beak', 'shell'], 2 * radiusOf(8000, 4), Math.PI);
+  s2.players.set('a', a);
+  s2.players.set('b', b);
+  stepWorld(s2);
+  expect(T4_HEALTH_MAX - b.health).toBeCloseTo(BITE_DAMAGE[4]! * 1.5 * SHELL_ARMOUR, 6);
+  expect(T4_HEALTH_MAX - a.health).toBeCloseTo(BITE_DAMAGE[4]!, 6);
+  // An arthropod at its cap calls a mate of its own kind.
+  const { state: s3, player, lineage } = species();
+  lineage.tier = 4;
+  Object.assign(player, { tier: 4, genome: 0, genome4: STARTER_GENOME4, mass: T4_MASS_CAP, health: T4_HEALTH_MAX });
+  stepWorld(s3);
+  stepWorld(s3);
+  expect(player.call).toBeGreaterThan(0);
+  expect(s3.players.get(MATE_PREFIX + 'p')!.tier).toBe(4);
 });
 
 // --- Tier 2: eukaryotes ---------------------------------------------------------------------------

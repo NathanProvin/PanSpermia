@@ -1,7 +1,7 @@
 import {
   CHILD_PRICE, evolveDnaOf, type Catalog, type Lineage, MAX_CHILDREN, MAX_PARTS, MAX_TIER, NAME_MAX, type Placement, TIER_NAMES,
   SHAPE_NAMES, catalogFor, cleanName, undeform, DEFAULT_RADII, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN,
-  animalRim, segmentsOf,
+  animalRim, isAnimal, segmentsOf,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
@@ -145,7 +145,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   let radii: number[] = [...DEFAULT_RADII];
   /** A segment being resized: its index, its centre and pointer distance when grabbed, its size then. */
   let resize: { i: number; cx: number; cy: number; d0: number; r0: number } | undefined;
-  const animal = () => lineage?.tier === 3;
+  const animal = () => isAnimal(lineage?.tier ?? 1);
   const segments = () => segmentsOf(plan, radii);
   let children = 0;
   let hue = 0;
@@ -242,7 +242,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
     $<HTMLButtonElement>('.hatch').disabled = submitted || left < 0 || !named;
     // Animals mate and lay a clutch; a species that just evolved hatches its first individual of the new tier.
-    $('.hatch').textContent = evolving ? 'Hatch' : animal() ? 'Lay eggs' : 'Divide';
+    $('.hatch').textContent = evolving ? 'Hatch' : lineage!.tier === 3 ? 'Lay eggs' : animal() ? 'Hatch' : 'Divide';
     const need = evolveDnaOf(lineage!.tier);
     const ready = lineage!.lifetimeDna >= need;
     const progress = $<HTMLProgressElement>('.evolution progress');
@@ -404,7 +404,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       radii = l.radii.length ? [...l.radii] : [...DEFAULT_RADII];
       resize = undefined;
       // Shape names depend on the tier (coccus/rod/vibrio for bacteria); the shapes themselves don't.
-      $('.shapes').replaceChildren($('.shapes legend'), ...SHAPE_NAMES[l.tier as 1 | 2 | 3].map((label, i) => {
+      $('.shapes').replaceChildren($('.shapes legend'), ...SHAPE_NAMES[l.tier as 1 | 2 | 3 | 4].map((label, i) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.dataset.shape = String(i);

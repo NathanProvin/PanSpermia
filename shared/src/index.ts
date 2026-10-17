@@ -1,4 +1,5 @@
 export * from './animal.ts';
+export * from './arthropod.ts';
 export * from './combat.ts';
 export * from './constants.ts';
 export * from './current.ts';

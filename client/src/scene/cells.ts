@@ -1,6 +1,6 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, animalRim, catalogFor,
-  deform, hasGene, radiusOf, shapeUniform, wrapAngle,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, TIER2, TIER3, TIER4, animalRim, catalogFor,
+  deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
@@ -279,9 +279,10 @@ void main() {
 }
 `;
 
-/** Part kinds: a tier-1 gene's catalog index, KIND2 + a tier-2 gene's index, or KIND3 + a tier-3 one. */
+/** Part kinds: a tier-1 gene's catalog index, KIND2 + a tier-2 gene's index, KIND3 + a tier-3 one, KIND4 + a tier-4 one. */
 const KIND2 = 16;
 const KIND3 = 32;
+const KIND4 = 48;
 
 // Placed parts, one quad each in the cell's frame. In the quad, +x points away from the body (the
 // membrane normal for membrane parts), so every shape grows outward from its base at x = -1. The
@@ -433,7 +434,7 @@ void main() {
       * smoothstep(0.55, 0.85, valueNoise(p * 7.0 - vec2(t * 14.0, 0.0)));
     a = max(max(shell * 0.85, rim), plume);
     col = mix(vec3(0.85, 0.75, 0.6), vec3(0.8, 0.95, 1.0), plume);
-  } else if (k == ${KIND2 + TIER2.GENES.eye.index} || k == ${KIND3 + TIER3.GENES.eye.index}) { // a Spore-cell eye: sclera, wandering pupil, glint
+  } else if (k == ${KIND2 + TIER2.GENES.eye.index} || k == ${KIND3 + TIER3.GENES.eye.index} || k == ${KIND4 + TIER4.GENES.eye.index}) { // a Spore-cell eye: sclera, wandering pupil, glint
     float rr = length(p);
     float sclera = 1.0 - smoothstep(0.8, 0.88, rr);
     vec2 look = vec2(0.32, 0.0) + 0.08 * vec2(sin(t * 0.7 + uSeed * 9.0), sin(t * 1.1));
@@ -473,6 +474,87 @@ void main() {
     float grana = (1.0 - smoothstep(0.18, 0.28, length(g))) * (1.0 - smoothstep(0.5, 0.62, length(q)));
     a = lens * (0.5 + 0.5 * grana);
     col = mix(vec3(0.2, 0.7, 0.25), vec3(0.6, 1.0, 0.45), grana);
+  } else if (k == ${KIND4 + TIER4.GENES.legs.index}) { // a jointed walking leg, three segments, stepping
+    float stride = sin(t * 5.0);
+    vec2 base = vec2(-0.9, 0.0);
+    vec2 knee = base + 0.55 * vec2(cos(0.5 + 0.25 * stride), sin(0.5 + 0.25 * stride));
+    vec2 ankle = knee + 0.5 * vec2(cos(-0.35 + 0.3 * stride), sin(-0.35 + 0.3 * stride));
+    vec2 tip = ankle + 0.4 * vec2(cos(-0.9 + 0.2 * stride), sin(-0.9 + 0.2 * stride));
+    float d = min(min(segment(p, base, knee) - 0.12, segment(p, knee, ankle) - 0.09), segment(p, ankle, tip) - 0.05);
+    float joints = min(length(p - knee), length(p - ankle)) - 0.11;
+    a = 1.0 - smoothstep(-0.02, 0.02, min(d, joints));
+    float shine = smoothstep(0.03, -0.06, d) * 0.25;
+    col = (uColor * 0.45 + vec3(0.3, 0.24, 0.16)) * (0.8 + shine) * (1.0 - 0.35 * smoothstep(0.0, -0.06, joints));
+  } else if (k == ${KIND4 + TIER4.GENES.tailFan.index}) { // a tail fan: five broad plates spreading and flapping
+    float flap = 0.18 * sin(t * 4.0);
+    for (int i = 0; i < 5; i++) {
+      float fi = float(i) - 2.0;
+      float dir = fi * (0.32 + flap);
+      vec2 base = vec2(-0.8, 0.0);
+      vec2 q = p - base;
+      vec2 along = vec2(cos(dir), sin(dir));
+      float u = dot(q, along);
+      float v = dot(q, vec2(-along.y, along.x));
+      float plate = step(0.0, u) * (1.0 - smoothstep(1.3, 1.45, u)) * (1.0 - smoothstep(0.1 + 0.16 * u, 0.14 + 0.16 * u, abs(v)));
+      a = max(a, plate * (0.75 + 0.25 * smoothstep(0.08, 0.0, abs(v) - 0.12 * u)));
+    }
+    col = uColor * 0.5 + vec3(0.32, 0.26, 0.18);
+  } else if (k == ${KIND4 + TIER4.GENES.claw.index}) { // a crab's claw: arm, swollen palm, a fixed finger and a hinged one that snaps
+    float open = 0.12 + 0.05 * sin(t * 2.0) + 0.6 * sin(3.14159 * uActive);
+    float arm = segment(p, vec2(-0.95, 0.0), vec2(-0.3, 0.0)) - 0.1;
+    float palm = length((p - vec2(0.05, 0.0)) * vec2(0.8, 1.15)) - 0.34;
+    float fixedFinger = segment(p, vec2(0.3, -0.13), vec2(0.95, -0.02)) - mix(0.12, 0.025, clamp((p.x - 0.3) / 0.65, 0.0, 1.0));
+    vec2 hinge = vec2(0.3, 0.14);
+    vec2 tip = hinge + 0.66 * vec2(cos(open - 0.12), sin(open - 0.12));
+    float moving = segment(p, hinge, tip) - mix(0.1, 0.025, clamp(dot(p - hinge, normalize(tip - hinge)) / 0.66, 0.0, 1.0));
+    float d = min(min(arm, palm), min(fixedFinger, moving));
+    a = 1.0 - smoothstep(-0.02, 0.02, d);
+    float shade = 0.75 + 0.35 * smoothstep(0.0, -0.15, palm) - 0.25 * smoothstep(-0.03, 0.0, d); // rounded, dark rim
+    col = (uColor * 0.35 + vec3(0.42, 0.24, 0.14)) * shade
+      + vec3(0.25, 0.2, 0.15) * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive));
+  } else if (k == ${KIND4 + TIER4.GENES.maxillae.index}) { // grazing mouthparts: little bristly palps working at the food
+    for (int i = -1; i <= 1; i += 2) {
+      float s = float(i);
+      float work = 0.35 * sin(t * 7.0 + s);
+      vec2 base = vec2(-0.8, s * 0.25);
+      vec2 tip = base + 0.9 * vec2(cos(s * (0.3 + work)), sin(s * (0.3 + work)));
+      float palp = segment(p, base, tip) - 0.09;
+      float hairs = smoothstep(0.55, 0.9, sin(dot(p - base, vec2(1.0, s)) * 40.0)) * (1.0 - smoothstep(0.0, 0.12, palp)) * step(0.0, palp);
+      a = max(a, max(1.0 - smoothstep(-0.02, 0.02, palp), hairs * 0.6));
+    }
+    col = uColor * 0.4 + vec3(0.45, 0.4, 0.3);
+  } else if (k == ${KIND4 + TIER4.GENES.siphon.index}) { // a muscular siphon: a funnel that pulses with each jet
+    float pulse = 0.08 * sin(t * 6.0);
+    float s = (p.x + 0.9) / 1.4;
+    float w = mix(0.18, 0.4 + pulse, clamp(s, 0.0, 1.0));
+    float tube = step(-0.9, p.x) * step(p.x, 0.5) * (1.0 - smoothstep(w - 0.03, w + 0.03, abs(p.y)));
+    float lip = exp(-pow((p.x - 0.5) / 0.06, 2.0)) * step(abs(p.y), 0.42 + pulse);
+    float bore = (1.0 - smoothstep(w * 0.4, w * 0.55, abs(p.y))) * smoothstep(-0.2, 0.5, p.x) * step(p.x, 0.5);
+    a = max(tube * 0.9, lip);
+    col = mix(uColor * 0.55 + vec3(0.3, 0.22, 0.2), vec3(0.08, 0.05, 0.06), bore * 0.8);
+  } else if (k == ${KIND4 + TIER4.GENES.radula.index}) { // a radula: a ribbon of teeth rasping in and out
+    float reach = 0.3 + 0.25 * sin(t * 4.0);
+    float ribbon = step(-0.9, p.x) * step(p.x, -0.2 + reach) * (1.0 - smoothstep(0.22, 0.27, abs(p.y)));
+    vec2 g = vec2(fract((p.x - t * 0.6) * 6.0) - 0.5, p.y * 3.0);
+    float teeth = (1.0 - smoothstep(0.15, 0.3, length(g * vec2(1.0, 0.7)))) * ribbon;
+    float lips = (1.0 - smoothstep(0.35, 0.42, length((p - vec2(-0.75, 0.0)) * vec2(1.6, 1.0)))) * smoothstep(0.18, 0.3, abs(p.y));
+    a = max(ribbon * 0.85, lips);
+    col = mix(uColor * 0.5 + vec3(0.35, 0.2, 0.2), vec3(0.95, 0.9, 0.75), teeth);
+  } else if (k == ${KIND4 + TIER4.GENES.beak.index}) { // a parrot beak: two dark hooked halves of chitin
+    float open = 0.08 + 0.04 * sin(t * 2.5) + 0.45 * sin(3.14159 * uActive);
+    float d = 1e3;
+    for (int side = -1; side <= 1; side += 2) {
+      float s = float(side);
+      vec2 base = vec2(-0.7, s * 0.05);
+      vec2 tip = base + vec2(1.2, 0.0) + vec2(0.0, s * open);
+      vec2 hook = tip + vec2(-0.12, -s * 0.22);
+      float w = mix(0.3, 0.04, clamp((p.x + 0.7) / 1.2, 0.0, 1.0));
+      vec2 q = p - vec2(0.0, s * open * clamp((p.x + 0.7) / 1.2, 0.0, 1.0));
+      float half_ = (s * q.y > -0.02 ? abs(q.y) - w : 1e3);
+      d = min(d, min(max(half_, max(-0.7 - p.x, p.x - tip.x)), segment(p, tip, hook) - 0.05));
+    }
+    a = 1.0 - smoothstep(-0.02, 0.02, d);
+    col = vec3(0.12, 0.1, 0.09) + vec3(0.25, 0.2, 0.15) * smoothstep(0.0, -0.12, d) * 0.6;
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -482,7 +564,7 @@ void main() {
   gl_FragColor = vec4(col * a, a); // premultiplied
 }
 `;
-const kindOf = (tier: number, gene: string) => [0, 0, KIND2, KIND3][tier]! + catalogFor(tier).GENES[gene]!.index;
+const kindOf = (tier: number, gene: string) => [0, 0, KIND2, KIND3, KIND4][tier]! + catalogFor(tier).GENES[gene]!.index;
 /** Quad size (cell radii) and how far its centre sits outward from the attachment point (in sizes). */
 const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.cilia.index]: { size: 0.7, out: 0.25 },
@@ -497,6 +579,14 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND3 + TIER3.GENES.filterComb.index]: { size: 0.45, out: 0.3 },
   [KIND3 + TIER3.GENES.mandible.index]: { size: 0.65, out: 0.35 },
   [KIND3 + TIER3.GENES.eye.index]: { size: 0.22, out: 0 },
+  [KIND4 + TIER4.GENES.legs.index]: { size: 0.75, out: 0.4 },
+  [KIND4 + TIER4.GENES.tailFan.index]: { size: 0.7, out: 0.4 },
+  [KIND4 + TIER4.GENES.claw.index]: { size: 1, out: 0.45 },
+  [KIND4 + TIER4.GENES.maxillae.index]: { size: 0.45, out: 0.25 },
+  [KIND4 + TIER4.GENES.siphon.index]: { size: 0.5, out: 0.35 },
+  [KIND4 + TIER4.GENES.radula.index]: { size: 0.45, out: 0.25 },
+  [KIND4 + TIER4.GENES.beak.index]: { size: 0.45, out: 0.25 },
+  [KIND4 + TIER4.GENES.eye.index]: { size: 0.18, out: 0 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
   [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
   [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },
@@ -549,9 +639,9 @@ void main() {
 /** Seconds a mouthpart snap and a pinocytosis dimple last. */
 const BITE_ANIM = 0.45;
 const GULP_TIME = 0.6;
-const FLAGELLUM_LENGTH = [0, 3.2, 2.2, 1.3]; // cell radii, per tier (a eukaryote's whip is shorter; an animal's tail)
+const FLAGELLUM_LENGTH = [0, 3.2, 2.2, 1.3, 1.3]; // cell radii, per tier (a eukaryote's whip is shorter; an animal's tail)
 /** How thick a whip is (× part scale) and how fast it beats (× BEAT_RUN), per tier: an animal's tail is stout and slow. */
-const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 3, beat: 0.35 }];
+const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 3, beat: 0.35 }, { width: 3, beat: 0.35 }];
 const BEAT_RUN = 22; // rad/s of wave phase
 const BEAT_TUMBLE = 5; // motor reversal during a tumble: the bundle flails slowly
 // Secondary motion (visual only): parts trail a turn and a sideways push, then spring back.
@@ -559,8 +649,9 @@ const BEAT_TUMBLE = 5; // motor reversal during a tumble: the bundle flails slow
 const SOFT = { k: 45, c: 5 };
 const FIRM = { k: 90, c: 9 };
 const STIFF = { k: 160, c: 16 };
-const SOFT_PARTS = new Set(['pili', 'cilia', 'filterComb', 'adhesin', 'paddle']);
-const STIFF_PARTS = new Set(['jaw', 'mandible', 'eye', 'spike', 't6ss', 'jet', 'filter']);
+const SOFT_PARTS = new Set(['pili', 'cilia', 'filterComb', 'adhesin', 'paddle', 'tailFan', 'maxillae']);
+const STIFF_PARTS = new Set(['jaw', 'mandible', 'eye', 'spike', 't6ss', 'jet', 'filter', 'claw', 'beak', 'radula', 'siphon']);
+const MOUTHS = new Set(['jaw', 'mandible', 'claw', 'beak']);
 const PART_LAG = 0.08; // rad of trailing per rad/s of turning
 const PART_PUSH = 0.05; // rad per cell radius/s² of sideways acceleration
 const PART_SWING = 0.5; // rad, at most
@@ -678,7 +769,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const shape = PART_SHAPE[kind];
       if (!whip && !shape) continue; // coats are drawn by the body shader
       // An animal's membrane parts sit on its segmented outline, not the unit circle; a whip leaves from just inside.
-      const onRim = (tier === 3 && slot === 'membrane' ? animalRim(raw.angle, segments) : 1) * (whip ? 0.92 : 1);
+      const onRim = (isAnimal(tier) && slot === 'membrane' ? animalRim(raw.angle, segments) : 1) * (whip ? 0.92 : 1);
       const x = raw.x * onRim;
       const y = raw.y * onRim;
       const mesh: ShaderMesh = new THREE.Mesh(whip ? flagellumGeometry : partGeometry, (whip ? flagellumMaterial : partMaterial).clone());
@@ -695,9 +786,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       }
       frame.add(mesh);
       parts.push({
-        mesh, mouth: raw.gene === 'jaw' || raw.gene === 'mandible', internal: slot === 'internal', x, y, angle: raw.angle,
+        mesh, mouth: MOUTHS.has(raw.gene), internal: slot === 'internal', x, y, angle: raw.angle,
         size: whip ? FLAGELLUM_LENGTH[tier]! * raw.scale : shape!.size * raw.scale, out: shape?.out ?? 0,
-        seg: tier === 3 ? nearestSegment(x, y, segments) : -1, whip: whip ? chain(WHIP_POINTS) : undefined,
+        seg: isAnimal(tier) ? nearestSegment(x, y, segments) : -1, whip: whip ? chain(WHIP_POINTS) : undefined,
         feel: SOFT_PARTS.has(raw.gene) ? SOFT : STIFF_PARTS.has(raw.gene) ? STIFF : FIRM, swing: spring(), sx: spring(), sy: spring(),
       });
     }
@@ -751,9 +842,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
 
       // Cells bow into a turn (an animal bends along its spine instead).
       const s = shapeUniform(form);
-      const bow = look.tier < 3 ? 0.25 + 0.75 * (s.sx / s.sy - 1) : 0;
+      const bow = !isAnimal(look.tier) ? 0.25 + 0.75 * (s.sx / s.sy - 1) : 0;
       stepSpring(flex, clamp(m.omega * FLEX, FLEX_MAX) * bow, FLEX_SPRING.k, FLEX_SPRING.c, step);
-      if (look.tier === 3) { // the shape is in the segment layout and the plates (PLATE), not a body stretch
+      if (isAnimal(look.tier)) { // the shape is in the segment layout and the plates (PLATE), not a body stretch
         body.material.uniforms.uShape!.value.set(1, 1, 0);
         (body.material.uniforms.uPlate!.value as THREE.Vector2).set(...(PLATE[form] ?? PLATE[0]!));
       } else body.material.uniforms.uShape!.value.set(s.sx, s.sy, s.bend + flex.v);
@@ -762,8 +853,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
       const turns: number[] = [];
       // The rest layout in the body frame: the canonical design laid out by the shape (longer, or curved).
-      const restBody = look.tier === 3 ? segments.map(([x, y]) => deform(form, x, y)) : [];
-      if (look.tier === 3) {
+      const restBody = isAnimal(look.tier) ? segments.map(([x, y]) => deform(form, x, y)) : [];
+      if (isAnimal(look.tier)) {
         const rest = restBody.map((b) => toWorld(b.x, b.y));
         stepSpine(spine, rest, radial, step, Math.hypot(m.vx, m.vy), feel.speed);
         for (const [i, [, , r]] of segments.entries()) {
@@ -772,12 +863,12 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
           turns[i] = segmentTurn(spine, rest, i, radial);
         }
       }
-      color.setHSL(look.hue, look.tier === 3 ? 0.55 : 0.8, 0.42); // animal tissue is less saturated than a cell
+      color.setHSL(look.hue, isAnimal(look.tier) ? 0.55 : 0.8, 0.42); // animal tissue is less saturated than a cell
       body.visible = true;
       // The body's quad: a cell's fixed square; an animal's the bounding box of what its segments draw this
       // frame (most of a fixed square would be open water, and the animal shader is the costliest in the game).
       const quad = body.material.uniforms.uQuad!.value as THREE.Vector4;
-      if (look.tier === 3 && !((pose.call ?? 0) > 0)) {
+      if (isAnimal(look.tier) && !((pose.call ?? 0) > 0)) {
         let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
         for (let i = 0; i < segments.length; i++) {
           const v = seg[i]!;
@@ -786,7 +877,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         }
         quad.set((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2);
       } else {
-        const half = look.tier === 3 ? ANIMAL_HALF : QUAD_HALF;
+        const half = isAnimal(look.tier) ? ANIMAL_HALF : QUAD_HALF;
         quad.set(0, 0, half, half);
       }
       body.position.set(pose.x + (quad.x * ch - quad.y * sh) * radius, pose.y + (quad.x * sh + quad.y * ch) * radius, 0);
@@ -802,7 +893,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uTime!.value = time;
       u.uHeading!.value = pose.heading;
       u.uTier!.value = look.tier - 1;
-      u.uCarapace!.value = look.tier === 3 && TIER3.hasGene(look.genome, 'carapace') ? 1 : 0;
+      u.uCarapace!.value = look.tier === 3 ? (TIER3.hasGene(look.genome, 'carapace') ? 1 : 0)
+        : look.tier === 4 && (TIER4.hasGene(look.genome, 'exoskeleton') || TIER4.hasGene(look.genome, 'shell')) ? 1 : 0;
       u.uSidero!.value = hasGene(g1, 'siderophores') ? 1 : 0;
       u.uExo!.value = hasGene(g1, 'exoenzymes') ? 1 : 0;
       u.uCapsule!.value = hasGene(g1, 'capsule') ? 1 : 0;

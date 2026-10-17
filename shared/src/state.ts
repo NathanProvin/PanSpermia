@@ -19,7 +19,7 @@ export const Player = schema({
   rng: t.uint32(),
   mass: t.number(),
   health: t.number(),
-  /** 1 = bacterium, 2 = eukaryote, 3 = animal. */
+  /** 1 = bacterium, 2 = eukaryote, 3 = animal, 4 = arthropod or mollusk. */
   tier: t.uint8().default(1),
   /** Tier-1 part copies (GENES); 0 for a eukaryote. */
   genome: t.uint32(),
@@ -27,6 +27,8 @@ export const Player = schema({
   genome2: t.uint32().default(0),
   /** Tier-3 part copies (TIER3); 0 for other tiers. */
   genome3: t.uint32().default(0),
+  /** Tier-4 part copies (TIER4); 0 for other tiers. */
+  genome4: t.uint32().default(0),
   /** Seconds left dormant as an endospore (0 = active), and until it can sporulate again. */
   spore: t.number().default(0),
   sporeCooldown: t.number().default(0),
@@ -122,7 +124,7 @@ export const Lineage = schema({
   parts: t.array(Part),
   hue: t.float32(),
   shape: t.uint8().default(0),
-  /** Animals (tier 3): body plan (PLAN_NAMES index) and relative segment sizes (see segmentsOf). */
+  /** Animals (tier 3 up): body plan (PLAN_NAMES index) and relative segment sizes (see segmentsOf). */
   plan: t.uint8().default(0),
   radii: t.array('float32'),
   /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */

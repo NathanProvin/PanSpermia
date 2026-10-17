@@ -6,7 +6,7 @@ export const TICK_RATE = 20;
 export const TICK_DT = 1 / TICK_RATE;
 
 /** Pool radius, world units. */
-export const WORLD_RADIUS = 4500; // 1500 → 2200 (P8a) → 3000 (P9a) → 4500 for bigger tiers (TIER_SCALE): rates below scaled with the area
+export const WORLD_RADIUS = 6500; // 1500 → 2200 (P8a) → 3000 (P9a) → 4500 (TIER_SCALE) → 6500 (P10a, tier 4): rates below scaled with the area
 
 // Cell body. Area ∝ mass, so radius ∝ √mass.
 export const SPAWN_MASS = 10;
@@ -17,9 +17,10 @@ export const MASS_CAP = 100;
 export const RADIUS_PER_SQRT_MASS = 4;
 /**
  * Body scale per tier (index = tier): each tier is clearly a size step up — a newborn eukaryote (radius ≈ 66)
- * is ~1.6× a grown bacterium (40), a newborn animal (≈ 305) ~1.6× a grown eukaryote (190); animals grow to ≈ 680.
+ * is ~1.6× a grown bacterium (40), a newborn animal (≈ 305) ~1.6× a grown eukaryote (190); animals grow to ≈ 680;
+ * a newborn arthropod or mollusk (≈ 870) is ~1.3× a grown animal and grows to ≈ 1120 (the pool is 13000 across).
  */
-export const TIER_SCALE = [1, 1, 1.5, 2.2] as const;
+export const TIER_SCALE = [1, 1, 1.5, 2.2, 2.8] as const;
 // Agar-like: bigger is slower. speed = SPEED_COEF · mass^SPEED_EXP u/s → 119 at spawn, 47 at cap.
 export const SPEED_COEF = 300;
 export const SPEED_EXP = -0.4;
@@ -50,13 +51,13 @@ export const HEALTH_REGEN = 5;
 
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
-export const SEEP_COUNT = 63;
+export const SEEP_COUNT = 131;
 export const SEEP_RATE = 1.1; // packets/s per seep
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = 54; // packets/s scattered over the whole pool
+export const BACKGROUND_RATE = 113; // packets/s scattered over the whole pool
 export const NUTRIENT_LIFETIME = 60; // s
-export const NUTRIENT_CAP = 18000; // packets alive at most
+export const NUTRIENT_CAP = 37500; // packets alive at most
 export const NUTRIENT_MASS = 1; // dissolved packet
 export const DEBRIS_MASS = 2; // debris packet
 export const DEBRIS_SHARE = 0.5; // share of a dead cell's mass released as debris
@@ -69,11 +70,11 @@ export const EXOENZYME_YIELD = 2; // × debris yield
 // may add that gene (transformation: "eat a creature, get its part"). Rare plasmids drift in carrying
 // a random gene and always take.
 export const TRANSFORM_CHANCE = 0.5;
-export const PLASMID_RATE = 1 / 1.7; // packets/s scattered over the whole pool
+export const PLASMID_RATE = 1 / 0.815; // packets/s scattered over the whole pool
 
 // Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
 // lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
-export const PHAGE_RATE = 4.3; // wild phages/s
+export const PHAGE_RATE = 9; // wild phages/s
 export const PHAGE_CLEARANCE = 200; // wild phages never appear this close to a cell
 export const PHAGE_LATENT = 5; // s of damage per infecting phage
 export const PHAGE_DPS = 10;
@@ -101,6 +102,7 @@ export const MAX_CHILDREN = 9; // reserve cap
 /** Lifetime DNA a species must earn before it can evolve to the next tier (Spore's "Grow legs?"). */
 export const EVOLVE_DNA = 250;
 export const EVOLVE_DNA_T2 = 2500; // lifetime DNA for a eukaryote species to become an animal
+export const EVOLVE_DNA_T3 = 15000; // and for an animal species to become an arthropod or mollusk (~2–3 animal generations)
 
 // Tier 2 — eukaryotes (P8). Mass continues from the tier-1 cap; speed and metabolism get their own
 // coefficients so a eukaryote feels as nimble at its scale as a bacterium does at its own.
@@ -121,7 +123,7 @@ export const T2_TURN_RATE = 2.2; // rad/s with a flagellum and no cilia
 // Diets. Algae are tier-2 plant food (bacteria can't take them in); a dead eukaryote falls apart
 // into meat chunks; a jaw engulfs any cell at most ENGULF_RATIO of the eater's mass.
 export const ALGAE_MASS = 6;
-export const ALGAE_RATE = 16.9; // per s over the whole pool, plus SEEP_ALGAE at each seep
+export const ALGAE_RATE = 35.3; // per s over the whole pool, plus SEEP_ALGAE at each seep
 export const SEEP_ALGAE = 0.25; // per s per seep
 export const CHUNK_MASS = 10;
 export const ENGULF_RATIO = 0.5;
@@ -139,7 +141,7 @@ export const JET_BOOST = 2.6; // × swim speed while dashing
 export const EYE_SIGHT = 0.18; // camera pulls back this much more per stacked eye (client)
 // Meteor shards: Spore's meteor bits. Rare sparkly packets carrying a random tier-2 part; any eukaryote
 // that touches one unlocks it. A dead eukaryote's chunks carry its parts too (eaten with a jaw: may unlock).
-export const SHARD_RATE = 1 / 4.9; // per s over the whole pool
+export const SHARD_RATE = 1 / 2.35; // per s over the whole pool
 
 // Photosynthesis and endosymbiosis (P8d). Light is uniform for now: a photosynthesizer gains mass
 // steadily without eating. Swallowing a bacterium may adopt it as an organelle (Margulis): one with
@@ -153,7 +155,7 @@ export const ENDOSYMBIOSIS_CHANCE = 0.25; // per qualifying bacterium swallowed
 // Hazards of eukaryotes (P8f). Giant viruses (like mimivirus in amoebae) are the eukaryote's phages:
 // they drift, infect on contact and burst out of the dead; bacteria are immune to them, as eukaryotes are
 // to phages. Parasitic bacteria with adhesins drain the energy of any eukaryote they cling to.
-export const VIRUS_RATE = 1.24; // wild giant viruses/s
+export const VIRUS_RATE = 2.6; // wild giant viruses/s
 export const VIRUS_LATENT = 6; // s of damage per infecting virus
 export const VIRUS_DPS = 20;
 export const VIRUS_BURST = 6;
@@ -195,9 +197,32 @@ export const EGG_HEALTH = 400; // a clutch survives this much eating
 export const EGG_EAT_DPS = 150; // how fast a eukaryote or animal touching it eats it
 export const EGG_RADIUS = 150; // a clutch at an animal's scale
 
+// Tier 4 — arthropods and mollusks (P10). Mass continues from the tier-3 cap.
+export const T4_SPAWN_MASS = 6000; // radius ≈ 870 (TIER_SCALE 2.8)
+export const T4_MIN_MASS = 3000;
+export const T4_MASS_CAP = 10000; // radius ≈ 1120
+export const T4_SPEED_COEF = 4860; // 150 u/s at spawn, 122 at cap
+export const T4_HEALTH_MAX = 3000;
+export const T4_METABOLISM_BASE = 1.5; // energy/s: ~3.3 at spawn, ~4.5 at cap
+export const T4_METABOLISM_RATE = 0.0003;
+export const T4_DRIFT = 0.08;
+export const T4_SWIM_CREEP = 0.3;
+export const T4_SWIM_LEGS = 0.85; // walking legs: precise, like paddles
+export const T4_SWIM_TAILFAN = 1.3; // a tail fan: fast, turns at T4_TURN_RATE
+export const T4_SWIM_FOOT = 0.55; // a mollusk's muscular foot: slow and sure (it barely drifts)
+export const T4_SWIM_SIPHON = 1.35; // jet propulsion through a siphon: fast, turns at T4_TURN_RATE
+export const T4_TURN_RATE = 1.4; // rad/s with a tail fan or a siphon and nothing to steer with
+export const LEG_TURN = 2.2;
+export const FOOT_DRIFT = 0.3; // × T4_DRIFT: a foot holds on
+/** Share of bite damage that gets through a hard exoskeleton, or a mollusk's shell (heavier: it slows the body). */
+export const EXOSKELETON_ARMOUR = 0.55;
+export const SHELL_ARMOUR = 0.35;
+export const EXOSKELETON_SWIM = 0.92;
+export const SHELL_SWIM = 0.8;
+
 // Feel (movement polish): inertia and progressive turns. Gameplay over low-Reynolds realism: a cell's
 // velocity eases toward its propulsion with this time constant (s), per tier — bigger bodies feel heavier.
-export const INERTIA = [0, 0.3, 0.5, 0.8];
+export const INERTIA = [0, 0.3, 0.5, 0.8, 1];
 /** Turn rates (rad/s) of the steering motility types that used to turn instantly. */
 export const PILI_TURN = 4;
 export const CREEP_TURN = 2.5;
@@ -209,9 +234,9 @@ export const TUMBLE_SPIN = 14;
 export const BOUNCE = 0.6; // restitution of the normal velocity
 export const PUSH = 0.8; // share of the overlap resolved per tick
 export const BUMP_SPEED = 60; // u/s of extra separation kick at full overlap, for a felt bounce
-// Bites: jaws (tier 2) and mandibles (tier 3) bite what's in front and too big to swallow.
+// Bites: jaws (tier 2), mandibles (tier 3), claws and beaks (tier 4) bite what's in front and too big to swallow.
 export const BITE_INTERVAL = 0.8; // s between bites
-export const BITE_DAMAGE = [0, 0, 28, 45]; // per bite, per tier
+export const BITE_DAMAGE = [0, 0, 28, 45, 110]; // per bite, per tier
 export const BITE_REACH = 0.25; // × the biter's radius beyond touching
 export const BITE_KNOCK = 140; // u/s pushed into the victim, away from the biter
 export const BITE_RECOIL = 80; // u/s the biter bounces back
