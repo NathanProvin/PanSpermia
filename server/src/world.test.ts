@@ -3,7 +3,7 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf, formOf, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  radiusOf, formOf, MAX_SEGMENTS, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -958,7 +958,7 @@ test('an animal species designs its body: plan and segment sizes are validated, 
   expect(submitDesign(state, 'p', { ...base, plan: 2, radii: [0.5, 0.5] })).toBe('bad plan');
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.5] })).toBe('bad segments');
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.5, 1.5] })).toBe('bad segments');
-  expect(submitDesign(state, 'p', { ...base, plan: 1, radii: Array(7).fill(0.5) })).toBe('bad segments');
+  expect(submitDesign(state, 'p', { ...base, plan: 1, radii: Array(MAX_SEGMENTS + 1).fill(0.5) })).toBe('bad segments');
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.6, 0.4, 0.4, 0.4] })).toBeUndefined();
   expect([lineage.plan, [...lineage.radii].map((r) => Math.round(r * 10) / 10)]).toEqual([1, [0.6, 0.4, 0.4, 0.4]]);
 });

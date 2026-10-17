@@ -164,7 +164,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     </section>
     <div class="handle" data-h="nose" title="Drag to stretch, or sideways to bend"></div>
     <div class="handle" data-h="side" title="Drag to make it thinner or plumper"></div>
-    <div class="handle" data-h="tail" title="Drag out to add segments, in to remove them"></div>
+    <div class="handle" data-h="tail" title="Drag out to lengthen the body, in to shorten it"></div>
+    ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle width" data-w="${i}" title="Drag to thicken or slim the body here"></div>`).join('')}
     <img class="drag-ghost" alt="" hidden>
     <p class="ed-help">Drag parts onto the body · drag the round handles to sculpt it · drag a part away to remove it · wheel to resize</p>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
@@ -173,6 +174,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const evolveButton = $<HTMLButtonElement>('.evolve');
   const ghost = $<HTMLImageElement>('.drag-ghost');
   const handles = { nose: $<HTMLElement>('[data-h="nose"]'), side: $<HTMLElement>('[data-h="side"]'), tail: $<HTMLElement>('[data-h="tail"]') };
+  /** An animal's width handles, one per station along its body (clay: drag a side out or in). */
+  const widths = [...root.querySelectorAll<HTMLElement>('[data-w]')];
   let name = '';
   /** Evolving is final for this tier: the first click arms the button, the second commits. */
   let evolveArmed = false;
@@ -457,6 +460,15 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       sculpt = { h, d0: Math.hypot(s.x, s.y), radii0: [...radii] };
     });
   }
+  for (const [i, el] of widths.entries()) {
+    el.addEventListener('pointerdown', (e) => {
+      if (root.hidden || submitted) return;
+      e.preventDefault();
+      const [x, y] = segments()[i]!;
+      const { bx, by } = toBody(e);
+      resize = { i, cx: x, cy: y, d0: Math.max(0.05, Math.hypot(bx - x, by - y)), radii0: [...radii] };
+    });
+  }
   const onDown = (e: PointerEvent) => {
     if (root.hidden) return;
     const { bx, by } = toBody(e);
@@ -653,10 +665,23 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         place(handles.nose, undefined);
         place(handles.side, undefined);
         place(handles.tail, deform(shownForm(), tail.x, tail.y));
+        // Width handles on the body's right side at each station (a radial body: its centre, and one lobe for all).
+        for (const [i, el] of widths.entries()) {
+          const st = segs[i];
+          if (!st || (plan === 1 && i > 1)) {
+            place(el, undefined);
+            continue;
+          }
+          const [sx, sy, sr] = st;
+          const d = Math.hypot(sx, sy) || 1;
+          const out = plan === 1 && i === 1 ? { x: sx + (sy / d) * sr, y: sy - (sx / d) * sr } : { x: sx, y: sy - sr };
+          place(el, deform(shownForm(), out.x, out.y));
+        }
       } else {
         place(handles.nose, deform(form, HANDLE_OUT, 0));
         place(handles.side, deform(form, 0, -HANDLE_OUT));
         place(handles.tail, undefined);
+        for (const el of widths) place(el, undefined);
       }
       const what = evolving ? `Evolved: design your first ${TIER_NAMES[lineage!.tier]!.toLowerCase()}`
         : animal() ? 'Design the next generation' : 'Dividing';

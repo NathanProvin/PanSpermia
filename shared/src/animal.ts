@@ -30,7 +30,7 @@ export const MOLLUSK = 3;
 /** The plans each animal tier offers (PLAN_NAMES indices); the first is a new species' default. */
 export const PLANS_OF: Readonly<Record<number, readonly number[]>> = { 3: [0, 1], 4: [ARTHROPOD, MOLLUSK] };
 export const MIN_SEGMENTS = 2;
-export const MAX_SEGMENTS = 6;
+export const MAX_SEGMENTS = 8; // stations along the body: long worms need more than the old 6 segments
 /** Relative segment sizes the editor allows (the body is then fitted to the cell, so only proportions matter). */
 export const SEGMENT_MIN = 0.3;
 export const SEGMENT_MAX = 1;
@@ -79,18 +79,29 @@ export const DEFAULT_SEGMENTS = segmentsOf(0, DEFAULT_RADII);
 export const MATE_PREFIX = '~mate:';
 export const isMate = (id: string) => id.startsWith(MATE_PREFIX);
 
-/** Blend radius (cell radii) of the smooth union that joins segments into one body. */
-export const SEGMENT_BLEND = 0.12;
+/** Blend radius (cell radii) of the smooth union that joins the tube's links into one body. */
+export const SEGMENT_BLEND = 0.08;
 
-/** Signed distance (cell radii) from a canonical point to the segmented body, < 0 inside (as the body shader). */
+/**
+ * Signed distance (cell radii) from a canonical point to the animal's body, < 0 inside (as the body shader). The body
+ * is one continuous tube (polish: clay, not bubbles): each link between consecutive stations (a spine) — or from the
+ * centre to each lobe (radial) — is a cone whose radius goes linearly from one station's to the next's, with round
+ * caps, the links smoothly joined. Only a radial body's centre sits exactly at the origin (segmentsOf).
+ */
 export function animalSdf(x: number, y: number, segments: readonly Segment[] = DEFAULT_SEGMENTS) {
+  const radial = segments[0]![0] === 0 && segments[0]![1] === 0;
   let d = Infinity;
-  for (const [sx, sy, r] of segments) {
-    const di = Math.hypot(x - sx, y - sy) - r;
+  for (let i = 1; i < segments.length; i++) {
+    const [ax, ay, ar] = segments[radial ? 0 : i - 1]!;
+    const [bx, by, br] = segments[i]!;
+    const abx = bx - ax;
+    const aby = by - ay;
+    const h = Math.max(0, Math.min(1, ((x - ax) * abx + (y - ay) * aby) / Math.max(abx * abx + aby * aby, 1e-9)));
+    const di = Math.hypot(x - ax - abx * h, y - ay - aby * h) - (ar + (br - ar) * h);
     if (d === Infinity) d = di;
     else { // polynomial smooth minimum
-      const h = Math.max(0, Math.min(1, 0.5 + (0.5 * (di - d)) / SEGMENT_BLEND));
-      d = di * (1 - h) + d * h - SEGMENT_BLEND * h * (1 - h);
+      const k = Math.max(0, Math.min(1, 0.5 + (0.5 * (di - d)) / SEGMENT_BLEND));
+      d = di * (1 - k) + d * k - SEGMENT_BLEND * k * (1 - k);
     }
   }
   return d;

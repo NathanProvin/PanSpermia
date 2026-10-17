@@ -1,3 +1,4 @@
+import { MAX_SEGMENTS } from '@panspermia/shared';
 import { expect, test } from 'vitest';
 import { type CardData, decodeCard, encodeCard } from './card.ts';
 
@@ -32,7 +33,7 @@ test('tampered or junk links are refused, never rendered', () => {
     [...ok.slice(0, 6), Array(25).fill([1, 0, 0, 0, 1])], // too many parts
     [...ok, 3, 0, 9, [0.5, 0.5]], // unknown body plan
     [...ok, 3, 0, 0, [0.5, 5]], // segment out of range
-    [...ok, 3, 0, 0, Array(7).fill(0.5)], // too many segments
+    [...ok, 3, 0, 0, Array(MAX_SEGMENTS + 1).fill(0.5)], // too many segments
     [...ok, 1, 0, 0, [0.5, 0.5], [9, 0.7, 0]], // sculpted far beyond the limits
   ]) expect(decodeCard(tamper(bad))).toBeUndefined();
   expect(decodeCard('not base64 at all!!')).toBeUndefined();

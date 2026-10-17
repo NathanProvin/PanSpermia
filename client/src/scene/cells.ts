@@ -80,15 +80,22 @@ float segment(vec2 p, vec2 a, vec2 b) {
   return length(p - a - ab * clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
 }
 vec2 turn(vec2 v, float a) { return vec2(cos(a) * v.x - sin(a) * v.y, sin(a) * v.x + cos(a) * v.y); }
+/** Round pigment spots of varying size, scattered one per cell of a grid (some cells empty): a "speckled" pattern. */
+float spots(vec2 p) {
+  vec2 g = floor(p);
+  vec2 o = 0.3 + 0.4 * hash22(g); // inside its cell, so a spot never crosses into the next
+  float size = mix(0.07, 0.2, hash12(g + 7.0)) * step(0.35, hash12(g + 3.0));
+  return 1.0 - smoothstep(size * 0.7, size, length(fract(p) - o));
+}
 /** Light from above-left of the screen, turned into the body frame. */
 vec3 lightDir() {
   float ch = cos(uHeading), sh = sin(uHeading);
   return normalize(vec3(ch * -0.45 + sh * 0.55, -sh * -0.45 + ch * 0.55, 0.7));
 }
 
-// Animals: many-celled bodies, a real step up from a cell. An opaque segmented body: cuticle plates a little
-// shorter along the spine than across it (a worm's rings, an insect's tergites), dark furrows between them, a
-// paler dorsal ridge, mottling, lit as solid bulging segments; legs rowing along the sides in a wave running
+// Animals: many-celled bodies, a real step up from a cell. One continuous tube of clay swept along the spine (its width
+// profile sculpted in the editor), lit as a cylinder, with fine rings (larvae, worms) or chitin plates (arthropods), a
+// paler dorsal ridge, mottling and the gut showing through; legs rowing along the sides in a wave running
 // down the body (metachronal, faster as it swims), antennae on the head and two tail filaments. Radial bodies
 // wave tentacles instead. The segments come from the soft rig (the body bends as it follows its head).
 // No membrane, nucleus or glow.
@@ -128,72 +135,87 @@ vec4 drawCocoon(vec2 p, float t, vec2 head, vec2 tail, float big, float bodySd) 
 vec4 drawAnimal(vec2 p, float t) {
   vec2 head = uSeg[0].xy, tail = uSeg[0].xy;
   float big = 0.0;
-  float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3, eyes = 1e3, gutD = 1e3;
-  vec2 q1 = vec2(0.0);
-  float r1 = 1.0;
+  float sd = 1e3, limbs = 1e3, eyes = 1e3;
+  // The nearest link: its station parameter along the body (s), the distance to its centreline, its radius there,
+  // and the direction from the centreline to p (for the tube's normal).
+  float sNear = 0.0, dcNear = 1e3, rNear = 1.0;
+  vec2 latNear = vec2(0.0, 1.0);
+  float dNear = 1e3;
   float row = 3.0 + 9.0 * uSpeed; // leg strokes, rad/s
   float mollusk = step(1.5, uBody);
   float arthropod = step(0.5, uBody) * (1.0 - mollusk);
-  float blend = mix(mix(0.06, 0.025, arthropod), 0.28, mollusk); // crisp chitin joints, one soft mollusk body
+  float blend = mix(0.06, 0.28, mollusk); // smooth joints; one soft mollusk body
   for (int i = 0; i < 8; i++) {
     if (i >= uSegN) break;
     vec3 s = uSeg[i];
     tail = s.xy;
     big = max(big, s.z);
-    // Beyond everything this segment draws (plate, legs; the head's antennae reach further): skip it. Most of an
-    // animal's quad is open water, and this loop is the costliest shader in the game.
+    // The tube: a cone from the previous station (a radial body: from the centre) to this one, radius varying
+    // linearly, round caps; links smoothly joined, so the body is one piece of clay however the spine bends.
+    if (i > 0) {
+      vec3 a = uRadial > 0.5 ? uSeg[0] : uSeg[i - 1];
+      vec2 ab = s.xy - a.xy;
+      float h = clamp(dot(p - a.xy, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+      vec2 c = a.xy + ab * h;
+      float rr = mix(a.z, s.z, h);
+      float dc = length(p - c);
+      float di = dc - rr;
+      if (uJiggle > 0.001) di += uJiggle * 0.03 * rr * sin(dot(p - c, vec2(7.0, 5.0)) / max(rr, 1e-3) + t * 15.0); // impacts only
+      if (di < dNear) {
+        dNear = di;
+        sNear = (uRadial > 0.5 ? 0.0 : float(i - 1)) + h;
+        dcNear = dc;
+        rNear = rr;
+        latNear = dc > 1e-5 ? (p - c) / dc : vec2(-ab.y, ab.x) / max(length(ab), 1e-5);
+      }
+      float k = clamp(0.5 + 0.5 * (di - sd) / blend, 0.0, 1.0);
+      sd = i == 1 ? di : mix(di, sd, k) - blend * k * (1.0 - k);
+    }
+    // Appendages drawn by the body itself, only near this station (most of the quad is open water).
     float reach = s.z * (i == 0 && uRadial < 0.5 ? ${HEAD_REACH.toFixed(2)} : ${REACH.toFixed(2)});
     if (dot(p - s.xy, p - s.xy) > reach * reach) continue;
     vec2 ax = segAxis(i);
     vec2 side = vec2(-ax.y, ax.x);
-    vec2 q = vec2(dot(p - s.xy, ax), dot(p - s.xy, side));
-    float di = (length(q / uPlate) - s.z) * min(uPlate.x, uPlate.y);
-    if (uJiggle > 0.001) di += uJiggle * 0.03 * s.z * sin(atan(q.y, q.x) * 5.0 + t * 15.0); // impacts only
-    float h = clamp(0.5 + 0.5 * (di - sd) / blend, 0.0, 1.0);
-    sd = i == 0 ? di : mix(di, sd, h) - blend * h * (1.0 - h); // joined, but each plate still reads
-    if (di < d1) { d2 = d1; d1 = di; q1 = q; r1 = s.z; } else if (di < d2) d2 = di;
-    // The gut: a tube down the spine, from each segment's centre to the next one's (in widths of the segment).
-    if (i > 0 && uRadial < 0.5) gutD = min(gutD, segment(p, uSeg[i - 1].xy, s.xy) / (0.3 * s.z));
     for (int k = -1; k <= 1; k += 2) {
       float fk = float(k);
-      if (uRadial > 0.5) { // a tentacle waving out of each lobe
+      if (uRadial > 0.5) { // a tentacle waving out of each lobe's tip
         if (i == 0) continue;
-        vec2 base = s.xy + ax * s.z * uPlate.x + side * fk * s.z * 0.3 * uPlate.y;
+        vec2 base = s.xy + ax * s.z * 0.9 + side * fk * s.z * 0.3;
         vec2 dir = turn(ax, fk * 0.25 + 0.3 * sin(t * 1.8 + float(i) * 1.7 + fk));
         vec2 mid = base + dir * s.z * 0.7;
         vec2 tip = mid + turn(dir, 0.5 * sin(t * 2.3 + float(i))) * s.z * 0.6;
-        limbs = min(limbs, min(segment(p, base, mid) - 0.05 * s.z, segment(p, mid, tip) - 0.03 * s.z));
+        limbs = min(limbs, min(segment(p, base, mid) - 0.04 * s.z, segment(p, mid, tip) - 0.022 * s.z));
       } else if (i == 0 && mollusk > 0.5) { // eye stalks with an eye at each tip, and short oral tentacles below
         vec2 base = s.xy + ax * s.z * 0.55 + side * fk * s.z * 0.35;
         vec2 tip = base + turn(ax, fk * (0.35 + 0.08 * sin(t * 1.3 + fk))) * s.z * (0.95 + 0.1 * sin(t * 0.9 + fk));
-        limbs = min(limbs, segment(p, base, tip) - mix(0.08, 0.05, clamp(dot(p - base, ax) / s.z, 0.0, 1.0)) * s.z);
-        eyes = min(eyes, length(p - tip) - 0.1 * s.z);
+        limbs = min(limbs, segment(p, base, tip) - mix(0.07, 0.04, clamp(dot(p - base, ax) / s.z, 0.0, 1.0)) * s.z);
+        eyes = min(eyes, length(p - tip) - 0.09 * s.z);
         vec2 oral = s.xy + ax * s.z * 0.85 + side * fk * s.z * 0.18;
-        limbs = min(limbs, segment(p, oral, oral + turn(ax, fk * (0.9 + 0.15 * sin(t * 2.0 + fk))) * s.z * 0.45) - 0.05 * s.z);
-      } else if (i == 0) { // antennae
-        vec2 base = s.xy + ax * s.z * 0.85 * uPlate.x + side * fk * s.z * 0.3 * uPlate.y;
+        limbs = min(limbs, segment(p, oral, oral + turn(ax, fk * (0.9 + 0.15 * sin(t * 2.0 + fk))) * s.z * 0.45) - 0.04 * s.z);
+      } else if (i == 0) { // antennae: thin, jointed, sweeping
+        vec2 base = s.xy + ax * s.z * 0.8 + side * fk * s.z * 0.3;
         vec2 dir = turn(ax, fk * (0.45 + 0.1 * sin(t * 1.7 + fk)));
         vec2 mid = base + dir * s.z * (0.9 + 0.3 * arthropod);
         vec2 tip = mid + turn(dir, fk * (0.35 + 0.15 * sin(t * 2.1 - fk))) * s.z * (0.8 + 0.4 * arthropod);
-        limbs = min(limbs, min(segment(p, base, mid), segment(p, mid, tip)) - 0.025 * s.z);
-      } else if (uBody < 0.5) { // tier 3: a jointed leg each side, swept back, rowing (left and right in antiphase)
+        limbs = min(limbs, min(segment(p, base, mid) - 0.022 * s.z, segment(p, mid, tip) - 0.014 * s.z));
+      } else if (uBody < 0.5) { // tier 3: a fine jointed leg each side, swept back, rowing (left and right in antiphase)
         float b = 0.55 + 0.4 * sin(t * row - float(i) * 1.2 + (fk > 0.0 ? 0.0 : 3.14159));
-        vec2 base = s.xy + side * fk * s.z * 0.95 * uPlate.y;
+        vec2 base = s.xy + side * fk * s.z * 0.92;
         vec2 knee = base + (side * fk * cos(b) - ax * sin(b)) * s.z * 0.6;
         vec2 foot = knee + (side * fk * cos(b + 0.7) - ax * sin(b + 0.7)) * s.z * 0.5;
-        limbs = min(limbs, min(segment(p, base, knee) - 0.07 * s.z, segment(p, knee, foot) - 0.045 * s.z));
+        limbs = min(limbs, min(segment(p, base, knee) - 0.045 * s.z, segment(p, knee, foot) - 0.028 * s.z));
         if (i == uSegN - 1) { // two tail filaments
-          vec2 cb = s.xy - ax * s.z * 0.85 * uPlate.x + side * fk * s.z * 0.25 * uPlate.y;
+          vec2 cb = s.xy - ax * s.z * 0.85 + side * fk * s.z * 0.25;
           vec2 tip = cb + turn(-ax, -fk * (0.3 + 0.12 * sin(t * 2.0 + fk))) * s.z * 0.9;
-          limbs = min(limbs, segment(p, cb, tip) - 0.025 * s.z);
+          limbs = min(limbs, segment(p, cb, tip) - 0.018 * s.z);
         }
       }
     }
   }
   limbs = min(limbs, eyes);
   if (uCocoon > 0.5) return drawCocoon(p, t, head, tail, big, sd);
-  // Edge softness from the pixel size, not fwidth(sd): skipped segments leave sd and limbs at 1e3, and that
-  // jump between neighbouring pixels made fwidth huge along each skip circle (drew faint rings around bodies).
+  // Edge softness from the pixel size, not fwidth(sd): far links leave sd at 1e3, and that jump between
+  // neighbouring pixels made fwidth huge (drew faint rings around bodies).
   float aa = length(fwidth(p)) * 1.2;
   float body = 1.0 - smoothstep(-aa, aa, sd);
   // A mollusk's foot: a translucent muscular skirt around the body, its rim rippling with pedal waves.
@@ -202,35 +224,41 @@ vec4 drawAnimal(vec2 p, float t) {
   float skirt = (1.0 - smoothstep(skirtW - aa, skirtW + aa, sd)) * (1.0 - body) * step(0.001, skirtW);
   float limb = (1.0 - smoothstep(-aa, aa, limbs)) * (1.0 - body);
   if (body + limb + skirt <= 0.0 && uCall <= 0.0) return vec4(0.0); // open water: most of the quad, skip the shading
-  // Each plate bulges like a squashed sphere (a mollusk is one soft mound).
-  vec2 qn = q1 / uPlate / r1;
-  vec3 n = normalize(vec3(qn * mix(0.9, 0.6, mollusk), sqrt(max(0.0, 1.0 - dot(qn, qn)))));
+  // A tube, lit as a cylinder: the normal leans out across the body by how far from the centreline p is.
+  float u = clamp(dcNear / max(rNear, 1e-3), 0.0, 1.0);
+  vec3 n = normalize(vec3(latNear * u * mix(0.95, 0.7, mollusk), sqrt(max(0.0, 1.0 - u * u)) + 0.05));
   vec3 L = lightDir();
   float lambert = max(0.0, dot(n, L));
-  float furrow = exp(-pow((d2 - d1) / mix(0.03, 0.022, arthropod), 2.0)) * (1.0 - mollusk);
-  float ridge = exp(-pow(q1.y / (r1 * 0.22), 2.0));
-  float edge = smoothstep(-0.12, 0.0, sd);
+  // Rings along the body: fine annulation (worms, larvae), chitin plates with dark sutures midway between stations
+  // (arthropods), none (mollusks). sNear counts stations from the head.
+  float plateEdge = exp(-pow((fract(sNear) - 0.5) / 0.035, 2.0)) * smoothstep(0.98, 0.7, u);
+  float annuli = 0.5 + 0.5 * cos(sNear * 6.2831853 * 3.0);
+  float rel = sd / max(rNear, 1e-3); // depth into the body, in its local radius
+  float edge = smoothstep(-0.35, 0.0, rel);
   float mottle = valueNoise(p * 9.0 + uSeed * 30.0);
   // Earthy, not a glowing cell: chitin is browner, a mollusk's skin paler and greyer.
   vec3 base = mix(uColor, mix(mix(vec3(0.32, 0.26, 0.17), vec3(0.36, 0.22, 0.12), arthropod), vec3(0.55, 0.52, 0.45), mollusk),
     0.35 + 0.1 * arthropod);
   vec3 col = base * (0.35 + 0.65 * lambert) * (0.85 + 0.25 * mottle);
   col *= 0.93 + 0.1 * valueNoise(p * 38.0 + uSeed * 7.0); // fine cuticle grain
-  // The species pattern: dark speckles, or bands across each plate.
-  col *= 1.0 - 0.32 * step(0.5, uPattern) * step(uPattern, 1.5) * smoothstep(0.68, 0.82, valueNoise(p * 12.0 + uSeed * 13.0));
-  col *= 1.0 - 0.26 * step(1.5, uPattern) * (1.0 - mollusk) * smoothstep(0.2, 0.7, sin(q1.x / max(r1, 1e-3) * 5.0 + 1.0));
-  col = mix(col, base * 1.25 + 0.03, ridge * 0.2 * (1.0 - mollusk));
-  // The gut seen through the body wall: a darker olive-brown tube with granular contents.
-  float gut = exp(-gutD * gutD) * (1.0 - smoothstep(-0.05, 0.0, sd));
+  col *= 1.0 - (1.0 - mollusk) * (1.0 - arthropod) * 0.08 * annuli; // a larva's or worm's fine rings
+  col *= 1.0 - arthropod * 0.55 * plateEdge; // chitin plates
+  // The species pattern: dark speckles, or bands along the body.
+  col *= 1.0 - 0.32 * step(0.5, uPattern) * step(uPattern, 1.5) * spots(p * 9.0 + uSeed * 13.0);
+  col *= 1.0 - 0.26 * step(1.5, uPattern) * (1.0 - mollusk) * smoothstep(0.2, 0.7, sin(sNear * 6.2831853 + 1.0));
+  float ridge = exp(-pow(u / 0.3, 2.0)) * (1.0 - mollusk);
+  col = mix(col, base * 1.25 + 0.03, ridge * 0.15);
+  // The gut seen through the body wall: a darker olive-brown tube with granular contents, down the centreline.
+  float gut = exp(-pow(u / 0.32, 2.0)) * (1.0 - smoothstep(-0.05, 0.0, sd)) * (1.0 - step(0.5, uRadial));
   col = mix(col, vec3(0.07, 0.06, 0.025) * (0.6 + 0.8 * valueNoise(p * 20.0 + uSeed)), gut * 0.7);
-  col *= 1.0 - (0.55 + 0.3 * arthropod) * furrow - (0.35 + 0.2 * arthropod) * edge;
+  col *= 1.0 - (0.4 + 0.15 * arthropod) * edge;
   float hard = max(uCarapace, arthropod * 0.6);
   col += pow(max(0.0, dot(reflect(-L, n), vec3(0.0, 0.0, 1.0))), 20.0 - 12.0 * hard) * (0.1 + 0.3 * hard);
   col = mix(col, col * 1.1 + vec3(0.05, 0.045, 0.03), uCarapace * 0.5 * (1.0 - mollusk)); // a carapace: a paler, glossier shell
   // Mollusk skin: dark speckles and a wet, broad sheen.
   col *= 1.0 - mollusk * 0.25 * smoothstep(0.5, 0.9, valueNoise(p * 6.0 + uSeed * 11.0));
   col += mollusk * 0.12 * pow(lambert, 6.0);
-  // The shell: a coiled cone over the biggest segment (body frame centre, radius), whorls spiralling out from an apex
+  // The shell: a coiled cone over the biggest station (body frame centre, radius), whorls spiralling out from an apex
   // set back toward the tail, growth lines across them, banded, glossy.
   float shellD = length(p - uShellAt.xy) - uShellAt.z * (1.0 + 0.04 * sin(atan(p.y - uShellAt.y, p.x - uShellAt.x) * 3.0));
   float shell = uShell * mollusk * (1.0 - smoothstep(-aa, aa, shellD));
@@ -255,11 +283,12 @@ vec4 drawAnimal(vec2 p, float t) {
   // Mate call: rings pulsing out from a calling animal.
   float ping = fract(t * 0.6);
   float callRing = uCall * exp(-pow((length(p) - (1.5 + 0.7 * ping)) / 0.04, 2.0)) * (1.0 - ping) * (1.0 - body);
-  vec3 limbCol = mix(base * 0.45, base * 0.75, mollusk);
+  // Appendages: thin, jointed chitin tinted by the body, darker than it.
+  vec3 limbCol = mix(mix(base * 0.5, vec3(0.24, 0.19, 0.13), 0.4), base * 0.75, mollusk);
   limbCol = mix(limbCol, vec3(0.03), mollusk * (1.0 - smoothstep(-aa, aa, eyes))); // eyes on the stalks
   vec3 skirtCol = (base * 1.1 + 0.05) * (0.6 + 0.15 * sin(sd * 90.0 - t * 4.0)); // pedal waves
   // Living tissue is a little see-through at its thin edges (the shell isn't).
-  float tissue = body * mix(0.95, 0.62, smoothstep(-0.16, 0.0, sd));
+  float tissue = body * mix(0.95, 0.62, smoothstep(-0.4, 0.0, rel));
   float solid = max(tissue, shell);
   vec3 color = col * solid + limbCol * limb * 0.85 + skirtCol * skirt * 0.55 + (uColor * 0.4 + 0.55) * callRing * 0.5;
   return vec4(color, clamp(solid + limb * 0.85 + skirt * 0.55 + callRing, 0.0, 1.0)); // premultiplied
@@ -316,7 +345,7 @@ void main() {
   // Brightfield: pale, pigment-tinted, translucent cytoplasm (denser toward the rim, like a lens).
   vec3 cyto = uColor * (0.5 + 0.3 * shell + 0.15 * granules) * (1.0 - 0.35 * nucleoid * bact);
   // The species pattern: dark granule clusters (speckled) or faint bands across the body (banded).
-  cyto *= 1.0 - 0.3 * step(0.5, uPattern) * step(uPattern, 1.5) * smoothstep(0.66, 0.84, valueNoise(p * 9.0 + uSeed * 17.0));
+  cyto *= 1.0 - 0.3 * step(0.5, uPattern) * step(uPattern, 1.5) * spots(p * 7.0 + uSeed * 17.0);
   cyto *= 1.0 - 0.18 * step(1.5, uPattern) * smoothstep(0.3, 0.8, sin(p.x * 9.0 + uSeed * 5.0));
   // Eukaryote: a nucleus behind the middle (envelope, darker nucleoplasm, bright nucleolus) and vacuoles.
   vec2 nucleusAt = -fwd * 0.18 + 0.05 * vec2(sin(t * 0.2), cos(t * 0.23));
@@ -404,6 +433,8 @@ float segment(vec2 p, vec2 a, vec2 b) {
   return length(p - a - ab * clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0));
 }
 float dots(vec2 p, vec2 at, float size) { return exp(-dot(p - at, p - at) / (size * size)); }
+/** An animal's appendages: chitin tinted by the body's pigment, browner and darker than it (microscope, not cartoon). */
+vec3 chitin() { return mix(uColor * 0.55, vec3(0.28, 0.22, 0.15), 0.45); }
 void main() {
   vec2 p = vUv * 2.0 - 1.0;
   float t = uTime + uSeed * 50.0;
@@ -476,15 +507,18 @@ void main() {
   } else if (k == ${KIND3 + TIER3.GENES.paddle.index}) { // a jointed leg rowing, a fan of bristles at its tip
     float row = 0.55 * sin(t * 4.0);
     vec2 base = vec2(-0.9, 0.0);
-    vec2 knee = base + 0.6 * vec2(cos(row * 0.6), sin(row * 0.6));
+    vec2 knee = base + 0.65 * vec2(cos(row * 0.6), sin(row * 0.6));
     vec2 tip = knee + 0.5 * vec2(cos(row), sin(row));
-    float limb = min(segment(p, base, knee), segment(p, knee, tip));
-    a = 1.0 - smoothstep(0.13 - 0.04 * smoothstep(-0.9, 0.3, p.x), 0.17, limb); // stout, tapering
-    for (int i = 0; i < 7; i++) { // a broad fan of swimming bristles: the paddle blade
-      float dir = row + (float(i) - 3.0) * 0.2;
-      a = max(a, 0.85 * (1.0 - smoothstep(0.03, 0.06, segment(p, tip, tip + 0.5 * vec2(cos(dir), sin(dir))))));
+    float d = min(segment(p, base, knee) - mix(0.07, 0.045, clamp((p.x + 0.9) / 0.65, 0.0, 1.0)), segment(p, knee, tip) - 0.035);
+    float joint = length(p - knee) - 0.055;
+    float limb = 1.0 - smoothstep(-0.015, 0.015, min(d, joint));
+    float setae = 0.0;
+    for (int i = 0; i < 9; i++) { // a fan of fine swimming setae: the paddle blade
+      float dir = row + (float(i) - 4.0) * 0.13;
+      setae = max(setae, 1.0 - smoothstep(0.008, 0.022, segment(p, tip, tip + 0.55 * vec2(cos(dir), sin(dir)))));
     }
-    col = uColor * 0.6 + vec3(0.35, 0.32, 0.25);
+    a = max(limb * 0.92, setae * 0.55);
+    col = mix(chitin() * (1.0 - 0.35 * (1.0 - smoothstep(-0.03, 0.01, joint))), vec3(0.78, 0.76, 0.66), setae * (1.0 - limb) * 0.5);
   } else if (k == ${KIND3 + TIER3.GENES.filterComb.index}) { // feathery combs beating in a wave, sieving the water
     for (int i = 0; i < 5; i++) {
       float fi = float(i) - 2.0;
@@ -494,9 +528,10 @@ void main() {
       float along = clamp(dot(p - base, dir), 0.0, 1.2);
       float stem = length(p - base - dir * along);
       float hairs = smoothstep(0.6, 0.95, sin(along * 30.0)) * (1.0 - smoothstep(0.02, 0.12, stem)) * step(0.1, along);
-      a = max(a, max(1.0 - smoothstep(0.025, 0.05, stem), hairs * 0.7) * (1.0 - smoothstep(1.0, 1.2, along)));
+      a = max(a, max(1.0 - smoothstep(0.012, 0.03, stem), hairs * 0.5) * (1.0 - smoothstep(1.0, 1.2, along)));
     }
-    col = vec3(0.92, 0.95, 0.85);
+    a *= 0.75;
+    col = mix(chitin(), vec3(0.85, 0.83, 0.74), 0.55);
   } else if (k == ${KIND2 + TIER2.GENES.jaw.index} || k == ${KIND3 + TIER3.GENES.mandible.index}) { // two hooked mandibles snapping
     // Idle chewing; a bite (uActive: 0 idle, then 0 → 1 over the snap) gapes wide and slams shut.
     float open = 0.2 + 0.1 * sin(t * 3.0) + 0.85 * sin(3.14159 * uActive);
@@ -506,10 +541,12 @@ void main() {
       vec2 mid = base + 0.9 * vec2(cos(s * open), sin(s * open));
       vec2 tip = mid + 0.5 * vec2(cos(-s * 0.9), sin(-s * 0.9)); // hooked inward
       float d = min(segment(p, base, mid), segment(p, mid, tip));
-      float w = 0.13 - 0.08 * smoothstep(-0.8, 0.8, p.x);
-      a = max(a, 1.0 - smoothstep(w - 0.03, w + 0.02, d));
+      float w = 0.09 - 0.06 * smoothstep(-0.8, 0.8, p.x);
+      a = max(a, 1.0 - smoothstep(w - 0.02, w + 0.015, d));
     }
-    col = vec3(1.0, 0.86, 0.68) * (0.85 + 0.4 * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive)));
+    // Sclerotised: amber chitin darkening to the tips; a bite only flushes it a little.
+    col = mix(vec3(0.42, 0.29, 0.14), vec3(0.14, 0.09, 0.05), smoothstep(-0.2, 0.7, p.x))
+      * (0.9 + 0.2 * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive)));
   } else if (k == ${KIND2 + TIER2.GENES.spike.index}) { // a long bony spike
     float s = (p.x + 0.95) / 1.9;
     float w = 0.3 * (1.0 - s);
@@ -588,11 +625,11 @@ void main() {
     vec2 knee = base + 0.55 * vec2(cos(0.5 + 0.25 * stride), sin(0.5 + 0.25 * stride));
     vec2 ankle = knee + 0.5 * vec2(cos(-0.35 + 0.3 * stride), sin(-0.35 + 0.3 * stride));
     vec2 tip = ankle + 0.4 * vec2(cos(-0.9 + 0.2 * stride), sin(-0.9 + 0.2 * stride));
-    float d = min(min(segment(p, base, knee) - 0.12, segment(p, knee, ankle) - 0.09), segment(p, ankle, tip) - 0.05);
-    float joints = min(length(p - knee), length(p - ankle)) - 0.11;
-    a = 1.0 - smoothstep(-0.02, 0.02, min(d, joints));
-    float shine = smoothstep(0.03, -0.06, d) * 0.25;
-    col = (uColor * 0.45 + vec3(0.3, 0.24, 0.16)) * (0.8 + shine) * (1.0 - 0.35 * smoothstep(0.0, -0.06, joints));
+    float d = min(min(segment(p, base, knee) - 0.075, segment(p, knee, ankle) - 0.055), segment(p, ankle, tip) - 0.03);
+    float joints = min(length(p - knee), length(p - ankle)) - 0.07;
+    a = (1.0 - smoothstep(-0.015, 0.015, min(d, joints))) * 0.95;
+    float shine = smoothstep(0.02, -0.04, d) * 0.2;
+    col = chitin() * (0.85 + shine) * (1.0 - 0.4 * smoothstep(0.0, -0.04, joints));
   } else if (k == ${KIND4 + TIER4.GENES.tailFan.index}) { // a tail fan: five broad plates spreading and flapping
     float flap = 0.18 * sin(t * 4.0);
     for (int i = 0; i < 5; i++) {
@@ -604,9 +641,9 @@ void main() {
       float u = dot(q, along);
       float v = dot(q, vec2(-along.y, along.x));
       float plate = step(0.0, u) * (1.0 - smoothstep(1.3, 1.45, u)) * (1.0 - smoothstep(0.1 + 0.16 * u, 0.14 + 0.16 * u, abs(v)));
-      a = max(a, plate * (0.75 + 0.25 * smoothstep(0.08, 0.0, abs(v) - 0.12 * u)));
+      a = max(a, plate * (0.6 + 0.3 * smoothstep(0.05, 0.0, abs(v) - 0.12 * u))); // see-through, a vein down each
     }
-    col = uColor * 0.5 + vec3(0.32, 0.26, 0.18);
+    col = chitin() * 1.1;
   } else if (k == ${KIND4 + TIER4.GENES.claw.index}) { // a crab's claw: arm, swollen palm, a fixed finger and a hinged one that snaps
     float open = 0.12 + 0.05 * sin(t * 2.0) + 0.6 * sin(3.14159 * uActive);
     float arm = segment(p, vec2(-0.95, 0.0), vec2(-0.3, 0.0)) - 0.1;
@@ -618,7 +655,7 @@ void main() {
     float d = min(min(arm, palm), min(fixedFinger, moving));
     a = 1.0 - smoothstep(-0.02, 0.02, d);
     float shade = 0.75 + 0.35 * smoothstep(0.0, -0.15, palm) - 0.25 * smoothstep(-0.03, 0.0, d); // rounded, dark rim
-    col = (uColor * 0.35 + vec3(0.42, 0.24, 0.14)) * shade
+    col = mix(chitin() * 1.05, vec3(0.12, 0.08, 0.05), smoothstep(0.55, 0.95, p.x)) * shade
       + vec3(0.25, 0.2, 0.15) * smoothstep(0.5, 0.75, uActive) * (1.0 - smoothstep(0.75, 1.0, uActive));
   } else if (k == ${KIND4 + TIER4.GENES.maxillae.index}) { // grazing mouthparts: little bristly palps working at the food
     for (int i = -1; i <= 1; i += 2) {
@@ -626,11 +663,11 @@ void main() {
       float work = 0.35 * sin(t * 7.0 + s);
       vec2 base = vec2(-0.8, s * 0.25);
       vec2 tip = base + 0.9 * vec2(cos(s * (0.3 + work)), sin(s * (0.3 + work)));
-      float palp = segment(p, base, tip) - 0.09;
+      float palp = segment(p, base, tip) - mix(0.06, 0.03, clamp(dot(p - base, tip - base) / 0.81, 0.0, 1.0));
       float hairs = smoothstep(0.55, 0.9, sin(dot(p - base, vec2(1.0, s)) * 40.0)) * (1.0 - smoothstep(0.0, 0.12, palp)) * step(0.0, palp);
       a = max(a, max(1.0 - smoothstep(-0.02, 0.02, palp), hairs * 0.6));
     }
-    col = uColor * 0.4 + vec3(0.45, 0.4, 0.3);
+    col = chitin() * 1.15;
   } else if (k == ${KIND4 + TIER4.GENES.siphon.index}) { // a muscular siphon: a funnel that pulses with each jet
     float pulse = 0.08 * sin(t * 6.0);
     float s = (p.x + 0.9) / 1.4;
