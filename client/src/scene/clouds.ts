@@ -1,4 +1,4 @@
-import { type Cloud, TICK_DT, TOXINS, cloudRadius, currentAt, drift } from '@panspermia/shared';
+import { type Cloud, INK, TICK_DT, TOXINS, cloudRadius, currentAt, drift } from '@panspermia/shared';
 import { NOISE } from './glsl.ts';
 import { createSprites } from './sprites.ts';
 
@@ -34,16 +34,37 @@ void main() {
   gl_FragColor = vec4(color, 1.0);
 }
 `;
+// A mollusk's ink is matter, not light: dark sepia billows drawn over the water (premultiplied alpha), thick at
+// first, curling and thinning out as it spreads.
+const INK_FRAGMENT = /* glsl */ `
+uniform float uTime;
+varying vec2 vUv;
+varying float vSeed;
+${NOISE}
+void main() {
+  float life = fract(vSeed);
+  vec2 p = vUv * 2.0 - 1.0;
+  float r = length(p);
+  vec2 swirl = vec2(valueNoise(p * 2.0 + uTime * 0.15), valueNoise(p * 2.0 - uTime * 0.12 + 7.0)) - 0.5;
+  float billows = valueNoise(p * 3.5 + swirl * 2.5) * 0.6 + valueNoise(p * 7.0 - swirl * 3.0) * 0.4;
+  // Dense: the water behind is already dark in linear light, so half-transparent ink barely shows. Opaque at the core.
+  float edge = 1.0 - smoothstep(0.5 + 0.3 * billows, 1.0, r);
+  float a = min(1.0, edge * (0.8 + 0.35 * billows)) * (0.97 - 0.85 * life * life);
+  // A flat sepia: the billows live in the alpha. (Colour mixed by billows blew up into white bloom in the browser.)
+  gl_FragColor = vec4(vec3(0.05, 0.035, 0.03) * a, a); // premultiplied
+}
+`;
 const CAPACITY = 400;
 
 interface Puff { x: number; y: number; tick: number; tick0: number; kind: number }
 
 export function createClouds() {
   const sprites = createSprites(CAPACITY, FRAGMENT, 12);
+  const ink = createSprites(64, INK_FRAGMENT, 12, true);
   const puffs = new Map<string, Puff>();
   const flow = { x: 0, y: 0 };
   return {
-    objects: [sprites.mesh],
+    objects: [sprites.mesh, ink.mesh],
     add(id: string, c: Cloud) {
       puffs.set(id, { x: c.x0, y: c.y0, tick: c.tick0, tick0: c.tick0, kind: c.kind });
     },
@@ -51,21 +72,25 @@ export function createClouds() {
     update(tick: number, sinceTick: number, time: number, focus: number) {
       const glide = Math.min(sinceTick, TICK_DT * 1.5);
       let i = 0;
+      let j = 0;
       for (const p of puffs.values()) {
-        if (i >= CAPACITY) break;
+        if (i >= CAPACITY || j >= 64) break;
         drift(p, tick);
         currentAt(p.x, p.y, tick * TICK_DT, flow);
         const age = (tick - p.tick0) * TICK_DT + glide;
         const ahead = (tick - p.tick) * TICK_DT + glide; // drift steps every DRIFT_TICKS: glide since the last step
-        sprites.offsets[i * 3] = p.x + flow.x * ahead;
-        sprites.offsets[i * 3 + 1] = p.y + flow.y * ahead;
-        sprites.offsets[i * 3 + 2] = 0;
-        sprites.sizes[i] = 2 * cloudRadius(p.kind, age);
-        sprites.seeds[i] = p.kind + Math.min(0.999, age / TOXINS[p.kind]!.life);
-        i++;
+        const layer = p.kind === INK ? ink : sprites;
+        const k = p.kind === INK ? j++ : i++;
+        layer.offsets[k * 3] = p.x + flow.x * ahead;
+        layer.offsets[k * 3 + 1] = p.y + flow.y * ahead;
+        layer.offsets[k * 3 + 2] = 0;
+        layer.sizes[k] = 2 * cloudRadius(p.kind, age);
+        layer.seeds[k] = p.kind + Math.min(0.999, age / TOXINS[p.kind]!.life);
       }
       sprites.commit(i);
       sprites.setFrame(time, focus);
+      ink.commit(j);
+      ink.setFrame(time, focus);
     },
   };
 }

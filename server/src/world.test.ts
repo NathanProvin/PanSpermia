@@ -3,11 +3,11 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf,
+  radiusOf, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
-  PHAGE_KILLER, foundSpecies, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf,
+  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf,
 } from './world.ts';
 
 /** A human species 'p' with its first individual, unshielded so tests can hurt it. */
@@ -590,6 +590,41 @@ test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and 
   for (let i = 0; i < BITE_INTERVAL * TICK_RATE - 2; i++) stepWorld(s2);
   expect([a.health, b.health]).toEqual([ha, hb]); // one bite per interval
   expect([a.engulfedBy, b.engulfedBy]).toEqual(['', '']); // rivals of a size are bitten, not swallowed
+});
+
+test('fights span one tier: a spiked eukaryote stabs an animal but not an arthropod', () => {
+  for (const [tier, hurtExpected] of [[3, true], [4, false]] as const) {
+    const state = new PoolState();
+    const big = spawnPlayer();
+    const mass = tier === 4 ? T4_SPAWN_MASS : T3_SPAWN_MASS;
+    Object.assign(big, { tier, genome: 0, mass, health: 1000, x: 0, y: 0, heading: Math.PI });
+    const spiky = spawnPlayer();
+    // Touching the big body's rim, all spikes pointing at it.
+    Object.assign(spiky, { tier: 2, genome: 0, genome2: TIER2.genomeOf(['spike', 'spike', 'electric']), mass: 300, health: 300,
+      x: radiusOf(mass, tier) + radiusOf(300, 2), y: 0, heading: Math.PI, graceUntil: 0 });
+    state.players.set('big', big);
+    state.players.set('s', spiky);
+    run(state, 1);
+    expect(big.health < 1000).toBe(hurtExpected);
+  }
+});
+
+test('ink: a mollusk squirts a harmless cloud as it dashes; whatever is inside is hidden from others', () => {
+  const state = new PoolState();
+  const m = spawnPlayer();
+  Object.assign(m, { tier: 4, genome: 0, genome4: TIER4.genomeOf(['foot', 'inkSac']), mass: T4_SPAWN_MASS, health: T4_HEALTH_MAX, x: 0, y: 0 });
+  state.players.set('m', m);
+  secrete(state, 'm'); // left click releases no ink
+  expect(state.clouds.size).toBe(0);
+  stepCell(m, m.mass, 0, 0, 0, ACTION_SPORE, TICK_DT, 0, 4, 0, 0, m.genome4);
+  expect([m.dash, m.dashCooldown]).toEqual([INK_TIME, INK_COOLDOWN]);
+  squirtInk(state, 'm');
+  expect([...state.clouds.values()].map((c) => c.kind)).toEqual([INK]);
+  expect([inInk(state, m.x, m.y, 'other'), inInk(state, m.x, m.y, 'm'), inInk(state, 5000, 0, 'other')]).toEqual([true, false, false]);
+  const by = Object.assign(spawnPlayer(), { x: 100, y: 0, graceUntil: 0 });
+  state.players.set('b', by);
+  run(state, 1);
+  expect([by.lastHitBy, by.health]).toEqual(['', HEALTH_MAX]); // ink doesn't hurt
 });
 
 test('tier 4: claws swallow smaller animals and crush rivals through their armour; grazers sweep up bacteria', () => {

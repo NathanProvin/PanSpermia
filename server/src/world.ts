@@ -12,7 +12,7 @@ import {
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
-  Cloud, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
+  Cloud, INK, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
   PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
@@ -50,6 +50,12 @@ export function spawnNutrient(state: PoolState, x: number, y: number, kind: numb
   const y0 = Math.fround(y);
   state.nutrients.set(String(nextNutrientId++), new Nutrient({ x0, y0, tick0: state.tick, kind, gene, x: x0, y: y0, tick: state.tick }));
 }
+
+/**
+ * Fights span one tier either way (roadmap rule): the weapons of a cell two or more tiers smaller can't harm a body
+ * (a bacterium's toxins, a ciliate's spikes don't pierce a crayfish). Parasites still drain big hosts' energy.
+ */
+const outranks = (victim: Player, attackerTier: number) => victim.tier - attackerTier >= 2;
 
 /** Dormant cells (endospore, division cyst, cocoon) neither eat, fight, metabolize nor take damage. */
 const dormant = (p: Player) => p.spore > 0 || p.cyst > 0 || p.cocoon > 0;
@@ -157,7 +163,7 @@ function bite(state: PoolState, tick: number) {
     const ra = radiusOf(a.mass, a.tier);
     let target: { v: Player; d: number; dx: number; dy: number } | undefined;
     for (const [vid, v] of state.players) {
-      if (vid === aid || isMate(vid) || dormant(v) || v.engulfedBy || tick < v.graceUntil || swallows(a, v)) continue;
+      if (vid === aid || isMate(vid) || dormant(v) || v.engulfedBy || tick < v.graceUntil || swallows(a, v) || outranks(v, a.tier)) continue;
       const dx = v.x - a.x;
       const dy = v.y - a.y;
       const d = Math.hypot(dx, dy);
@@ -464,7 +470,7 @@ export function secrete(state: PoolState, id: string) {
   const p = state.players.get(id);
   if (!p || dormant(p) || p.toxinCooldown > 0) return;
   for (const [kind, toxin] of TOXINS.entries()) {
-    if (toxin.tier !== p.tier) continue;
+    if (toxin.tier !== p.tier || kind === INK) continue; // ink comes with the dash (see squirtInk)
     const genome = ownGenome(p);
     const power = stack(catalogFor(p.tier).copiesOf(genome, toxin.gene)); // more copies: stronger cloud, dearer
     if (!power || p.mass - toxin.cost * power < minMassOf(p.tier)) continue;
@@ -475,6 +481,26 @@ export function secrete(state: PoolState, id: string) {
     const y0 = Math.fround(p.y - Math.sin(p.heading) * back);
     state.clouds.set(`c${nextCloudId++}`, new Cloud({ x0, y0, tick0: state.tick, kind, owner: id, power, x: x0, y: y0, tick: state.tick }));
   }
+}
+
+/** A mollusk's ink squirt: a big harmless cloud around its rear as its dash starts (it jets out of it). */
+export function squirtInk(state: PoolState, id: string) {
+  const p = state.players.get(id);
+  if (!p) return;
+  const back = radiusOf(p.mass, p.tier) * 0.3;
+  const x0 = Math.fround(p.x - Math.cos(p.heading) * back);
+  const y0 = Math.fround(p.y - Math.sin(p.heading) * back);
+  state.clouds.set(`c${nextCloudId++}`, new Cloud({ x0, y0, tick0: state.tick, kind: INK, owner: id, x: x0, y: y0, tick: state.tick }));
+}
+
+/** Whether a point is hidden inside someone else's ink (bots can't see into it). */
+export function inInk(state: PoolState, x: number, y: number, viewer: string) {
+  for (const c of state.clouds.values()) {
+    if (c.kind !== INK || c.owner === viewer) continue;
+    const r = cloudRadius(INK, (state.tick - c.tick0) * TICK_DT);
+    if ((c.x - x) ** 2 + (c.y - y) ** 2 < r * r) return true;
+  }
+  return false;
 }
 
 /** Damage `p` and remember who did it (kill attribution, regen delay). */
@@ -745,7 +771,8 @@ export function stepWorld(state: PoolState): Death[] {
       p.infection = Math.max(0, p.infection - TICK_DT - 1e-9);
     }
     for (const c of state.clouds.values()) {
-      if (c.owner === id) continue; // producers carry the immunity gene to their own toxin
+      // Producers carry the immunity gene to their own toxin; ink is harmless; a toxin two tiers down can't harm it.
+      if (c.owner === id || c.kind === INK || outranks(p, TOXINS[c.kind]!.tier)) continue;
       const age = (tick - c.tick0) * TICK_DT;
       const reach = cloudRadius(c.kind, age) + r * 0.5;
       if ((c.x - p.x) ** 2 + (c.y - p.y) ** 2 < reach * reach) {
@@ -753,7 +780,7 @@ export function stepWorld(state: PoolState): Death[] {
       }
     }
     for (const [aid, a] of state.players) {
-      if (aid === id || dormant(a) || isMate(aid)) continue;
+      if (aid === id || dormant(a) || isMate(aid) || outranks(p, a.tier)) continue;
       const ra = radiusOf(a.mass, a.tier);
       const dx = p.x - a.x;
       const dy = p.y - a.y;

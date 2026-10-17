@@ -638,6 +638,13 @@ void main() {
     }
     a = 1.0 - smoothstep(-0.02, 0.02, d);
     col = vec3(0.12, 0.1, 0.09) + vec3(0.25, 0.2, 0.15) * smoothstep(0.0, -0.12, d) * 0.6;
+  } else if (k == ${KIND4 + TIER4.GENES.inkSac.index}) { // an ink sac: a dark, glossy pear of ink with a sepia sheen
+    vec2 q = p * vec2(1.0, 1.35) + vec2(0.1 * p.y * p.y, 0.0);
+    float sac = 1.0 - smoothstep(0.6, 0.68, length(q));
+    float swirl = valueNoise(p * 5.0 + vec2(t * 0.3, -t * 0.2));
+    a = sac * 0.9;
+    col = vec3(0.06, 0.045, 0.04) + vec3(0.25, 0.16, 0.1) * smoothstep(0.55, 0.85, swirl) * 0.6
+      + vec3(0.3) * exp(-dot(p - vec2(0.18, 0.2), p - vec2(0.18, 0.2)) * 30.0);
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -670,6 +677,7 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND4 + TIER4.GENES.radula.index]: { size: 0.45, out: 0.25 },
   [KIND4 + TIER4.GENES.beak.index]: { size: 0.45, out: 0.25 },
   [KIND4 + TIER4.GENES.eye.index]: { size: 0.18, out: 0 },
+  [KIND4 + TIER4.GENES.inkSac.index]: { size: 0.4, out: 0 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
   [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
   [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },

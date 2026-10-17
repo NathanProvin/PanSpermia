@@ -17,7 +17,11 @@ export const TOXINS = [
   { gene: 'bacteriocin', tier: 1, radius: [40, 110], life: 4, dps: 12, cooldown: 2.5, cost: 0.6 }, // wide area denial
   { gene: 'poreFormer', tier: 1, radius: [28, 55], life: 1.2, dps: 45, cooldown: 3, cost: 0.8 }, // short brutal burst
   { gene: 'poison', tier: 2, radius: [45, 130], life: 3, dps: 30, cooldown: 2, cost: 3 }, // eukaryote poison trail
+  // A mollusk's ink: harmless, huge, it hides whatever is inside it (released by the dash, not by left click).
+  { gene: 'inkSac', tier: 4, radius: [700, 1700], life: 7, dps: 0, cooldown: 0, cost: 0 }, // wider than the mollusk itself
 ] as const;
+/** The ink cloud's TOXINS index. */
+export const INK = TOXINS.findIndex((t) => t.gene === 'inkSac');
 export type ToxinKind = number; // index into TOXINS
 
 const fraction = (kind: ToxinKind, age: number) => Math.min(1, Math.max(0, age / TOXINS[kind]!.life));

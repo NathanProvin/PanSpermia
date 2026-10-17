@@ -1,7 +1,7 @@
 import { matchMaker } from '@colyseus/core';
 import { Callbacks, Client, Predict, type Room } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, ACTION_TOXIN, GENES, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, TIER2, TOXINS, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
+  ACTION_SPORE, ACTION_TOXIN, GENES, INK, T4_HEALTH_MAX, T4_SPAWN_MASS, TIER4, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, TIER2, TOXINS, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
   SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, drift, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
@@ -253,5 +253,23 @@ test('a eukaryote client poisons (left click) and dashes (right click) over the 
     expect(p.dashCooldown).toBeGreaterThan(0);
   });
   await vi.waitFor(() => expect(player.dash + player.dashCooldown).toBeGreaterThan(0)); // synced for prediction
+  await room.leave();
+});
+
+test('a mollusk client squirts ink (right click) over the wire', async () => {
+  const room = await join();
+  const player = await joinedPlayer(room);
+  const authority = serverRoom(room).state;
+  const p = authority.players.get(room.sessionId)!;
+  Object.assign(p, { tier: 4, genome: 0, genome4: TIER4.genomeOf(['foot', 'inkSac']), mass: T4_SPAWN_MASS, health: T4_HEALTH_MAX, graceUntil: 0 });
+  await vi.waitFor(() => expect(player.tier).toBe(4));
+  const input = room.input({ type: Input, mode: 'reliable' });
+  input.data.dirX = 1;
+  input.data.dirY = 0;
+  input.data.actions = ACTION_SPORE;
+  sanitizeInput(input.data);
+  input.send();
+  await vi.waitFor(() => expect([...authority.clouds.values()].some((c) => c.owner === room.sessionId && c.kind === INK)).toBe(true));
+  await vi.waitFor(() => expect(room.state.clouds.size).toBeGreaterThan(0)); // synced: clients draw it
   await room.leave();
 });

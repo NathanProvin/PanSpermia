@@ -221,6 +221,10 @@ export const EXOSKELETON_SWIM = 0.92;
 export const SHELL_SWIM = 0.8;
 /** Tier-4 reproduction (P10c): after mating and the editor, the body spins a cocoon and the new design emerges from it. */
 export const COCOON_TIME = 12; // s, shielded and still
+/** Ink (P10d): the squirt that releases an ink cloud is a predicted dash, like the eukaryote's jet. */
+export const INK_TIME = 0.9; // s of dash
+export const INK_COOLDOWN = 10; // s
+export const INK_BOOST = 2.2; // × swim speed while dashing
 
 // Feel (movement polish): inertia and progressive turns. Gameplay over low-Reynolds realism: a cell's
 // velocity eases toward its propulsion with this time constant (s), per tier — bigger bodies feel heavier.

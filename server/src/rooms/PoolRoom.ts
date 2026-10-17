@@ -5,7 +5,7 @@ import {
 } from '@panspermia/shared';
 import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
 import {
-  PHAGE_KILLER, VIRUS_KILLER, foundSpecies, initPool, secrete, spawnNutrient, spawnPlasmid, spawnShard, stepWorld, submitDesign,
+  PHAGE_KILLER, VIRUS_KILLER, foundSpecies, initPool, secrete, squirtInk, spawnNutrient, spawnPlasmid, spawnShard, stepWorld, submitDesign,
 } from '../world.ts';
 
 export interface PoolOptions {
@@ -40,8 +40,10 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
           if (!p) continue;
           // A division cyst or a cocoon can't swim or act: its inputs step as no-ops (honest clients send zeros).
           const live = p.cyst > 0 || p.cocoon > 0 ? 0 : 1;
+          const cooldown = p.dashCooldown;
           stepCell(p, p.mass, p.genome, cmd.dirX * live, cmd.dirY * live, cmd.actions * live, ctx.dt, time, p.tier, p.genome2, p.genome3, p.genome4);
           if (cmd.actions & ACTION_TOXIN) secrete(this.state, id);
+          if (p.tier === 4 && p.dashCooldown > cooldown) squirtInk(this.state, id); // a squirt just started
           steps++;
         }
         if (!p) continue;

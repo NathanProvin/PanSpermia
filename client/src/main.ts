@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TOXINS, MOLLUSK, isAnimal, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, MOLLUSK, isAnimal, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -108,7 +108,7 @@ const layers = {
   nutrients: nutrientLayer.objects[0]!,
 };
 for (const [name, object] of Object.entries(layers)) if (off.has(name)) object.visible = false;
-if (import.meta.env.DEV) Object.assign(window, { layers, bloom: post.bloom, nutrientLayer });
+if (import.meta.env.DEV) Object.assign(window, { layers, bloom: post.bloom, nutrientLayer, cloudLayer, camera });
 post.far.add(...pool.far, ...giants.objects);
 scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
@@ -384,6 +384,7 @@ try {
         self.tier === 1 && TOXINS.some((t) => t.tier === 1 && hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
         self.tier === 2 && TIER2.hasGene(self.genome2, 'poison') ? `poison ${ready(self.toxinCooldown)}` : '',
         self.tier === 2 && TIER2.hasGene(self.genome2, 'jet') ? (self.dash > 0 ? 'DASH' : `jet ${ready(self.dashCooldown)}`) : '',
+        self.tier === 4 && TIER4.hasGene(self.genome4, 'inkSac') ? (self.dash > 0 ? 'INK!' : `ink ${ready(self.dashCooldown)}`) : '',
         hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
         self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
         self.cyst > 0 ? (self.evolving ? 'EVOLVING' : isAnimal(self.tier) ? 'MATING' : 'DIVIDING') : '',

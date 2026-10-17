@@ -18,6 +18,8 @@ export const TIER4 = makeCatalog({
   beak: { upkeep: 0.3, price: 55, maxCopies: 1, slot: 'membrane', at: 0, label: 'Beak' },
   shell: { upkeep: 0.6, price: 80, maxCopies: 1, slot: 'coat', at: 0, label: 'Shell' },
   eye: { upkeep: 0.05, price: 15, maxCopies: 3, slot: 'internal', at: [0.55, 0.2], label: 'Eye' },
+  // P10d — a mollusk's escape: right click squirts a big ink cloud behind it and jets away (bots can't see into ink).
+  inkSac: { upkeep: 0.3, price: 50, maxCopies: 1, slot: 'internal', at: [-0.45, 0], label: 'Ink sac' },
 });
 export type Gene4 = (typeof TIER4.NAMES)[number];
 
@@ -30,7 +32,7 @@ export const STARTER_LIBRARY4 = TIER4.GENES.legs.bit | TIER4.GENES.tailFan.bit |
 /** What each tier-4 plan can wear (one-copy bits; the eye fits both). */
 const PLAN_PARTS: Readonly<Record<number, number>> = {
   2: ['legs', 'tailFan', 'claw', 'maxillae', 'exoskeleton', 'eye'].reduce((m, g) => m | TIER4.GENES[g as Gene4].bit, 0),
-  3: ['foot', 'siphon', 'radula', 'beak', 'shell', 'eye'].reduce((m, g) => m | TIER4.GENES[g as Gene4].bit, 0),
+  3: ['foot', 'siphon', 'radula', 'beak', 'shell', 'eye', 'inkSac'].reduce((m, g) => m | TIER4.GENES[g as Gene4].bit, 0),
 };
 /** Whether a part (its one-copy bit) fits a body plan; plans without a list take any part of their tier. */
 export const fitsPlan = (plan: number, bit: number) => ((PLAN_PARTS[plan] ?? ~0) & bit) !== 0;

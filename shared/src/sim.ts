@@ -7,7 +7,7 @@ import {
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
   PILI_TURN, TUMBLE_SPIN, EVOLVE_DNA_T3, FOOT_DRIFT, LEG_TURN, T4_DRIFT, T4_MASS_CAP, T4_MIN_MASS, T4_SPAWN_MASS, T4_SPEED_COEF,
-  T4_SWIM_CREEP, T4_SWIM_FOOT, T4_SWIM_LEGS, T4_SWIM_SIPHON, T4_SWIM_TAILFAN, T4_TURN_RATE, EXOSKELETON_SWIM, SHELL_SWIM,
+  T4_SWIM_CREEP, T4_SWIM_FOOT, T4_SWIM_LEGS, T4_SWIM_SIPHON, T4_SWIM_TAILFAN, T4_TURN_RATE, EXOSKELETON_SWIM, SHELL_SWIM, INK_BOOST, INK_COOLDOWN, INK_TIME,
 } from './constants.ts';
 import {
   ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
@@ -102,7 +102,7 @@ export function stepCell(
 ) {
   const throttle = Math.hypot(dirX, dirY);
   const want = Math.atan2(dirY, dirX);
-  if (tier === 4) return stepArthropod(b, mass, genome4, throttle, want, dt, time);
+  if (tier === 4) return stepArthropod(b, mass, genome4, throttle, want, actions, dt, time);
   if (tier === 3) return stepAnimal(b, mass, genome3, throttle, want, dt, time);
   if (tier === 2) return stepEukaryote(b, mass, genome2, throttle, want, actions, dt, time);
   let swim = 0;
@@ -193,7 +193,16 @@ function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number
  * against the current) or jet through a siphon (fast, wide turns). The fastest propulsion sets the speed, anything
  * that steers sets the turn rate. An exoskeleton weighs a little, a shell a lot.
  */
-function stepArthropod(b: CellBody, mass: number, genome4: number, throttle: number, want: number, dt: number, time: number) {
+function stepArthropod(
+  b: CellBody, mass: number, genome4: number, throttle: number, want: number, actions: number, dt: number, time: number,
+) {
+  // Ink: the squirt is a short predicted dash (the server releases the cloud as it starts).
+  b.dashCooldown = Math.max(0, b.dashCooldown - dt);
+  if (b.dash > 0) b.dash = Math.max(0, b.dash - dt - 1e-9);
+  else if (actions & ACTION_SPORE && TIER4.hasGene(genome4, 'inkSac') && b.dashCooldown === 0) {
+    b.dash = INK_TIME;
+    b.dashCooldown = INK_COOLDOWN;
+  }
   const legs = TIER4.copiesOf(genome4, 'legs');
   const fan = TIER4.hasGene(genome4, 'tailFan');
   const siphon = TIER4.hasGene(genome4, 'siphon');
@@ -205,7 +214,8 @@ function stepArthropod(b: CellBody, mass: number, genome4: number, throttle: num
       legs ? T4_SWIM_LEGS * (1 + FLAGELLUM_STACK * (stack(legs) - 1)) : 0);
   }
   swim *= (TIER4.hasGene(genome4, 'exoskeleton') ? EXOSKELETON_SWIM : 1) * (TIER4.hasGene(genome4, 'shell') ? SHELL_SWIM : 1);
-  move(b, mass, 4, swim * throttle * speedOf(mass, 4), T4_DRIFT * (foot ? FOOT_DRIFT : 1), dt, time, INERTIA[4]!);
+  if (b.dash > 0) swim = Math.max(swim, T4_SWIM_LEGS) * INK_BOOST; // the squirt pushes even a creeping snail
+  move(b, mass, 4, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 4), T4_DRIFT * (foot ? FOOT_DRIFT : 1), dt, time, INERTIA[4]!);
 }
 
 /**

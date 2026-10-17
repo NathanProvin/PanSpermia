@@ -3,12 +3,12 @@
 // Pure functions over PoolState + a brain map: the room and the headless balancing sim both drive them.
 // Bots exist at every tier: a species says which, and its genes are names in that tier's catalog.
 import {
-  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, NutrientKind, type Nutrient, type Player, type PoolState,
+  ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, INK, NutrientKind, type Nutrient, type Player, type PoolState,
   type Species, TICK_DT, TIER2, TIER3, WORLD_RADIUS, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
   radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { type PacketGrid, buildGrid, grids, near } from './grid.ts';
-import { type Death, embody, mouthYieldOf, secrete, spawnPlayer, swallows, yieldOf } from './world.ts';
+import { type Death, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
 
 export interface Brain {
   species: number; // index into BOT_SPECIES
@@ -168,10 +168,11 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   // Animals always digest after a meal; grazing eukaryotes and bacteria hunt until well fed.
   const hungry = isAnimal(p.tier) ? !fed && p.mass < massCapOf(p.tier) * HUNT_UNTIL : grazes ? p.mass < massCapOf(p.tier) * HUNT_UNTIL : !fed;
   let swallowerClose = false;
+  const inked = [...state.clouds.values()].some((c) => c.kind === INK); // rare: skip the per-cell check otherwise
   let host: { d: number; dx: number; dy: number; r: number } | undefined; // a parasite's target
   let clingers = 0; // parasites hanging on to this eukaryote
   for (const [oid, o] of state.players) {
-    if (oid === id) continue;
+    if (oid === id || (inked && inInk(state, o.x, o.y, id))) continue; // ink hides whoever is in it
     const dx = o.x - p.x;
     const dy = o.y - p.y;
     const d = Math.hypot(dx, dy) || 1;
@@ -234,6 +235,7 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
     sy -= (p.y / fromCentre) * 1.5;
   }
 
+  if (p.tier === 4 && fleeing) actions |= ACTION_SPORE; // a mollusk inks and jets away (if it has an ink sac)
   if (p.tier === 2) {
     // A fleeing eukaryote leaves poison behind it; the jet gets it out of trouble or onto close prey.
     if (fleeing) actions |= ACTION_TOXIN;
@@ -275,7 +277,9 @@ export function stepBots(state: PoolState, bots: Bots) {
       think(state, bots, (grid ??= packetsOf(state)), id, p, b);
       sanitizeInput(b); // the same contract as human input: a non-finite steer is no steer
     }
+    const cooldown = p.dashCooldown;
     stepCell(p, p.mass, p.genome, b.dirX, b.dirY, b.actions, TICK_DT, time, p.tier, p.genome2, p.genome3, p.genome4);
+    if (p.tier === 4 && p.dashCooldown > cooldown) squirtInk(state, id);
     if (b.actions & ACTION_TOXIN) secrete(state, id);
   }
 }
