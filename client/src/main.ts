@@ -2,7 +2,7 @@ import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
   BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, MOLLUSK, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
-  JET_COOLDOWN, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  JET_COOLDOWN, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -17,6 +17,7 @@ import { createNutrients } from './scene/nutrients.ts';
 import { createGiants } from './scene/giants.ts';
 import { createPlankton } from './scene/plankton.ts';
 import { createPool } from './scene/pool.ts';
+import { createRipples } from './scene/ripples.ts';
 import { createPost } from './scene/post.ts';
 import { createPerf, off } from './perf.ts';
 
@@ -90,11 +91,27 @@ const giants = createGiants();
 const nutrientLayer = createNutrients();
 /** Our own cell's last impact (bump, bite, wound): a short camera shake, and a buzz on phones. */
 let selfId = '';
+/** What our body was doing last frame (ripple triggers). */
+const rippleWatch: { player?: Player; dash: number; fast: number; stream: number } = { dash: 0, fast: 0, stream: 0 };
+const flowNow = { x: 0, y: 0 };
+/** u/s: the currents peak near 60; above this one is a stream worth a ripple when swum into. */
+const STRONG_CURRENT = 38;
 let bump = 0;
 let lastBuzz = 0;
+const ripples = createRipples();
+/** A ripple around our own body; small ones are rate-limited so a busy moment doesn't become a blur. */
+let lastRipple = 0;
+const ripple = (strength: number) => {
+  const at = cells.get(selfId)?.at;
+  const now = performance.now();
+  if (!at || (strength < 0.7 && now - lastRipple < 300)) return;
+  lastRipple = now;
+  ripples.add(at.x, at.y, at.radius, strength, now / 1000);
+};
 const cells = createCells(scene, (id, strength) => {
   if (id !== selfId) return;
   bump = Math.max(bump, strength);
+  if (strength > 0.15) ripple(0.35 + 0.6 * strength); // a bump, a bite, a wound
   if (performance.now() - lastBuzz > 150) {
     lastBuzz = performance.now();
     navigator.vibrate?.(Math.round(15 + 35 * strength));
@@ -113,7 +130,7 @@ const layers = {
 for (const [name, object] of Object.entries(layers)) if (off.has(name)) object.visible = false;
 if (import.meta.env.DEV) Object.assign(window, { layers, bloom: post.bloom, nutrientLayer, cloudLayer, camera });
 post.far.add(...pool.far, ...giants.objects);
-scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects);
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects, ...ripples.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
 const INTRO_HEIGHT = 1800;
 let introPlayed = false;
@@ -340,6 +357,18 @@ try {
       const targetZ = (140 + 12 * Math.min(r, 126) + 5 * Math.max(0, Math.min(r, 680) - 126) + 3 * Math.max(0, r - 680)) * sight;
       const at = selfView!.at; // the cell's centre (an animal's quad is offset to fit its body)
       camera.position.set(at.x, at.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
+      // Ripples at key moments: a new individual (hatching, emerging), a dash or a spore starting, hard
+      // acceleration, swimming into a strong current.
+      const w = rippleWatch;
+      const dash = predict.value(self, 'dash') + predict.value(self, 'spore');
+      const fast = Math.hypot(self.vx, self.vy) / speedOf(self.mass, self.tier);
+      currentAt(at.x, at.y, room.state.tick * TICK_DT, flowNow);
+      const stream = Math.hypot(flowNow.x, flowNow.y);
+      if (w.player && w.player !== self) ripple(1);
+      else if (dash > 0 && w.dash === 0) ripple(0.8);
+      else if (fast > 0.75 && w.fast <= 0.75) ripple(0.4);
+      else if (stream > STRONG_CURRENT && w.stream <= STRONG_CURRENT) ripple(0.5);
+      Object.assign(w, { player: self, dash, fast, stream });
     }
     // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
     const impact = selfView?.at ?? camera.position;
@@ -434,6 +463,7 @@ try {
       { x: camera.position.x, y: camera.position.y, halfW: halfH * camera.aspect, halfH });
     perf.mark('nutrients');
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
+    ripples.update(time, focus);
     eggLayer.update(room.state.eggs.values(), tick, time, focus);
     perf.mark('clouds');
     perf.gpuBegin();
