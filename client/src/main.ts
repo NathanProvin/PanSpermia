@@ -1,11 +1,13 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, MOLLUSK, isAnimal, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, MOLLUSK, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
+  JET_COOLDOWN, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
 import { createEditor } from './editor.ts';
+import { type Ability, createHud } from './hud.ts';
 import { createLabels } from './labels.ts';
 import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
@@ -18,7 +20,8 @@ import { createPool } from './scene/pool.ts';
 import { createPost } from './scene/post.ts';
 import { createPerf, off } from './perf.ts';
 
-const hud = document.getElementById('hud')!;
+const hud = createHud(document.getElementById('hud')!);
+hud.message('Connecting…');
 const extinctScreen = document.getElementById('extinct')!;
 const cardScreen = document.getElementById('card')!;
 const stageup = document.getElementById('stageup')!;
@@ -148,13 +151,8 @@ const takeActions = () => {
   return bits;
 };
 
-let notice = '';
 let fps = 0; // dev readout, exponential moving average
-let noticeUntil = 0;
-const say = (text: string) => {
-  notice = text;
-  noticeUntil = performance.now() + 4000;
-};
+const say = (text: string) => hud.toast(text);
 /** Library last seen on our lineage, to announce parts unlocked by gene transfer. */
 let knownLibrary = -1;
 let knownLineage: Lineage | undefined;
@@ -170,7 +168,7 @@ let pendingStageUp: Lineage | undefined;
 /** A shared card link opens the card alone; Play drops the fragment and starts the game. */
 const sharedCard = location.hash.startsWith('#card=') ? decodeCard(location.hash.slice('#card='.length)) : undefined;
 if (sharedCard) {
-  hud.textContent = '';
+  hud.message('');
   showCard(cardScreen, sharedCard, { label: 'Play Panspermia', action: () => {
     history.replaceState(null, '', location.pathname);
     location.reload();
@@ -187,7 +185,8 @@ const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
 try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
   selfId = room.sessionId;
-  room.onLeave(() => { hud.textContent = 'Disconnected'; });
+  hud.message('');
+  room.onLeave(() => hud.message('Disconnected'));
   room.onMessage('died', ({ cause, killer, extinct }: { cause: string; killer?: string; extinct: boolean }) => {
     const how = { starvation: 'You starved', phage: 'Phages burst you open', virus: 'A giant virus burst you open' }[cause]
       ?? `Lysed by ${killer}`;
@@ -376,29 +375,41 @@ try {
         designedFor = self;
         editor.open(lineage, (design, final) => room.send(final ? 'design' : 'draft', design), self.evolving);
       }
+      // The HUD: gauges, children, ability chips, one status line (hidden behind the editor).
       const own = ownGenome(self);
-      const genes = cat.NAMES.filter((g) => cat.hasGene(own, g))
-        .map((g) => cat.GENES[g]!.label + (cat.copiesOf(own, g) > 1 ? ` ×${cat.copiesOf(own, g)}` : '')).join(', ') || 'no genes';
-      const ready = (s: number) => (s > 0 ? `${s.toFixed(1)}s` : 'ready');
-      const abilities = [
-        self.tier === 1 && TOXINS.some((t) => t.tier === 1 && hasGene(self.genome, t.gene)) ? `toxin ${ready(self.toxinCooldown)}` : '',
-        self.tier === 2 && TIER2.hasGene(self.genome2, 'poison') ? `poison ${ready(self.toxinCooldown)}` : '',
-        self.tier === 2 && TIER2.hasGene(self.genome2, 'jet') ? (self.dash > 0 ? 'DASH' : `jet ${ready(self.dashCooldown)}`) : '',
-        self.tier === 4 && TIER4.hasGene(self.genome4, 'inkSac') ? (self.dash > 0 ? 'INK!' : `ink ${ready(self.dashCooldown)}`) : '',
-        hasGene(self.genome, 'endospore') ? (self.spore > 0 ? 'DORMANT' : `spore ${ready(self.sporeCooldown)}`) : '',
-        self.infection > 0 ? `INFECTED ${self.infection.toFixed(1)}s` : '',
-        self.cyst > 0 ? (self.evolving ? 'EVOLVING' : isAnimal(self.tier) ? 'MATING' : 'DIVIDING') : '',
-        self.call > 0 ? 'CALLING — a mate is coming' : '',
-        self.cocoon > 0 ? `METAMORPHOSIS — emerging in ${Math.ceil(self.cocoon)}s` : '',
-        ...[...room.state.eggs.values()].filter((e) => e.owner === room.sessionId)
-          .map((e) => `eggs hatch in ${Math.ceil((e.hatchTick - room.state.tick) / TICK_RATE)}s`),
-      ].filter(Boolean).join(' · ');
-      hud.textContent = `${lineage.name} · energy ${self.mass.toFixed(1)} · health ${Math.ceil(self.health)}/${healthMaxOf(self.genome, self.tier)}`
-        + (abilities ? ` · ${abilities}` : '') + ` · ${genes}`
-        + ` · DNA ${Math.floor(lineage.dna)} · children ${lineage.children} · gen ${lineage.generation} · ${players.size} cell${players.size === 1 ? '' : 's'}`
-        + (import.meta.env.DEV ? ` · ${Math.round(fps)} fps · ${perf.text()} · ${Math.round(renderScale * 100)}% res` : '')
-        + (now < noticeUntil ? ` — ${notice}` : '');
-    } else hud.textContent = now < noticeUntil ? notice : ''; // extinct or evolved: no cell to report on
+      const recharge = (left: number, full: number) => 1 - Math.min(1, left / full);
+      const toxins = TOXINS.filter((t) => t.tier === self.tier && t.gene !== 'inkSac' && cat.hasGene(own, t.gene));
+      const abilities: Ability[] = [];
+      if (toxins.length) {
+        abilities.push({ id: 'toxin', icon: '☣', label: self.tier === 2 ? 'Poison' : 'Toxins', hint: 'L-click',
+          ready: recharge(self.toxinCooldown, Math.max(...toxins.map((t) => t.cooldown))), active: false });
+      }
+      if (self.tier === 1 && hasGene(self.genome, 'endospore')) {
+        abilities.push({ id: 'spore', icon: '◎', label: 'Endospore', hint: 'R-click', ready: recharge(self.sporeCooldown, ENDOSPORE_COOLDOWN), active: self.spore > 0 });
+      }
+      if (self.tier === 2 && TIER2.hasGene(self.genome2, 'jet')) {
+        abilities.push({ id: 'jet', icon: '➤', label: 'Jet', hint: 'R-click', ready: recharge(self.dashCooldown, JET_COOLDOWN), active: self.dash > 0 });
+      }
+      if (self.tier === 4 && TIER4.hasGene(self.genome4, 'inkSac')) {
+        abilities.push({ id: 'ink', icon: '●', label: 'Ink', hint: 'R-click', ready: recharge(self.dashCooldown, INK_COOLDOWN), active: self.dash > 0 });
+      }
+      const eggs = [...room.state.eggs.values()].find((e) => e.owner === room.sessionId);
+      const status = self.cyst > 0
+        ? (self.evolving ? `Evolved — design your first ${TIER_NAMES[lineage.tier]!.toLowerCase()}` : 'Designing the next generation')
+        : self.call > 0 ? 'Calling a mate…'
+        : self.cocoon > 0 ? `Metamorphosis — emerging in ${Math.ceil(self.cocoon)} s`
+        : self.spore > 0 ? 'Dormant spore'
+        : self.infection > 0 ? 'Infected!'
+        : eggs ? `Eggs hatch in ${Math.ceil((eggs.hatchTick - room.state.tick) / TICK_RATE)} s` : '';
+      const floor = minMassOf(self.tier);
+      hud.update(editor.isOpen ? undefined : {
+        name: lineage.name, generation: lineage.generation, tier: lineage.tier,
+        energy: Math.max(0, Math.min(1, (self.mass - floor) / (massCapOf(self.tier) - floor))),
+        dna: lineage.dna, evolve: lineage.tier < MAX_TIER ? Math.min(1, lineage.lifetimeDna / evolveDnaOf(lineage.tier)) : undefined,
+        children: lineage.children, abilities, status, health: self.health / healthMaxOf(self.genome, self.tier),
+      });
+      if (import.meta.env.DEV) hud.perf(`${Math.round(fps)} fps · ${perf.text()} · ${Math.round(renderScale * 100)}% res · ${players.size} cells`);
+    } else hud.update(undefined); // extinct or evolved: no cell to report on
 
     if (stageupUntil && now > stageupUntil) {
       stageupUntil = 0;
@@ -436,6 +447,6 @@ try {
     perf.mark('render');
   });
 } catch (err) {
-  hud.textContent = `Cannot reach server at ${endpoint}`;
+  hud.message(`Cannot reach server at ${endpoint}`);
   console.error(err);
 }

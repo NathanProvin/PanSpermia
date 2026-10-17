@@ -5,8 +5,55 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Panspermia</title>
     <style>
+      /* Design tokens (polish S3): one language for the HUD, the editor, the leaderboard and the cards. Dark glass with
+         light ink reads over the bright sand and the deep water alike. */
+      :root {
+        --glass: rgb(10 30 34 / 0.42); --glass-strong: rgb(10 30 34 / 0.72); --line: rgb(225 245 238 / 0.2);
+        --ink: #eef7f2; --ink-soft: rgb(238 247 242 / 0.72); --accent: #9fe7d0; --energy: #f0c75e; --dna: #7fd8e6;
+        --evolve: #ffd678; --danger: #ff7a66; --radius: 10px; --font: 13px/1.35 system-ui, sans-serif; --blur: blur(6px);
+      }
       html, body { margin: 0; height: 100%; overflow: hidden; background: #02121a; }
-      #hud { position: fixed; top: 12px; left: 16px; font: 14px system-ui, sans-serif; color: #9fe7e0; pointer-events: none; }
+      #hud { position: fixed; inset: 0; pointer-events: none; font: var(--font); color: var(--ink); }
+      #hud [hidden] { display: none !important; }
+      .hud-panel { position: absolute; top: 12px; left: 12px; width: 190px; padding: 9px 11px 10px; display: grid; gap: 6px;
+        background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: var(--blur);
+        text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); }
+      .hud-name { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 600; }
+      .hud-name .species { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .hud-name small, .hud-label { color: var(--ink-soft); font-weight: 400; font-size: 11px; }
+      .hud-row { display: grid; gap: 3px; }
+      .hud-label b { color: var(--ink); font-weight: 600; }
+      .gauge { height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.14); overflow: hidden; }
+      .gauge i { display: block; height: 100%; width: 0; border-radius: inherit; transition: width 0.25s; }
+      .gauge.energy i { background: var(--energy); }
+      .gauge.energy.full i { box-shadow: 0 0 6px var(--energy); }
+      .gauge.dna i { background: var(--dna); }
+      .gauge.dna.ready i { background: var(--evolve); box-shadow: 0 0 6px var(--evolve); }
+      .children { display: flex; flex-wrap: wrap; gap: 3px; min-height: 14px; align-items: center; }
+      .children svg { width: 14px; height: 14px; fill: rgb(238 247 242 / 0.22); stroke: var(--ink); stroke-width: 1.2; }
+      .children svg .in { fill: none; stroke-width: 1; opacity: 0.8; }
+      .children small { color: var(--danger); font-size: 11px; }
+      .hud-bottom { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: grid; justify-items: center; gap: 8px; }
+      .hud-status:not(:empty) { padding: 4px 12px; border-radius: 999px; background: var(--glass); backdrop-filter: var(--blur);
+        border: 1px solid var(--line); color: var(--ink); font-size: 12px; letter-spacing: 0.02em; }
+      .hud-abilities { display: flex; gap: 10px; }
+      .chip { --p: 100%; position: relative; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+        background: conic-gradient(var(--accent) var(--p), rgb(255 255 255 / 0.12) 0) border-box; }
+      .chip::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--glass-strong); }
+      .chip span { position: relative; font-size: 16px; line-height: 1; opacity: 0.55; }
+      .chip small { position: absolute; bottom: -15px; font-size: 10px; color: var(--ink-soft); }
+      .chip.ready span { opacity: 1; }
+      .chip.active { background: var(--evolve); }
+      .chip.active span { opacity: 1; }
+      .hud-toasts { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; }
+      .toast { padding: 6px 14px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line);
+        backdrop-filter: var(--blur); animation: toast 4.5s ease forwards; white-space: nowrap; }
+      @keyframes toast { 0% { opacity: 0; transform: translateY(-6px); } 8%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+      .hud-message { position: absolute; inset: 0; display: grid; place-content: center; font-size: 16px; color: var(--ink-soft); }
+      .hud-vignette { position: absolute; inset: 0; opacity: 0; transition: opacity 0.3s;
+        background: radial-gradient(ellipse at center, transparent 55%, rgb(190 30 20 / 0.55) 100%); }
+      .hud-perf { position: absolute; left: 12px; bottom: 8px; font: 11px ui-monospace, monospace; color: var(--ink-soft); }
+      @media (prefers-reduced-motion: reduce) { .toast { animation-duration: 0.01s; animation-delay: 4s; } .gauge i { transition: none; } }
       #extinct { position: fixed; inset: 0; display: grid; place-content: center; gap: 16px; text-align: center;
         background: rgb(2 18 26 / 0.7); font: 18px system-ui, sans-serif; color: #9fe7e0; }
       #extinct[hidden] { display: none; }
@@ -44,8 +91,9 @@
       #labels div { position: absolute; left: 0; top: 0; font: 12px system-ui, sans-serif; color: rgb(220 245 240 / 0.8);
         white-space: nowrap; text-shadow: 0 1px 3px #000; will-change: transform; }
       #labels .self { color: #fff; font-weight: 600; }
-      #leaders { position: fixed; top: 12px; right: 16px; margin: 0; padding: 8px 12px 8px 30px; min-width: 150px;
-        font: 13px system-ui, sans-serif; color: #9fe7e0; background: rgb(2 18 26 / 0.55); border-radius: 8px; pointer-events: none; }
+      #leaders { position: fixed; top: 12px; right: 12px; margin: 0; padding: 8px 12px 8px 28px; min-width: 140px;
+        font: var(--font); font-size: 12px; color: var(--ink-soft); background: var(--glass); border: 1px solid var(--line);
+        border-radius: var(--radius); backdrop-filter: var(--blur); pointer-events: none; }
       #leaders li { white-space: nowrap; }
       #leaders .self { color: #fff; font-weight: 600; }
       #stageup { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none;
@@ -63,7 +111,7 @@
     </style>
   </head>
   <body>
-    <div id="hud" role="status">Connecting…</div>
+    <div id="hud"></div>
     <div id="labels" aria-hidden="true"></div>
     <ol id="leaders" aria-label="Most energy"></ol>
     <div id="editor" hidden></div>

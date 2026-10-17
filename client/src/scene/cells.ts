@@ -336,13 +336,13 @@ void main() {
   cyto += (uColor * 0.3 + 0.22) * vacuoles * 0.3; // clear vacuoles
   float furrow = uCyst * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside;
   cyto *= 1.0 - 0.6 * furrow;
-  float cytoAlpha = inside * (0.38 + 0.42 * shell);
+  float cytoAlpha = inside * (0.45 + 0.4 * shell);
   // Refraction at the edge: a thin bright rim just inside the dark outline (brightfield).
   float innerRim = exp(-pow((d + 0.075) / 0.035, 2.0)) * inside;
 
-  float wall = 0.025 + 0.04 * max(uWall, uSpore);
+  float wall = 0.035 + 0.04 * max(uWall, uSpore); // a crisp outline: cells must read against the bright sand
   float membrane = 1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005));
-  vec3 membraneCol = mix(uColor * 0.22 + 0.02, uColor * 0.18 + vec3(0.06, 0.05, 0.03), uWall); // a dark refractive outline
+  vec3 membraneCol = mix(uColor * 0.14 + 0.01, uColor * 0.14 + vec3(0.05, 0.04, 0.025), uWall); // a dark refractive outline
   membraneCol += uHurt * vec3(1.0, 0.25, 0.15) * 0.9; // hurt: a red flash
   membraneCol += uCyst * (0.06 + 0.04 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a faint living glow
 
