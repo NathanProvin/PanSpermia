@@ -10,3 +10,4 @@ export * from './shapes.ts';
 export * from './sim.ts';
 export * from './species.ts';
 export * from './state.ts';
+export * from './pigments.ts';

@@ -93,7 +93,7 @@ function placeAt(cat: Catalog, gene: string, bx: number, by: number, symmetry: S
 
 export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x041c24);
+  scene.background = new THREE.Color(0x8fb3a6); // sunny pond water: organisms are drawn for a light background (polish S2)
   const camera = new THREE.OrthographicCamera(-1, 1, VIEW_HALF, -VIEW_HALF, -10, 10);
   const cell = createCellView(scene, 0.42);
 

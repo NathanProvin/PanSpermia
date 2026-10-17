@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, MOLLUSK, TIER2, TIER3, TIER4, animalRim, catalogFor,
+  DEFAULT_SEGMENTS, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, MOLLUSK, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
   deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -71,6 +71,7 @@ uniform float uShell; // a mollusk's shell...
 uniform vec3 uShellAt; // ...over this spot (body frame xy, radius)
 uniform float uFoot; // a mollusk's foot skirt
 uniform float uCocoon; // tier 4: wrapped in a metamorphosis cocoon
+uniform float uPattern; // 0 plain, 1 speckled, 2 banded (PATTERN_NAMES)
 varying vec2 vUv;
 ${NOISE}
 float angDiff(float x, float y) { float d = x - y; return atan(sin(d), cos(d)); }
@@ -127,7 +128,7 @@ vec4 drawCocoon(vec2 p, float t, vec2 head, vec2 tail, float big, float bodySd) 
 vec4 drawAnimal(vec2 p, float t) {
   vec2 head = uSeg[0].xy, tail = uSeg[0].xy;
   float big = 0.0;
-  float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3, eyes = 1e3;
+  float sd = 1e3, d1 = 1e3, d2 = 1e3, limbs = 1e3, eyes = 1e3, gutD = 1e3;
   vec2 q1 = vec2(0.0);
   float r1 = 1.0;
   float row = 3.0 + 9.0 * uSpeed; // leg strokes, rad/s
@@ -151,6 +152,8 @@ vec4 drawAnimal(vec2 p, float t) {
     float h = clamp(0.5 + 0.5 * (di - sd) / blend, 0.0, 1.0);
     sd = i == 0 ? di : mix(di, sd, h) - blend * h * (1.0 - h); // joined, but each plate still reads
     if (di < d1) { d2 = d1; d1 = di; q1 = q; r1 = s.z; } else if (di < d2) d2 = di;
+    // The gut: a tube down the spine, from each segment's centre to the next one's (in widths of the segment).
+    if (i > 0 && uRadial < 0.5) gutD = min(gutD, segment(p, uSeg[i - 1].xy, s.xy) / (0.3 * s.z));
     for (int k = -1; k <= 1; k += 2) {
       float fk = float(k);
       if (uRadial > 0.5) { // a tentacle waving out of each lobe
@@ -212,7 +215,14 @@ vec4 drawAnimal(vec2 p, float t) {
   vec3 base = mix(uColor, mix(mix(vec3(0.32, 0.26, 0.17), vec3(0.36, 0.22, 0.12), arthropod), vec3(0.55, 0.52, 0.45), mollusk),
     0.35 + 0.1 * arthropod);
   vec3 col = base * (0.35 + 0.65 * lambert) * (0.85 + 0.25 * mottle);
-  col = mix(col, base * 1.25 + 0.03, ridge * 0.35 * (1.0 - mollusk));
+  col *= 0.93 + 0.1 * valueNoise(p * 38.0 + uSeed * 7.0); // fine cuticle grain
+  // The species pattern: dark speckles, or bands across each plate.
+  col *= 1.0 - 0.32 * step(0.5, uPattern) * step(uPattern, 1.5) * smoothstep(0.68, 0.82, valueNoise(p * 12.0 + uSeed * 13.0));
+  col *= 1.0 - 0.26 * step(1.5, uPattern) * (1.0 - mollusk) * smoothstep(0.2, 0.7, sin(q1.x / max(r1, 1e-3) * 5.0 + 1.0));
+  col = mix(col, base * 1.25 + 0.03, ridge * 0.2 * (1.0 - mollusk));
+  // The gut seen through the body wall: a darker olive-brown tube with granular contents.
+  float gut = exp(-gutD * gutD) * (1.0 - smoothstep(-0.05, 0.0, sd));
+  col = mix(col, vec3(0.07, 0.06, 0.025) * (0.6 + 0.8 * valueNoise(p * 20.0 + uSeed)), gut * 0.7);
   col *= 1.0 - (0.55 + 0.3 * arthropod) * furrow - (0.35 + 0.2 * arthropod) * edge;
   float hard = max(uCarapace, arthropod * 0.6);
   col += pow(max(0.0, dot(reflect(-L, n), vec3(0.0, 0.0, 1.0))), 20.0 - 12.0 * hard) * (0.1 + 0.3 * hard);
@@ -248,8 +258,11 @@ vec4 drawAnimal(vec2 p, float t) {
   vec3 limbCol = mix(base * 0.45, base * 0.75, mollusk);
   limbCol = mix(limbCol, vec3(0.03), mollusk * (1.0 - smoothstep(-aa, aa, eyes))); // eyes on the stalks
   vec3 skirtCol = (base * 1.1 + 0.05) * (0.6 + 0.15 * sin(sd * 90.0 - t * 4.0)); // pedal waves
-  vec3 color = col * max(body, shell) + limbCol * limb * 0.9 + skirtCol * skirt * 0.55 + (uColor * 0.4 + 0.55) * callRing * 0.5;
-  return vec4(color, clamp(max(body, shell) + limb * 0.9 + skirt * 0.55 + callRing, 0.0, 1.0)); // premultiplied
+  // Living tissue is a little see-through at its thin edges (the shell isn't).
+  float tissue = body * mix(0.95, 0.62, smoothstep(-0.16, 0.0, sd));
+  float solid = max(tissue, shell);
+  vec3 color = col * solid + limbCol * limb * 0.85 + skirtCol * skirt * 0.55 + (uColor * 0.4 + 0.55) * callRing * 0.5;
+  return vec4(color, clamp(solid + limb * 0.85 + skirt * 0.55 + callRing, 0.0, 1.0)); // premultiplied
 }
 
 void main() {
@@ -294,13 +307,17 @@ void main() {
   float inside = 1.0 - smoothstep(-aa, aa, d);
 
   float shell = smoothstep(-0.85, 0.0, d);
-  float granules = valueNoise(p * 7.0 + vec2(t * 0.11, -t * 0.08));
+  float granules = valueNoise(p * 13.0 + vec2(t * 0.11, -t * 0.08)); // fine cytoplasmic granules
   vec2 nucleoidAt = 0.22 * vec2(sin(t * 0.31), cos(t * 0.27));
   float nucleoid = 1.0 - smoothstep(0.0, 0.5, length(p - nucleoidAt));
   // Two daughter nucleoids drifting apart along the axis while dividing.
   float twins = max(1.0 - smoothstep(0.0, 0.35, length(p - fwd * 0.42)), 1.0 - smoothstep(0.0, 0.35, length(p + fwd * 0.42)));
   nucleoid = mix(nucleoid, twins, uCyst);
-  vec3 cyto = uColor * (0.22 + 0.42 * shell + 0.22 * granules) * (1.0 - 0.3 * nucleoid * bact);
+  // Brightfield: pale, pigment-tinted, translucent cytoplasm (denser toward the rim, like a lens).
+  vec3 cyto = uColor * (0.5 + 0.3 * shell + 0.15 * granules) * (1.0 - 0.35 * nucleoid * bact);
+  // The species pattern: dark granule clusters (speckled) or faint bands across the body (banded).
+  cyto *= 1.0 - 0.3 * step(0.5, uPattern) * step(uPattern, 1.5) * smoothstep(0.66, 0.84, valueNoise(p * 9.0 + uSeed * 17.0));
+  cyto *= 1.0 - 0.18 * step(1.5, uPattern) * smoothstep(0.3, 0.8, sin(p.x * 9.0 + uSeed * 5.0));
   // Eukaryote: a nucleus behind the middle (envelope, darker nucleoplasm, bright nucleolus) and vacuoles.
   vec2 nucleusAt = -fwd * 0.18 + 0.05 * vec2(sin(t * 0.2), cos(t * 0.23));
   float nd = length(p - nucleusAt) - 0.34;
@@ -313,17 +330,21 @@ void main() {
     vacuoles += 1.0 - smoothstep(0.1, 0.13, length(p - at));
   }
   vacuoles *= euk;
-  cyto = mix(cyto, uColor * 0.35 + 0.05, nucleus * 0.7);
-  cyto += (uColor * 0.4 + 0.25) * vacuoles * 0.35;
+  cyto = mix(cyto, uColor * 0.32 + 0.04, nucleus * 0.55); // a darker, defined nucleus...
+  cyto = mix(cyto, uColor * 0.16, envelope * 0.8); // ...its envelope a fine dark line...
+  cyto = mix(cyto, uColor * 0.14, nucleolus * 0.7); // ...and a dense nucleolus
+  cyto += (uColor * 0.3 + 0.22) * vacuoles * 0.3; // clear vacuoles
   float furrow = uCyst * exp(-pow(dot(p, fwd) / 0.08, 2.0)) * inside;
   cyto *= 1.0 - 0.6 * furrow;
-  float cytoAlpha = inside * (0.6 + 0.35 * shell);
+  float cytoAlpha = inside * (0.38 + 0.42 * shell);
+  // Refraction at the edge: a thin bright rim just inside the dark outline (brightfield).
+  float innerRim = exp(-pow((d + 0.075) / 0.035, 2.0)) * inside;
 
   float wall = 0.025 + 0.04 * max(uWall, uSpore);
   float membrane = 1.0 - smoothstep(wall, wall + aa, abs(d + wall + 0.005));
-  vec3 membraneCol = mix(uColor * 0.85 + 0.04, uColor * 0.45 + vec3(0.09, 0.07, 0.04), uWall);
+  vec3 membraneCol = mix(uColor * 0.22 + 0.02, uColor * 0.18 + vec3(0.06, 0.05, 0.03), uWall); // a dark refractive outline
   membraneCol += uHurt * vec3(1.0, 0.25, 0.15) * 0.9; // hurt: a red flash
-  membraneCol += uCyst * (0.12 + 0.08 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a living glow
+  membraneCol += uCyst * (0.06 + 0.04 * sin(t * 3.0)) * vec3(0.6, 1.0, 0.8); // dividing: a faint living glow
 
   // Siderophores: a faint dotted ring where they reach, slowly rotating.
   float ring = uSidero * exp(-pow((r - uReach) / 0.025, 2.0)) * step(0.5, fract(a * 48.0 / 6.2831853 + t * 0.15)) * 0.45;
@@ -342,7 +363,7 @@ void main() {
   vec3 n = vec3(p / max(rim, 1e-3), sqrt(max(0.0, 1.0 - dot(p, p) / (rim * rim))));
   float glint = pow(max(0.0, dot(n, lightDir())), 28.0) * inside;
 
-  float halo = exp(-max(d, 0.0) * (12.0 - 6.0 * uExo)) * (1.0 - inside) * (0.22 + 0.25 * uExo);
+  float halo = exp(-max(d, 0.0) * (12.0 - 6.0 * uExo)) * (1.0 - inside) * (0.05 + 0.25 * uExo); // only exoenzymes glow
   vec3 haloCol = mix(uColor, vec3(1.0, 0.42, 0.18), uExo);
 
   // Gene features vanish inside the spore coat.
@@ -352,8 +373,8 @@ void main() {
   membraneCol = mix(membraneCol, vec3(0.95, 0.97, 0.88), uSpore);
 
   // Premultiplied alpha.
-  vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.25 + haloCol * halo * 0.3
-    + (uColor * 0.5 + 0.35) * envelope * inside + vec3(1.0, 0.95, 0.8) * nucleolus * 0.5 * inside
+  vec3 color = cyto * cytoAlpha + membraneCol * membrane + vec3(1.0) * glint * 0.18 + haloCol * halo * 0.3
+    + vec3(0.85, 0.9, 0.85) * innerRim * 0.16 * (1.0 - uSpore)
     + vec3(0.7, 0.95, 0.85) * ring + (uColor * 0.3 + 0.08) * gel * 0.5 + vec3(1.0, 0.3, 0.25) * virions * 0.8;
   color += vec3(0.85, 1.0, 0.9) * vesicle * 0.4 * inside;
   color = mix(color, vec3(0.9, 0.12, 0.08) * cytoAlpha, uHurt * 0.35);
@@ -517,15 +538,19 @@ void main() {
       * smoothstep(0.55, 0.85, valueNoise(p * 7.0 - vec2(t * 14.0, 0.0)));
     a = max(max(shell * 0.85, rim), plume);
     col = mix(vec3(0.85, 0.75, 0.6), vec3(0.8, 0.95, 1.0), plume);
-  } else if (k == ${KIND2 + TIER2.GENES.eye.index} || k == ${KIND3 + TIER3.GENES.eye.index} || k == ${KIND4 + TIER4.GENES.eye.index}) { // a Spore-cell eye: sclera, wandering pupil, glint
+  } else if (k == ${KIND2 + TIER2.GENES.eye.index}) { // an eyespot (stigma): a cluster of orange-red carotenoid granules
+    float spot = 1.0 - smoothstep(0.5, 0.7, length(p * vec2(1.0, 1.3)));
+    float grains = smoothstep(0.45, 0.8, valueNoise(p * 7.0 + uSeed * 11.0));
+    a = spot * (0.65 + 0.35 * grains);
+    col = mix(vec3(0.75, 0.25, 0.08), vec3(0.95, 0.5, 0.15), grains);
+  } else if (k == ${KIND3 + TIER3.GENES.eye.index} || k == ${KIND4 + TIER4.GENES.eye.index}) { // a compound eye: dark, faceted, a wet glint
     float rr = length(p);
-    float sclera = 1.0 - smoothstep(0.8, 0.88, rr);
-    vec2 look = vec2(0.32, 0.0) + 0.08 * vec2(sin(t * 0.7 + uSeed * 9.0), sin(t * 1.1));
-    float pupil = 1.0 - smoothstep(0.32, 0.38, length(p - look));
-    float glint = 1.0 - smoothstep(0.08, 0.12, length(p - look - vec2(0.1, 0.12)));
-    float outline = sclera * smoothstep(0.7, 0.82, rr);
-    a = sclera;
-    col = mix(vec3(0.95), vec3(0.05, 0.05, 0.08), max(pupil, outline * 0.8)) + glint * 0.5;
+    float eye = 1.0 - smoothstep(0.78, 0.88, rr);
+    vec2 f = fract(p * 5.0 + vec2(0.5 * floor(p.y * 5.0), 0.0)) - 0.5; // offset rows: a honeycomb of facets
+    float facets = smoothstep(0.18, 0.32, length(f));
+    float glint = exp(-dot(p - vec2(-0.25, 0.3), p - vec2(-0.25, 0.3)) * 18.0);
+    a = eye;
+    col = vec3(0.04, 0.035, 0.05) + vec3(0.1, 0.08, 0.06) * facets * smoothstep(0.85, 0.3, rr) + vec3(0.55) * glint;
   } else if (k == ${GENES.adhesin.index}) { // adhesins: a fringe of barbed hooks for clinging to a host
     for (int i = -2; i <= 2; i++) {
       float y = float(i) * 0.3;
@@ -651,6 +676,7 @@ void main() {
     col = vec3(0.95, 0.97, 0.85);
   }
   a = clamp(a, 0.0, 1.0);
+  col = mix(vec3(dot(col, vec3(0.3, 0.59, 0.11))), col, 0.72) * 0.85; // microscope, not neon: muted and a little desaturated
   gl_FragColor = vec4(col * a, a); // premultiplied
 }
 `;
@@ -765,7 +791,7 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uPattern: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -956,7 +982,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
           turns[i] = segmentTurn(spine, rest, i, radial);
         }
       }
-      color.setHSL(look.hue, isAnimal(look.tier) ? 0.55 : 0.8, 0.42); // animal tissue is less saturated than a cell
+      const { pigment, pattern } = pigmentOf(look.hue);
+      color.set(PIGMENTS[pigment]!.hex); // a natural pigment (sRGB, converted to linear)
+      body.material.uniforms.uPattern!.value = pattern;
       body.visible = true;
       // The body's quad: a cell's fixed square; an animal's the bounding box of what its segments draw this
       // frame (most of a fixed square would be open water, and the animal shader is the costliest in the game).
