@@ -6,6 +6,7 @@ export * from './current.ts';
 export * from './eukaryote.ts';
 export * from './genes.ts';
 export * from './names.ts';
+export * from './rim.ts';
 export * from './shapes.ts';
 export * from './sim.ts';
 export * from './species.ts';

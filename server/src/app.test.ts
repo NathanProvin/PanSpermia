@@ -2,7 +2,7 @@ import { matchMaker } from '@colyseus/core';
 import { Callbacks, Client, Predict, type Room } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, GENES, INK, T4_HEALTH_MAX, T4_SPAWN_MASS, TIER4, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, TIER2, TOXINS, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
-  SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, WORLD_RADIUS, drift, sanitizeInput, stepCell,
+  SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, insidePool, drift, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 
@@ -32,7 +32,7 @@ test('clients share one pool room and see each other spawn and leave', async () 
 
   await vi.waitFor(() => expect(a.state.players.size).toBe(2));
   for (const p of a.state.players.values()) {
-    expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(WORLD_RADIUS);
+    expect(insidePool(p.x, p.y)).toBe(true); // in the water (a bacterium is often born deep in a fault)
     // A tick of metabolism may already have run, or a spawn inside a plume may have absorbed a packet.
     expect(p.mass).toBeGreaterThan(SPAWN_MASS - 0.1);
     expect(p.mass).toBeLessThan(SPAWN_MASS + 5);

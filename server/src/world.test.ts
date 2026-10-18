@@ -3,11 +3,11 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, rimAt, FAULTS, keepInPool, insidePool, FAULT_SPAWN, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
-  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf, yield2Of, yield3Of, yield4Of, swallows,
+  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, spawnPointFor, yieldOf, yield2Of, yield3Of, yield4Of, swallows,
 } from './world.ts';
 
 /** A human species 'p' with its first individual, unshielded so tests can hurt it. */
@@ -35,7 +35,7 @@ test('a fresh pool has seeps and established plumes', () => {
   expect(state.seeps.length).toBe(SEEP_COUNT);
   expect(state.nutrients.size).toBeGreaterThan(300);
   expect(state.tick).toBe(NUTRIENT_LIFETIME * TICK_RATE);
-});
+}, 30_000); // a minute of the pool's life: the 9750 pool holds 2.25× the packets
 
 test('server packet positions equal a client rebuild from spawn point and tick', () => {
   const state = new PoolState();
@@ -51,7 +51,7 @@ test('server packet positions equal a client rebuild from spawn point and tick',
 test('packets dissolve with age and against the rock', () => {
   const state = new PoolState();
   const old = foodAt(state, 0, 0);
-  const edge = foodAt(state, WORLD_RADIUS + 5, 0);
+  const edge = foodAt(state, rimAt(0) + 5, 0); // just past the shore
   stepWorld(state);
   expect(state.nutrients.has(edge)).toBe(false);
   expect(state.nutrients.has(old)).toBe(true);
@@ -1313,7 +1313,7 @@ test('animal tentacles: a filtering crown swallows eukaryotes, a polyp crown pla
   expect(eater('filterTentacles')).toEqual(['e', '']);
   expect(eater('polypTentacles')).toEqual(['e', 'e']);
   const speed = (genes: (typeof TIER4.NAMES)[number][]) => {
-    const b = Object.assign(spawnPlayer(), { tier: 4, genome4: TIER4.genomeOf(genes), mass: 8000, heading: 0, vx: 0, vy: 0 });
+    const b = Object.assign(spawnPlayer(), { tier: 4, genome4: TIER4.genomeOf(genes), mass: 8000, heading: 0, vx: 0, vy: 0, x: 0, y: 0 });
     for (let i = 0; i < 60; i++) stepCell(b, b.mass, 0, 1, 0, 0, TICK_DT, 0, 4, 0, 0, b.genome4);
     return b.vx;
   };
@@ -1325,4 +1325,21 @@ test('animal tentacles: a filtering crown swallows eukaryotes, a polyp crown pla
     return 8000 - p.mass;
   };
   expect(burn(['gills'])).toBeLessThan(burn([]));
+});
+
+test('the shore: rugged, its faults let small cells in but keep big bodies out; bacteria are often born in one', () => {
+  const rims = Array.from({ length: 360 }, (_, i) => rimAt((i / 360) * 2 * Math.PI));
+  expect(Math.max(...rims) - Math.min(...rims)).toBeGreaterThan(WORLD_RADIUS * 0.05); // not a circle
+  const f = FAULTS[0]!;
+  const deep = rimAt(f.angle) - 300; // well into the fault, beyond the shore beside it
+  const small = { x: Math.cos(f.angle) * deep, y: Math.sin(f.angle) * deep };
+  expect(keepInPool(small, 20)).toBeUndefined(); // a bacterium fits
+  const big = { x: Math.cos(f.angle) * deep, y: Math.sin(f.angle) * deep };
+  expect(keepInPool(big, 800)).toBeDefined(); // an animal is pushed back out
+  expect(Math.hypot(big.x, big.y)).toBeLessThan(deep - 300);
+  const born = Array.from({ length: 200 }, () => spawnPointFor(1));
+  const inFaults = born.filter((p) => FAULTS.some((q) => Math.abs(Math.atan2(Math.sin(Math.atan2(p.y, p.x) - q.angle), Math.cos(Math.atan2(p.y, p.x) - q.angle))) < q.width
+    && Math.hypot(p.x, p.y) > rimAt(q.angle) - q.depth)).length;
+  expect(inFaults).toBeGreaterThan(200 * FAULT_SPAWN * 0.7);
+  for (const p of born) expect(insidePool(p.x, p.y)).toBe(true);
 });

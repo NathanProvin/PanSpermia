@@ -6,7 +6,10 @@ export const TICK_RATE = 20;
 export const TICK_DT = 1 / TICK_RATE;
 
 /** Pool radius, world units. */
-export const WORLD_RADIUS = 6500; // 1500 → 2200 (P8a) → 3000 (P9a) → 4500 (TIER_SCALE) → 6500 (P10a, tier 4): rates below scaled with the area
+/** The pool's mean radius (rim.ts makes its shore irregular and cuts faults into it). */
+export const WORLD_RADIUS = 9750; // 1500 → 2200 (P8a) → 3000 (P9a) → 4500 (TIER_SCALE) → 6500 (P10a, tier 4) → 9750 (user: +50 %)
+/** Rates over the whole pool below were tuned for the 6500 pool: × its area growth keeps every density the same. */
+const AREA = (WORLD_RADIUS / 6500) ** 2;
 
 // Cell body. Area ∝ mass, so radius ∝ √mass.
 export const SPAWN_MASS = 10;
@@ -51,13 +54,13 @@ export const HEALTH_REGEN = 5;
 
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
-export const SEEP_COUNT = 131;
+export const SEEP_COUNT = Math.round(131 * AREA);
 export const SEEP_RATE = 1.1; // packets/s per seep
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = 113; // packets/s scattered over the whole pool
+export const BACKGROUND_RATE = (113) * AREA; // packets/s scattered over the whole pool
 export const NUTRIENT_LIFETIME = 60; // s
-export const NUTRIENT_CAP = 37500; // packets alive at most
+export const NUTRIENT_CAP = Math.round(37500 * AREA); // packets alive at most
 export const NUTRIENT_MASS = 1; // dissolved packet
 export const DEBRIS_MASS = 2; // debris packet
 export const DEBRIS_SHARE = 0.5; // share of a dead cell's mass released as debris
@@ -78,11 +81,11 @@ export const PLASMID_UNLOCK_CHANCE = 0.3;
  * sweeps water ∝ its reach × speed, which grows with the phase about as fast as the evolve thresholds, so one flat DNA
  * value per plasmid keeps each phase near a few generations per evolution.
  */
-export const PLASMID_RATE = 3.5 / 0.815; // user: 30 % fewer than the 5× step
+export const PLASMID_RATE = (3.5 / 0.815) * AREA; // user: 30 % fewer than the 5× step
 
 // Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
 // lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
-export const PHAGE_RATE = 9; // wild phages/s
+export const PHAGE_RATE = (9) * AREA; // wild phages/s
 export const PHAGE_CLEARANCE = 200; // wild phages never appear this close to a cell
 export const PHAGE_LATENT = 5; // s of damage per infecting phage
 export const PHAGE_DPS = 10;
@@ -132,7 +135,7 @@ export const T2_TURN_RATE = 2.2; // rad/s with a flagellum and no cilia
 // Diets. Algae are tier-2 plant food (bacteria can't take them in); a dead eukaryote falls apart
 // into meat chunks; a jaw engulfs any cell at most ENGULF_RATIO of the eater's mass.
 export const ALGAE_MASS = 6;
-export const ALGAE_RATE = 28; // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
+export const ALGAE_RATE = (28) * AREA; // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
 export const SEEP_ALGAE = 0.25; // per s per seep
 export const CHUNK_MASS = 10;
 /**
@@ -141,9 +144,9 @@ export const CHUNK_MASS = 10;
  * from algae (35.3 → 28/s, −44), so plant eaters get ~3 % more food than the balance had and bacteria the same.
  */
 export const CYANO_MASS = 4;
-export const CYANO_RATE = 9; // per s over the whole pool
+export const CYANO_RATE = (9) * AREA; // per s over the whole pool
 export const HYPHA_MASS = 3;
-export const HYPHA_RATE = 7;
+export const HYPHA_RATE = (7) * AREA;
 /**
  * Plants for every phase's grazers (user direction: populate the pool for herbivore play), each eaten like algae — by
  * plant mouths — and only from the phase big enough to take it in: spirulina (helical blue-green filaments) from
@@ -153,14 +156,14 @@ export const HYPHA_RATE = 7;
  * a few times its burn — a generation's growth in a few minutes of grazing. Provisional until the balance step.
  */
 export const SPIRULINA_MASS = 12;
-export const SPIRULINA_RATE = 4; // per s over the whole pool
+export const SPIRULINA_RATE = (4) * AREA; // per s over the whole pool
 // Half as many as first tried, each worth twice as much (the same food): the plankton's view was crowded.
 export const DIATOM_MASS = 80;
-export const DIATOM_RATE = 2;
+export const DIATOM_RATE = (2) * AREA;
 export const DINOFLAGELLATE_MASS = 120;
-export const DINOFLAGELLATE_RATE = 1.25;
+export const DINOFLAGELLATE_RATE = (1.25) * AREA;
 export const MACROALGA_MASS = 300;
-export const MACROALGA_RATE = 0.5;
+export const MACROALGA_RATE = (0.5) * AREA;
 /** The phase that can first take each plant in (kind → tier); plants not listed are eaten from tier 2 (algae, filaments). */
 export const PLANT_TIER: Readonly<Record<number, number>> = { 11: 2, 12: 3, 13: 3, 14: 4 };
 export const ENGULF_RATIO = 0.5;
@@ -178,7 +181,7 @@ export const JET_BOOST = 2.6; // × swim speed while dashing
 export const EYE_SIGHT = 0.18; // camera pulls back this much more per stacked eye (client)
 // Meteor shards: Spore's meteor bits. Rare sparkly packets carrying a random tier-2 part; any eukaryote
 // that touches one unlocks it. A dead eukaryote's chunks carry its parts too (eaten with a jaw: may unlock).
-export const SHARD_RATE = 1 / 2.35; // per s over the whole pool
+export const SHARD_RATE = (1 / 2.35) * AREA; // per s over the whole pool
 
 // Photosynthesis and endosymbiosis (P8d). Light is uniform for now: a photosynthesizer gains mass
 // steadily without eating. Swallowing a bacterium may adopt it as an organelle (Margulis): one with
@@ -192,7 +195,7 @@ export const ENDOSYMBIOSIS_CHANCE = 0.25; // per qualifying bacterium swallowed
 // Hazards of eukaryotes (P8f). Giant viruses (like mimivirus in amoebae) are the eukaryote's phages:
 // they drift, infect on contact and burst out of the dead; bacteria are immune to them, as eukaryotes are
 // to phages. Parasitic bacteria with adhesins drain the energy of any eukaryote they cling to.
-export const VIRUS_RATE = 2.6; // wild giant viruses/s
+export const VIRUS_RATE = (2.6) * AREA; // wild giant viruses/s
 export const VIRUS_LATENT = 6; // s of damage per infecting virus
 export const VIRUS_DPS = 20;
 export const VIRUS_BURST = 6;
@@ -252,6 +255,8 @@ export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bit
  * sizes from before TIER_SCALE: bigger bodies mustn't vacuum up the pool (sim: deaths/min ×4 otherwise).
  */
 export const EUK_MOUTH = 0.6;
+/** Share of new bacteria born deep in a fault of the shore (rim.ts), where big filter feeders can't follow. */
+export const FAULT_SPAWN = 0.6;
 /**
  * An animal eats only what touches its mouthparts (user direction): each placed mouthpart is a mouth on the body's
  * outline, MOUTH_OUT cell radii beyond it, taking what comes within MOUTH_REACH cell radii (× the part's scale).

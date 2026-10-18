@@ -6,10 +6,11 @@ import {
   JET_COOLDOWN, JET_TIME, MITO_SPEED, THECA_SWIM, TUN_TIME, TUN_COOLDOWN, T3_SWIM_OARS, OAR_STROKES, MUSCLE_SWIM,
   T3_SWIM_LOBOPOD, LOBOPOD_DRIFT, T4_SWIM_FINS, FIN_TURN, GILL_SPEED, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
-  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
+  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
   PILI_TURN, TUMBLE_SPIN, EVOLVE_DNA_T3, FOOT_DRIFT, LEG_TURN, T4_DRIFT, T4_MASS_CAP, T4_MIN_MASS, T4_SPAWN_MASS, T4_SPEED_COEF,
   T4_SWIM_CREEP, T4_SWIM_FOOT, T4_SWIM_LEGS, T4_SWIM_SIPHON, T4_SWIM_TAILFAN, T4_TURN_RATE, EXOSKELETON_SWIM, SHELL_SWIM, INK_BOOST, INK_COOLDOWN, INK_TIME,
 } from './constants.ts';
+import { keepInPool } from './rim.ts';
 import {
   ACTION_MASK, ACTION_SPORE, CAPSULE_SWIM, ENDOSPORE_COOLDOWN, ENDOSPORE_TIME, WALL_SWIM,
 } from './combat.ts';
@@ -253,15 +254,13 @@ function move(b: CellBody, mass: number, tier: number, v: number, drift: number,
   b.x += (b.vx + flow.x * drift) * dt;
   b.y += (b.vy + flow.y * drift) * dt;
 
-  const limit = WORLD_RADIUS - radiusOf(mass, tier);
-  const d = Math.hypot(b.x, b.y);
-  if (d > limit) {
-    b.x *= limit / d;
-    b.y *= limit / d;
-    const out = (b.vx * b.x + b.vy * b.y) / limit;
+  // The shore (rim.ts): read across the body's width, so only small cells fit into the faults.
+  const wall = keepInPool(b, radiusOf(mass, tier));
+  if (wall) {
+    const out = b.vx * wall.nx + b.vy * wall.ny;
     if (out > 0) {
-      b.vx -= (out * b.x) / limit;
-      b.vy -= (out * b.y) / limit;
+      b.vx -= out * wall.nx;
+      b.vy -= out * wall.ny;
     }
   }
 }

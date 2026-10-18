@@ -1,3 +1,4 @@
+import { rimAt } from './rim.ts';
 import { expect, test } from 'vitest';
 import {
   CILIA_TURN, DRIFT_PILI, INERTIA, MASS_CAP, PILI_TURN, RUN_TURN_RATE, SPAWN_MASS, TUMBLE_SPIN, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI, TUMBLE_ERROR,
@@ -137,9 +138,9 @@ test('steps are deterministic given the same rng state', () => {
 });
 
 test('the whole cell stays inside the pool', () => {
-  const b = cell({ x: WORLD_RADIUS - 1, y: 0 });
+  const b = cell({ x: rimAt(0) - 1, y: 0 }); // at the shore (rim.ts)
   stepCell(b, MASS_CAP, flagellum, 1, 0, 0, DT, T);
-  expect(Math.hypot(b.x, b.y)).toBeLessThanOrEqual(WORLD_RADIUS - radiusOf(MASS_CAP) + 1e-9);
+  expect(Math.hypot(b.x, b.y)).toBeLessThanOrEqual(rimAt(Math.atan2(b.y, b.x)) - radiusOf(MASS_CAP) + 1e-6);
 });
 
 test('clampSteer caps throttle at 1 without bending the heading', () => {

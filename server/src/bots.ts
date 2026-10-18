@@ -4,12 +4,12 @@
 // Bots exist at every tier: a species says which, and its genes are names in that tier's catalog.
 import {
   ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, INK, NutrientKind, type Nutrient, type Player, type PoolState,
-  type Species, TICK_DT, TIER2, TIER3, WORLD_RADIUS, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
+  type Species, TICK_DT, TIER2, TIER3, rimAt, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
   radiusOf, sanitizeInput, stepCell,
   hasBit, withBit,
 } from '@panspermia/shared';
 import { type PacketGrid, buildGrid, grids, near } from './grid.ts';
-import { type Death, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
+import { type Death, spawnPointFor, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
 
 export interface Brain {
   species: number; // index into BOT_SPECIES
@@ -61,7 +61,7 @@ const brain = (species: number, tick: number): Brain => ({
 /** A fresh individual of a species, at its tier's newborn size; anywhere, or at a given spot. */
 function incarnate(tick: number, s: Species, at?: { x: number; y: number; heading: number }) {
   const p = embody(spawnPlayer(tick), s.tier, catalogFor(s.tier).genomeOf(s.genes));
-  Object.assign(p, { name: s.name, shape: s.shape }, at);
+  Object.assign(p, spawnPointFor(s.tier), { name: s.name, shape: s.shape }, at);
   return p;
 }
 
@@ -229,9 +229,9 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
     sy += (kinY / k) * 0.4;
   }
 
-  // Stay off the rock.
+  // Stay off the rock (a bacterium may linger in a fault: it fits).
   const fromCentre = Math.hypot(p.x, p.y);
-  if (fromCentre > WORLD_RADIUS * 0.88) {
+  if (fromCentre > rimAt(Math.atan2(p.y, p.x)) - radiusOf(p.mass, p.tier) * (p.tier === 1 ? 2 : 4) - 300) {
     sx -= (p.x / fromCentre) * 1.5;
     sy -= (p.y / fromCentre) * 1.5;
   }

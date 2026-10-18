@@ -1,11 +1,11 @@
 // Spatial index of the drifting packets, rebuilt once per tick by stepWorld and shared by feeding and bot
 // perception. A counting sort into flat arrays: a Map of per-cell arrays rebuilt every tick for ~14k packets
 // cost more than drifting them (P10a profile).
-import { type Nutrient, type PoolState, WORLD_RADIUS } from '@panspermia/shared';
+import { type Nutrient, type PoolState, RIM_MAX } from '@panspermia/shared';
 
 const CELL = 80;
-const SIDE = Math.ceil((2 * WORLD_RADIUS) / CELL) + 1;
-const cellOf = (v: number) => Math.min(SIDE - 1, Math.max(0, Math.floor((v + WORLD_RADIUS) / CELL)));
+const SIDE = Math.ceil((2 * RIM_MAX) / CELL) + 1; // the farthest water (a fault's tip)
+const cellOf = (v: number) => Math.min(SIDE - 1, Math.max(0, Math.floor((v + RIM_MAX) / CELL)));
 
 export interface PacketGrid {
   /** Packets of cell c are items[start[c]] .. items[start[c + 1] - 1]. */

@@ -20,7 +20,7 @@ import {
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
   GENOME_FIELD, grazes4, hunts4, isAnimal, spawnMassOf,
-  MOUTH_OUT, MOUTH_REACH, BOT_SPECIES, DEFAULT_SEGMENTS, animalRim, segmentsOf, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  FAULT_SPAWN, keepInPool, insidePool, randomInPool, randomInFault, MOUTH_OUT, MOUTH_REACH, BOT_SPECIES, DEFAULT_SEGMENTS, animalRim, segmentsOf, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
   hasBit, withBit,
 } from '@panspermia/shared';
 import { buildGrid, grids, near } from './grid.ts';
@@ -32,10 +32,18 @@ function randomInDisc(r: number) {
   return { x: d * Math.cos(angle), y: d * Math.sin(angle) };
 }
 
+/**
+ * Where a new individual of a tier appears: anywhere in the water, clear of the shore by its newborn size — and a
+ * bacterium, more often than not, deep in one of the shore's faults, out of reach of the big filter feeders (user).
+ */
+export function spawnPointFor(tier: number) {
+  if (tier === 1 && Math.random() < FAULT_SPAWN) return randomInFault();
+  return randomInPool(radiusOf(spawnMassOf(tier), tier) + 40);
+}
 /** A fresh individual; pass the current tick to shield it for SPAWN_GRACE (tests usually don't). */
 export const spawnPlayer = (tick?: number) => new Player({
   graceUntil: tick === undefined ? 0 : tick + SPAWN_GRACE * TICK_RATE,
-  ...randomInDisc(WORLD_RADIUS - radiusOf(SPAWN_MASS)),
+  ...spawnPointFor(1),
   heading: Math.random() * 2 * Math.PI,
   tumble: 0,
   rng: (Math.random() * 2 ** 32) >>> 0 || 1,
@@ -80,10 +88,10 @@ function stepMates(state: PoolState) {
       const a = Math.random() * 2 * Math.PI;
       const far = 2 * radiusOf(p.mass, p.tier) + MATE_DISTANCE; // two grown animals touch ~620 apart
       const at = { x: p.x + Math.cos(a) * far, y: p.y + Math.sin(a) * far };
-      const k = Math.min(1, (WORLD_RADIUS * 0.95) / Math.hypot(at.x, at.y)); // inside the pool
+      keepInPool(at, radiusOf(p.mass, p.tier)); // in the water
       state.players.set(mid, new Player({
         name: p.name, shape: p.shape, tier: p.tier, genome3: p.genome3, genome4: p.genome4, mass: p.mass, health: healthMaxOf(0, p.tier),
-        x: at.x * k, y: at.y * k, heading: a + Math.PI, graceUntil: 0xffffffff, tumble: 0, rng: 1, genome: 0,
+        x: at.x, y: at.y, heading: a + Math.PI, graceUntil: 0xffffffff, tumble: 0, rng: 1, genome: 0,
       }));
       continue;
     }
@@ -278,7 +286,7 @@ function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: 
   const p = embody(spawnPlayer(tick), l.tier, l.genome);
   p.name = l.name;
   p.shape = l.shape;
-  if (at) Object.assign(p, at);
+  Object.assign(p, spawnPointFor(l.tier), at); // its tier's spawn spot (a bacterium: often a fault), unless placed
   if (incubate) p.cocoon = incubationOf(l.tier);
   return p;
 }
@@ -700,11 +708,11 @@ export function stepWorld(state: PoolState): Death[] {
     }
   }
   if (Math.random() < ALGAE_RATE * TICK_DT) {
-    const at = randomInDisc(WORLD_RADIUS);
+    const at = randomInPool();
     spawnNutrient(state, at.x, at.y, NutrientKind.algae);
   }
   if (Math.random() < BACKGROUND_RATE * TICK_DT) {
-    const at = randomInDisc(WORLD_RADIUS);
+    const at = randomInPool();
     spawnNutrient(state, at.x, at.y, NutrientKind.dissolved);
   }
   for (const [kind, rate] of [
@@ -712,23 +720,23 @@ export function stepWorld(state: PoolState): Death[] {
     [NutrientKind.diatom, DIATOM_RATE], [NutrientKind.dinoflagellate, DINOFLAGELLATE_RATE], [NutrientKind.macroalga, MACROALGA_RATE],
   ] as const) {
     if (Math.random() < rate * TICK_DT) {
-      const at = randomInDisc(WORLD_RADIUS);
+      const at = randomInPool();
       spawnNutrient(state, at.x, at.y, kind);
     }
   }
   if (Math.random() < PLASMID_RATE * TICK_DT) {
-    const at = randomInDisc(WORLD_RADIUS);
+    const at = randomInPool();
     spawnPlasmid(state, at.x, at.y);
   }
   if (Math.random() < SHARD_RATE * TICK_DT) {
-    const at = randomInDisc(WORLD_RADIUS);
+    const at = randomInPool();
     spawnShard(state, at.x, at.y);
   }
   // Wild viruses: phages (bacteria) and giant viruses (eukaryotes), never right on top of a cell.
   // ponytail: a crowded pool skips the spawn instead of searching for room; viruses still burst from the infected.
   for (const [kind, rate] of [[NutrientKind.phage, PHAGE_RATE], [NutrientKind.virus, VIRUS_RATE]] as const) {
     if (Math.random() >= rate * TICK_DT) continue;
-    const at = randomInDisc(WORLD_RADIUS);
+    const at = randomInPool();
     const clear = PHAGE_CLEARANCE ** 2;
     if ([...state.players.values()].every((p) => (p.x - at.x) ** 2 + (p.y - at.y) ** 2 > clear)) spawnNutrient(state, at.x, at.y, kind);
   }
@@ -739,7 +747,7 @@ export function stepWorld(state: PoolState): Death[] {
   const liveIds: string[] = [];
   for (const [id, n] of state.nutrients) {
     drift(n, tick);
-    if (tick - n.tick0 > NUTRIENT_LIFETIME * TICK_RATE || n.x * n.x + n.y * n.y > WORLD_RADIUS * WORLD_RADIUS) expired.push(id);
+    if (tick - n.tick0 > NUTRIENT_LIFETIME * TICK_RATE || !insidePool(n.x, n.y)) expired.push(id);
     else {
       live.push(n);
       liveIds.push(id);

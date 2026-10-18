@@ -1,4 +1,4 @@
-import { WORLD_RADIUS } from '@panspermia/shared';
+import { RIM_MAX, RIM_MIN, RIM_SAMPLES, RIM_TABLE, WORLD_RADIUS } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
 
@@ -31,7 +31,7 @@ const FLOOR_DEPTH = -1400;
  * textures covering BAKE_HALF around the pool centre (wider than any view of the floor): sampling them is a
  * fraction of the cost of ~14 fbm per pixel. ~23 world units per texel, finer than the floor's defocus.
  */
-const BAKE_HALF = 12000;
+const BAKE_HALF = 14500; // the farthest fault reaches ~12 400
 const BAKE_SIZE = 1024;
 const BAKE_VERTEX = /* glsl */ `
 varying vec2 vWorld;
@@ -143,18 +143,19 @@ void main() {
 }
 `;
 
-// The pond's bank at the gameplay plane: the playable disc ends at earthy, mossy rock.
+// The pond's bank at the gameplay plane: the water ends at earthy, mossy rock along the shore of rim.ts — irregular,
+// cut by faults (uRim: the shore's distance around the circle, the same table the server keeps bodies in with).
 const RIM_FRAGMENT = /* glsl */ `
 uniform float uTime;
-uniform float uRadius;
+uniform sampler2D uRim;
 varying vec2 vWorld;
 ${NOISE}
 ${FBM}
 void main() {
   float a = atan(vWorld.y, vWorld.x);
-  float jag = (valueNoise(vec2(a * 9.0, 0.0)) - 0.5) * 140.0 + (valueNoise(vec2(a * 31.0, 3.0)) - 0.5) * 50.0
-    + (valueNoise(vWorld / 60.0) - 0.5) * 30.0;
-  float d = length(vWorld) - uRadius - 25.0 + jag;
+  float shore = texture2D(uRim, vec2(fract(a / 6.2831853 + 1.0), 0.5)).r;
+  float jag = (valueNoise(vWorld / 60.0) - 0.5) * 24.0; // fine grain along the rock's edge
+  float d = length(vWorld) - shore + 10.0 + jag;
   float rock = smoothstep(-8.0, 8.0, d);
   float grain = fbm(vWorld / 160.0);
   vec3 stone = mix(vec3(0.07, 0.065, 0.055), vec3(0.17, 0.155, 0.12), grain); // sun-warmed grey-brown rock
@@ -171,7 +172,7 @@ export function createPool() {
 
   const baked = [0, 1].map(() => new THREE.WebGLRenderTarget(BAKE_SIZE, BAKE_SIZE, { type: THREE.HalfFloatType, depthBuffer: false }));
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(30000, 30000),
+    new THREE.PlaneGeometry(40000, 40000),
     new THREE.ShaderMaterial({
       uniforms: { ...uniforms, uWater: { value: baked[0]!.texture }, uBottom: { value: baked[1]!.texture } }, // uRadius: the sunlit falloff
       vertexShader: WORLD_VERTEX, fragmentShader: FLOOR_FRAGMENT, depthWrite: false,
@@ -181,7 +182,7 @@ export function createPool() {
   floor.renderOrder = 0;
 
   const haze = new THREE.Mesh(
-    new THREE.PlaneGeometry(30000, 30000),
+    new THREE.PlaneGeometry(40000, 40000),
     new THREE.ShaderMaterial({
       uniforms, vertexShader: WORLD_VERTEX, fragmentShader: HAZE_FRAGMENT,
       transparent: true, depthWrite: false, premultipliedAlpha: true,
@@ -190,10 +191,14 @@ export function createPool() {
   haze.position.z = HAZE_DEPTH;
   haze.renderOrder = 0; // sorted by depth among the far layers: between deep and mid-water giants
 
+  // The shore's table as a texture (one float a sample, read nearest: ~7 world units a sample at the shore).
+  const shore = new THREE.DataTexture(new Float32Array(RIM_TABLE), RIM_SAMPLES, 1, THREE.RedFormat, THREE.FloatType);
+  shore.wrapS = THREE.RepeatWrapping;
+  shore.needsUpdate = true;
   const rim = new THREE.Mesh(
-    new THREE.RingGeometry(WORLD_RADIUS - 200, WORLD_RADIUS + 8000, 256, 1),
+    new THREE.RingGeometry(RIM_MIN - 300, RIM_MAX + 8000, 512, 1),
     new THREE.ShaderMaterial({
-      uniforms, vertexShader: WORLD_VERTEX, fragmentShader: RIM_FRAGMENT,
+      uniforms: { ...uniforms, uRim: { value: shore } }, vertexShader: WORLD_VERTEX, fragmentShader: RIM_FRAGMENT,
       transparent: true, depthWrite: false, premultipliedAlpha: true,
     }),
   );
