@@ -385,15 +385,18 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
   return undefined;
 }
 
-/** Spore's "Grow legs?": from the next generation on, the species is the next tier's starter. */
+/** Spore's "Grow legs?": from the next generation on, the species is a nude body of the next tier (its starter parts unlocked). */
 function evolve(l: Lineage) {
   const [genome, library] = l.tier === 1 ? [STARTER_GENOME2, STARTER_LIBRARY2] : l.tier === 2 ? [STARTER_GENOME3, STARTER_LIBRARY3]
     : [STARTER_GENOME4, STARTER_LIBRARY4];
   l.tier++;
   const cat = catalogFor(l.tier);
-  l.genome = genome;
+  // The first individual of the new phase is nude — just the body, round, sculpted from scratch (user direction) —
+  // and the species gets the old starter design's price to build it with.
+  l.genome = 0;
   l.parts.clear();
-  l.parts.push(...cat.defaultParts(genome).map((p) => new Part({ ...p, gene: cat.GENES[p.gene]!.index })));
+  l.dna += cat.priceOf(genome);
+  Object.assign(l, { shape: 0, sx: 0, sy: 0, bend: 0 });
   l.library = library; // the old tier's parts mean nothing to the new body plan
   if (isAnimal(l.tier)) {
     l.plan = PLANS_OF[l.tier]![0]!;

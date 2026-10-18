@@ -111,7 +111,7 @@ const ripple = (strength: number) => {
 const cells = createCells(scene, (id, strength) => {
   if (id !== selfId) return;
   bump = Math.max(bump, strength);
-  if (strength > 0.15) ripple(0.35 + 0.6 * strength); // a bump, a bite, a wound
+  if (strength > 0.3) ripple(0.35 + 0.6 * strength); // a real bump, a bite, a wound
   if (performance.now() - lastBuzz > 150) {
     lastBuzz = performance.now();
     navigator.vibrate?.(Math.round(15 + 35 * strength));
@@ -221,7 +221,7 @@ try {
       l.plan === MOLLUSK ? 'Rasp algae with a radula, bite with a beak, hide in a shell. Small animals are food now.'
         : 'Graze with mouthparts, crush with claws, armour up in an exoskeleton. Small animals are food now.',
     ][l.tier] ?? '';
-    stageup.replaceChildren(`${l.name} evolved into ${['', '', 'eukaryotes', 'animals', l.plan === MOLLUSK ? 'mollusks' : 'arthropods'][l.tier]}`, subtitle);
+    stageup.replaceChildren(`${l.name} evolved into ${['', '', 'eukaryotes', 'plankton', 'animals'][l.tier]}`, subtitle);
     stageup.classList.add('on');
     stageupUntil = performance.now() + STAGEUP_MS;
   };

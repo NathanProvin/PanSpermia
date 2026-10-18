@@ -1214,7 +1214,9 @@ export function createCells(scene: THREE.Scene, onImpact: (id: string, strength:
         let contact = 0;
         let contactAngle = 0;
         for (const o of all) {
-          if (o === c || o.id.startsWith('~')) continue;
+          // Specks don't press on a big body: a bacterium touching an animal made it flatten, jolt the camera and
+          // ripple again and again — flashes around clinging parasites and darting vibrios (user report).
+          if (o === c || o.id.startsWith('~') || o.r < c.r * 0.25) continue;
           const dx = o.pose.x - c.pose.x;
           const dy = o.pose.y - c.pose.y;
           const gap = Math.hypot(dx, dy) - c.r - o.r;

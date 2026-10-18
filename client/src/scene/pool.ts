@@ -59,7 +59,8 @@ void main() {
   // Sand: cream to light yellow, wind ripples at two scales.
   float ripples = 0.5 + 0.5 * sin(dot(w, vec2(0.011, 0.005)) + fbm(w / 420.0) * 5.0);
   float ripples2 = 0.5 + 0.5 * sin(dot(w, vec2(-0.004, 0.019)) + fbm(w / 250.0 + 2.0) * 4.0);
-  vec3 sand = mix(vec3(0.33, 0.28, 0.16), vec3(0.56, 0.47, 0.28), 0.4 * ripples + 0.25 * ripples2 + 0.35 * fbm(w / 520.0));
+  // Golden, not white: white food must stand out against it (user report), so the sand is warmer and darker than cream.
+  vec3 sand = mix(vec3(0.24, 0.18, 0.08), vec3(0.4, 0.31, 0.14), 0.4 * ripples + 0.25 * ripples2 + 0.35 * fbm(w / 520.0));
   vec3 silt = mix(vec3(0.17, 0.155, 0.1), vec3(0.26, 0.24, 0.16), fbm(w / 700.0)); // warm silty sand
   // Rock: grey, textured, cracked — not a black hole. Broad features only: fine detail on this far, defocused layer
   // reads as grain (DECISIONS: far layers stay low-frequency).
@@ -71,7 +72,7 @@ void main() {
   bottom = mix(bottom, weed, smoothstep(0.58, 0.72, weedF));
   bottom = mix(bottom, rock, rockM); // outcrops: firmer edges than the soft sand
   float shallows = smoothstep(0.55, 0.68, cyanF) * (1.0 - rockM);
-  bottom = mix(bottom, sand * 1.08, shallows * 0.75); // pale sand under the cyan shallows
+  bottom = mix(bottom, sand * 1.05, shallows * 0.75); // sand under the cyan shallows
 
   vec3 turquoise = vec3(0.03, 0.33, 0.35);
   vec3 seaGreen = vec3(0.07, 0.29, 0.15);

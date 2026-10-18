@@ -127,7 +127,7 @@ const toSrgb = (c: number) => Math.round(255 * Math.min(1, c <= 0.0031308 ? 12.9
 
 export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x8fb3a6); // sunny pond water: organisms are drawn for a light background (polish S2)
+  scene.background = new THREE.Color(0x0e2340); // navy: the body and its handles stand out (user choice)
   const camera = new THREE.OrthographicCamera(-1, 1, VIEW_HALF, -VIEW_HALF, -10, 10);
   const cell = createCellView(scene, 0.42);
   // Part icons: each part rendered on its own small piece of body into a render target, read back into an image.

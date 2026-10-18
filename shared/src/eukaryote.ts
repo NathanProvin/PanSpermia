@@ -31,7 +31,8 @@ export const STARTER_LIBRARY2 = TIER2.GENES.cilia.bit | TIER2.GENES.flagellum.bi
 
 /** The highest tier that exists so far; Evolve is offered below it. */
 export const MAX_TIER = 4;
-export const TIER_NAMES = ['', 'Bacterium', 'Eukaryote', 'Animal', 'Arthropod or mollusk'] as const;
+/** Phase names (user: phase 3 is plankton, phase 4 animals); arthropod / mollusk are tier 4's body plans. */
+export const TIER_NAMES = ['', 'Bacterium', 'Eukaryote', 'Plankton', 'Animal'] as const;
 /** The part catalog of a tier: the editor, rendering, validation and cards all go through this. */
 export const catalogFor = (tier: number) => (tier === 4 ? TIER4 : tier === 3 ? TIER3 : tier === 2 ? TIER2 : TIER1) as unknown as Catalog;
 /** Many-celled bodies (tier 3 up): segments, a mouth at the head, a mate call, bites. */

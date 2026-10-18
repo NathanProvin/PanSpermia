@@ -515,11 +515,13 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   Object.assign(player, { x: 321, y: -45 });
   expect(submitDesign(state, 'p', evolve)).toBeUndefined();
   const eu = state.players.get('p')!;
-  expect([eu.tier, eu.genome, eu.genome2, eu.mass, eu.x]).toEqual([2, 0, STARTER_GENOME2, T2_SPAWN_MASS, 321]);
+  // Nude: just the body (user direction), with the old starter's price to build one.
+  expect([eu.tier, eu.genome, eu.genome2, eu.mass, eu.x]).toEqual([2, 0, 0, T2_SPAWN_MASS, 321]);
   expect(healthMaxOf(eu.genome, eu.tier)).toBe(eu.health);
-  expect([lineage.tier, lineage.genome, lineage.library]).toEqual([2, STARTER_GENOME2, STARTER_LIBRARY2]);
+  expect([lineage.tier, lineage.genome, lineage.parts.length, lineage.library]).toEqual([2, 0, 0, STARTER_LIBRARY2]);
+  expect(lineage.dna).toBeGreaterThanOrEqual(TIER2.priceOf(STARTER_GENOME2));
   expect([eu.cyst, eu.evolving]).toEqual([CYST_TIME, true]); // born into the new tier's editor, shielded
-  const parts = lineage.parts.map((p) => ({ ...p.toJSON(), gene: TIER2.NAMES[p.gene] }));
+  const parts = [{ gene: 'jaw', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
   expect(submitDesign(state, 'p', { ...evolve, parts })).toBe('not ready to evolve'); // a eukaryote needs far more
   expect(submitDesign(state, 'p', { ...evolve, parts: keep, evolve: false })).toBe('unknown part'); // tier-1 'pili' isn't a eukaryote part
   expect(submitDesign(state, 'p', { ...evolve, parts, evolve: false })).toBeUndefined(); // tier-2 parts validate
@@ -529,10 +531,10 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   lineage.lifetimeDna = EVOLVE_DNA_T2;
   expect(submitDesign(state, 'p', { ...evolve, parts })).toBeUndefined();
   const animal = state.players.get('p')!;
-  expect([animal.tier, animal.genome2, animal.genome3, animal.mass]).toEqual([3, 0, STARTER_GENOME3, T3_SPAWN_MASS]);
-  expect([lineage.tier, lineage.genome, lineage.library]).toEqual([3, STARTER_GENOME3, STARTER_LIBRARY3]);
+  expect([animal.tier, animal.genome2, animal.genome3, animal.mass]).toEqual([3, 0, 0, T3_SPAWN_MASS]);
+  expect([lineage.tier, lineage.genome, lineage.library]).toEqual([3, 0, STARTER_LIBRARY3]);
   expect(animal.evolving).toBe(true);
-  const parts3 = lineage.parts.map((q) => ({ ...q.toJSON(), gene: TIER3.NAMES[q.gene] }));
+  const parts3 = [{ gene: 'mandible', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBe('not ready to evolve');
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3, evolve: false })).toBeUndefined();
   // A first animal hatches as itself: no mating, no clutch.
@@ -542,9 +544,9 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBeUndefined();
   const arthropod = state.players.get('p')!;
   expect([arthropod.tier, arthropod.genome3, arthropod.genome4, arthropod.mass, arthropod.health])
-    .toEqual([4, 0, STARTER_GENOME4, T4_SPAWN_MASS, T4_HEALTH_MAX]);
-  expect([lineage.tier, lineage.genome, lineage.library, arthropod.evolving]).toEqual([4, STARTER_GENOME4, STARTER_LIBRARY4, true]);
-  const parts4 = lineage.parts.map((q) => ({ ...q.toJSON(), gene: TIER4.NAMES[q.gene] }));
+    .toEqual([4, 0, 0, T4_SPAWN_MASS, T4_HEALTH_MAX]);
+  expect([lineage.tier, lineage.genome, lineage.library, arthropod.evolving]).toEqual([4, 0, STARTER_LIBRARY4, true]);
+  const parts4 = [{ gene: 'claw', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
   lineage.lifetimeDna = 1e9;
   expect(submitDesign(state, 'p', { ...evolve, parts: parts4 })).toBe('cannot evolve further yet');
   expect(submitDesign(state, 'p', { ...evolve, parts: parts4, evolve: false })).toBeUndefined();

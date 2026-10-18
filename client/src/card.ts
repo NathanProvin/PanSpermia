@@ -127,7 +127,7 @@ export function renderCard(d: CardData) {
   g.fillText(d.name, x, 150, 520);
   g.fillStyle = '#9fe7e0';
   g.font = '24px system-ui, sans-serif';
-  g.fillText(`Tier ${d.tier} · ${d.tier === 4 ? PLAN_NAMES[d.plan] : TIER_NAMES[d.tier]}`, x, 195); // tier 4: arthropod or mollusk
+  g.fillText(`Tier ${d.tier} · ${TIER_NAMES[d.tier]}${d.tier === 4 ? ` (${PLAN_NAMES[d.plan]?.toLowerCase()})` : ''}`, x, 195); // tier 4: and its plan
   const fate = { evolved: '✦ Evolved into eukaryotes', extinct: '✝ Extinct', living: '● Still dividing' }[d.fate];
   g.fillStyle = d.fate === 'evolved' ? '#ffd678' : d.fate === 'extinct' ? '#ff9a8a' : '#9fe7e0';
   g.font = '600 26px system-ui, sans-serif';
