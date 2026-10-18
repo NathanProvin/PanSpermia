@@ -70,7 +70,13 @@ export const EXOENZYME_YIELD = 2; // × debris yield
 // may add that gene (transformation: "eat a creature, get its part"). Rare plasmids drift in carrying
 // a random gene and always take.
 export const TRANSFORM_CHANCE = 0.5;
-export const PLASMID_RATE = 1 / 0.815; // packets/s scattered over the whole pool
+/**
+ * Packets/s scattered over the whole pool. Plasmids are the species' main DNA (food pays none: user direction), so they
+ * are 5× as common as before; every phase collects them. Provisional until the balance step measures income: a body
+ * sweeps water ∝ its reach × speed, which grows with the phase about as fast as the evolve thresholds, so one flat DNA
+ * value per plasmid keeps each phase near a few generations per evolution.
+ */
+export const PLASMID_RATE = 5 / 0.815;
 
 // Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
 // lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
@@ -89,10 +95,11 @@ export const SPAWN_GRACE = 5; // s
 // Extra flagella add thrust with diminishing returns: ×1, ×1.2, ×1.3 on SWIM_FLAGELLUM.
 export const FLAGELLUM_STACK = 0.4;
 
-// Lineage (P4). DNA buys parts and children in the editor; it comes from food, kills and DNA packets.
-export const DNA_PER_MASS = 1; // per unit of mass absorbed
+// Lineage (P4). DNA buys parts and children in the editor; it comes from DNA packets and kills — never from food
+// (user direction: energy and DNA are separate harvests).
 export const KILL_DNA_SHARE = 0.25; // of the victim's mass, to the killer
-export const PACKET_DNA = 3; // per DNA fragment or plasmid absorbed
+export const PACKET_DNA = 5; // per DNA fragment (a dead bacterium's gene) absorbed
+export const PLASMID_DNA = 25; // per plasmid or meteor shard absorbed
 export const CHILD_PRICE = 30; // DNA per extra child (fixed)
 export const STARTER_CHILDREN = 2; // reserve lives of a new species
 /** Reaching the size cap starts binary fission: a shielded division cyst while the editor is open. */

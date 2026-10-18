@@ -57,7 +57,8 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       const deaths = stepWorld(this.state);
       rebirth(this.state, this.bots, deaths);
       divideBots(this.state, this.bots);
-      for (const { id, by, extinct = false } of deaths) {
+      for (const { id, by, extinct = false, feast } of deaths) {
+        if (feast) this.clients.getById(by)?.send('feast', feast); // the killer's feeding animation
         const why = by === PHAGE_KILLER ? { cause: 'phage' } : by === VIRUS_KILLER ? { cause: 'virus' }
           : by ? { cause: 'lysed', killer: this.speciesName(by) } : { cause: 'starvation' };
         this.clients.getById(id)?.send('died', { ...why, extinct });

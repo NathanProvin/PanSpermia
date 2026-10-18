@@ -5,7 +5,7 @@ import {
   animalRim, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
-import { CHILD_ICON } from './hud.ts';
+import { CHILD_ICON, molecule, setMolecule } from './hud.ts';
 import { createCellView } from './scene/cells.ts';
 
 // Spore-like species editor, open while your cell sits in its division cyst. One editor for every tier: the tier's
@@ -117,6 +117,22 @@ function placeAt(cat: Catalog, gene: string, bx: number, by: number, symmetry: S
 const hueOf = (pigment: number, pattern: number) => (pigment + (pattern + 0.5) / PATTERN_NAMES.length) / PIGMENTS.length;
 const clampTo = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));
 
+/** The palette's sections (user direction: parts sorted by type), every tier's parts; a part missing here goes under Other. */
+const GROUPS: readonly (readonly [string, readonly string[]])[] = [
+  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'chloroplast', 'filterComb',
+    'mandible', 'maxillae', 'radula']],
+  ['Locomotion', ['pili', 'flagellum', 'cilia', 'paddle', 'tail', 'legs', 'tailFan', 'foot', 'siphon']],
+  ['Weapons', ['t6ss', 'spike', 'electric', 'claw', 'beak']],
+  ['Active', ['bacteriocin', 'poreFormer', 'poison', 'endospore', 'jet', 'inkSac']],
+  ['Defence', ['capsule', 'thickWall', 'effluxPump', 'carapace', 'exoskeleton', 'shell']],
+  ['Senses & metabolism', ['chemoreceptor', 'eye', 'mitochondrion']],
+];
+/** The parts the player triggers, and with which button (as the game's input: toxins left, the rest right). */
+const ACTIVE: Readonly<Record<string, 'left' | 'right'>> = {
+  bacteriocin: 'left', poreFormer: 'left', poison: 'left', endospore: 'right', jet: 'right', inkSac: 'right',
+};
+const MOUSE_ICON = '<svg viewBox="0 0 20 28" aria-hidden="true"><rect x="1" y="1" width="18" height="26" rx="9"/><path class="btn left" d="M10 1.5A8.5 8.5 0 0 0 1.5 10V12H10Z"/><path class="btn right" d="M10 1.5A8.5 8.5 0 0 1 18.5 10V12H10Z"/><path d="M1 12h18M10 1v11" class="line"/></svg>';
+
 const svg = (body: string) => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
 const PATTERN_ICONS = [
   svg('<circle cx="12" cy="12" r="8"/>'),
@@ -170,7 +186,11 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     </div>
     <section class="panel" id="palette" aria-label="Parts">
       <h2>Parts</h2>
-      <div class="parts"></div>
+      <div class="clicks" aria-label="Active parts and their mouse buttons">${MOUSE_ICON}
+        <div class="click left"><small>Left click</small><span></span></div>
+        <div class="click right"><small>Right click</small><span></span></div>
+      </div>
+      <div class="part-groups"></div>
       <p class="part-info" aria-live="polite"></p>
     </section>
     <div class="ed-side">
@@ -197,7 +217,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       <section class="panel" aria-label="Next generation">
         <p class="message" role="status"></p>
         <button type="button" class="primary hatch">Divide</button>
-        <div class="evolution"><div class="gauge dna"><i></i></div><button type="button" class="evolve">Evolve</button></div>
+        <div class="evolution">${molecule('dna', 'Evolution')}<button type="button" class="evolve">Evolve</button></div>
       </section>
     </div>
     <div class="handle h-length" data-h="nose" title="Length: drag up or down · bend: drag sideways"></div>
@@ -208,7 +228,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     <img class="drag-ghost" alt="" hidden>
     <p class="ed-help"><span class="key h-length"></span> length <span class="key h-width"></span> width <span class="key h-bend"></span> bend · drag parts onto the body</p>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
-  const palette = $<HTMLElement>('.parts');
+  const palette = $<HTMLElement>('.part-groups');
   const nameInput = $<HTMLInputElement>('.name');
   const evolveButton = $<HTMLButtonElement>('.evolve');
   const ghost = $<HTMLImageElement>('.drag-ghost');
@@ -384,27 +404,44 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   /** Part tiles, rebuilt on opening and when the body changes (icons are drawn on it). */
   const buildPalette = () => {
-    palette.replaceChildren(...cat.NAMES.map((gene) => {
-      const tile = document.createElement('button');
-      tile.type = 'button';
-      tile.className = 'part';
-      tile.dataset.gene = gene;
-      const { label, slot, price, maxCopies } = cat.GENES[gene]!;
-      if (!(lineage!.library & cat.GENES[gene]!.bit)) {
-        tile.disabled = true;
-        tile.classList.add('locked');
-        tile.innerHTML = '<span class="q" aria-hidden="true">?</span>';
-        tile.title = 'An undiscovered part: find its DNA';
-        tile.setAttribute('aria-label', 'Undiscovered part');
-        return tile;
-      }
-      icons.has(gene) || icons.set(gene, renderIcon(gene));
-      tile.innerHTML = `<img src="${icons.get(gene)}" alt="" draggable="false"><span class="price">${price}</span><span class="pips"></span>`
-        + (slot === 'coat' ? '<span class="coat">coat</span>' : '');
-      tile.title = `${label} — ${price} DNA a copy${slot === 'coat' ? ' (click to toggle)' : `, its effect stacks up to ${maxCopies} (drag onto the body, or click)`}`;
-      tile.setAttribute('aria-label', `${label}, ${price} DNA`);
-      return tile;
+    const listed = new Set(GROUPS.flatMap(([, genes]) => genes));
+    const sections = [...GROUPS, ['Other', cat.NAMES.filter((g) => !listed.has(g))] as const]
+      .map(([title, genes]) => [title, genes.filter((g) => g in cat.GENES)] as const)
+      .filter(([, genes]) => genes.length);
+    palette.replaceChildren(...sections.map(([title, genes]) => {
+      const section = document.createElement('section');
+      section.className = 'part-group';
+      const grid = document.createElement('div');
+      grid.className = 'parts';
+      grid.append(...genes.map(tileOf));
+      section.append(Object.assign(document.createElement('h3'), { textContent: title }), grid);
+      return section;
     }));
+  };
+  /** One part tile: its icon, price, copy pips, coat or mouse-button badge; a "?" while undiscovered. */
+  const tileOf = (gene: string) => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'part';
+    tile.dataset.gene = gene;
+    const { label, slot, price, maxCopies } = cat.GENES[gene]!;
+    if (!(lineage!.library & cat.GENES[gene]!.bit)) {
+      tile.disabled = true;
+      tile.classList.add('locked');
+      tile.innerHTML = '<span class="q" aria-hidden="true">?</span>';
+      tile.title = 'An undiscovered part: find its DNA';
+      tile.setAttribute('aria-label', 'Undiscovered part');
+      return tile;
+    }
+    icons.has(gene) || icons.set(gene, renderIcon(gene));
+    const button = ACTIVE[gene];
+    tile.innerHTML = `<img src="${icons.get(gene)}" alt="" draggable="false"><span class="price">${price}</span><span class="pips"></span>`
+      + (slot === 'coat' ? '<span class="coat">coat</span>' : '')
+      + (button ? `<span class="click-badge" title="${button} click">${button === 'left' ? 'L' : 'R'}</span>` : '');
+    tile.title = `${label} — ${price} DNA a copy${slot === 'coat' ? ' (click to toggle)' : `, its effect stacks up to ${maxCopies} (drag onto the body, or click)`}`
+      + (button ? ` · triggered by ${button} click` : '');
+    tile.setAttribute('aria-label', `${label}, ${price} DNA`);
+    return tile;
   };
   /** Plan icons for an animal tier: a spine or a radial body (tiers 3 and 4 alike: user direction). */
   const buildPlans = () => {
@@ -474,6 +511,11 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       tile.querySelector('.pips')!.textContent = '●'.repeat(effective) + '○'.repeat(maxCopies - effective) + (n > maxCopies ? ` +${n - maxCopies}` : '');
       tile.classList.toggle('used', n > 0);
     }
+    for (const button of ['left', 'right'] as const) {
+      const names = cat.NAMES.filter((g) => ACTIVE[g] === button && placed(gs, g) > 0).map((g) => cat.GENES[g]!.label);
+      $(`.click.${button} span`).textContent = names.join(', ') || '—';
+      $('.clicks').classList.toggle(`has-${button}`, names.length > 0);
+    }
     const spend = cost(gs);
     $('.dna b').textContent = String(Math.floor(left));
     $('.dna small').textContent = spend ? `${spend >= 0 ? 'spending' : 'refunding'} ${Math.abs(Math.round(spend))}` : '';
@@ -496,10 +538,10 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.hatch').textContent = evolving ? 'Hatch' : lineage!.tier === 3 ? 'Lay eggs' : animal() ? 'Spin a cocoon' : 'Divide';
     const need = evolveDnaOf(lineage!.tier);
     const ready = lineage!.lifetimeDna >= need;
-    const gauge = $<HTMLElement>('.evolution .gauge');
-    (gauge.firstElementChild as HTMLElement).style.width = `${Number.isFinite(need) ? Math.min(100, (100 * lineage!.lifetimeDna) / need) : 0}%`;
+    const gauge = root.querySelector('.evolution .molecule')!;
+    setMolecule(gauge, Number.isFinite(need) ? (100 * lineage!.lifetimeDna) / need : 0);
     gauge.classList.toggle('ready', ready);
-    gauge.title = `Lifetime DNA ${Math.floor(lineage!.lifetimeDna)} / ${need}`;
+    gauge.setAttribute('aria-label', `Lifetime DNA ${Math.floor(lineage!.lifetimeDna)} / ${need}`);
     evolveButton.disabled = submitted || left < 0 || !named || !ready;
     const next = TIER_NAMES[lineage!.tier + 1]?.toLowerCase();
     $<HTMLElement>('.evolution').hidden = lineage!.tier >= MAX_TIER || evolving;
@@ -698,6 +740,19 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   return {
     get isOpen() { return !root.hidden; },
+    /** A part's icon for a lineage, drawn as in the palette (the unlock card); undefined while the editor is open. */
+    partIcon(l: Lineage, gene: string) {
+      if (!root.hidden) return undefined;
+      lineage = l;
+      cat = catalogFor(l.tier);
+      ({ hue, shape } = l);
+      form = formOf(l);
+      plan = PLANS_OF[l.tier]?.includes(l.plan) ? l.plan : PLANS_OF[l.tier]?.[0] ?? 0;
+      radii = l.radii.length ? [...l.radii] : [...(DEFAULT_RADII_OF[plan] ?? DEFAULT_RADII)];
+      arms = plan === 1 ? l.arms || DEFAULT_ARMS : 0;
+      bends = radii.map((_, i) => l.bends[i] ?? 0);
+      return renderIcon(gene);
+    },
     /** Take the backdrop from a just-rendered game frame (call in the same task as the render). */
     backdrop(source: HTMLCanvasElement) {
       const w = 160;

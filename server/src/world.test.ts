@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
@@ -254,7 +254,7 @@ test('kills are attributed to the attacker and burst into debris', () => {
   // Check on the tick of the death: later ticks, the attacker may eat debris that spilled within its reach.
   let deaths: ReturnType<typeof stepWorld> = [];
   for (let i = 0; i < 4 && !deaths.length; i++) deaths = stepWorld(state);
-  expect(deaths).toEqual([{ id: 't', by: 'a' }]);
+  expect(deaths).toMatchObject([{ id: 't', by: 'a' }]);
   expect([...state.nutrients.values()].some((n) => n.kind === NutrientKind.debris)).toBe(true);
 });
 
@@ -280,7 +280,7 @@ test('DNA is not food; plasmids always unlock their part, fragments sometimes do
   stepWorld(state);
   expect(lineage.library & GENES.capsule.bit).toBeTruthy();
   expect(player.genome).toBe(STARTER_GENOME); // unlocked for the editor, not expressed
-  expect(lineage.dna).toBe(PACKET_DNA);
+  expect(lineage.dna).toBe(PLASMID_DNA);
 
   // 40 fragments at TRANSFORM_CHANCE 0.5: missing the gene every time is a 1e-12 fluke.
   for (let i = 0; i < 40 && !(lineage.library & GENES.t6ss.bit); i++) {
@@ -371,15 +371,15 @@ test('copies stack with diminishing returns', () => {
   expect(healthMaxOf(target.genome) - target.health).toBeCloseTo((T6SS_DPS * 1.5) / TICK_RATE, 6);
 });
 
-test('a new species: starter design, library, reserve; food pays DNA', () => {
+test('a new species: starter design, library, reserve; food pays energy, not DNA', () => {
   const { state, player, lineage } = species();
   expect([lineage.genome, lineage.library, lineage.children, lineage.generation])
     .toEqual([STARTER_GENOME, STARTER_LIBRARY, STARTER_CHILDREN, 1]);
   expect(lineage.parts.length).toBe(1);
   foodAt(state, player.x, player.y);
   stepWorld(state);
-  expect(lineage.dna).toBeCloseTo(NUTRIENT_MASS * DNA_PER_MASS, 10);
-  expect(lineage.lifetimeDna).toBe(lineage.dna);
+  expect([lineage.dna, lineage.lifetimeDna]).toEqual([0, 0]);
+  expect(player.mass).toBeGreaterThan(SPAWN_MASS); // energy
 });
 
 test('kills pay the killer DNA; deaths spend a child, then the species goes extinct', () => {
@@ -389,7 +389,7 @@ test('kills pay the killer DNA; deaths spend a child, then the species goes exti
   Object.assign(killer, { x: player.x + 10, y: player.y, genome: GENES.t6ss.bit, graceUntil: 0 });
   Object.assign(player, { mass: 40, health: 0.1 });
   const deaths = run(state, 0.2);
-  expect(deaths).toEqual([{ id: 'p', by: 'k' }]);
+  expect(deaths).toMatchObject([{ id: 'p', by: 'k', feast: { energy: 0 } }]);
   expect(state.lineages.get('k')!.dna).toBeGreaterThan(40 * KILL_DNA_SHARE * 0.99); // the victim burned a little mass first
   expect(lineage.children).toBe(STARTER_CHILDREN - 1);
   expect(state.players.get('p')!.genome).toBe(lineage.genome);
@@ -748,7 +748,7 @@ test('mouths set the diet: filter takes plant food, jaw takes meat, bacteria lea
   for (const [genome2, kind, eaten] of [
     [filter, NutrientKind.algae, true], [filter, NutrientKind.dissolved, true], [filter, NutrientKind.chunk, false],
     [jaw, NutrientKind.chunk, true], [jaw, NutrientKind.debris, true], [jaw, NutrientKind.algae, false],
-    [jaw, NutrientKind.phage, false], [jaw | filter, NutrientKind.plasmid, false],
+    [jaw, NutrientKind.phage, false], [jaw | filter, NutrientKind.plasmid, true], // DNA: every phase collects plasmids
   ] as const) {
     const { state, e } = eukaryote(genome2);
     const id = foodAt(state, 5, 5, kind);
@@ -785,7 +785,7 @@ test('a jaw engulfs smaller cells whole; spores, newborns and big cells escape',
   state.players.set('big', big);
   const before = e.mass;
   const deaths = stepWorld(state);
-  expect(deaths).toEqual([{ id: 'snack', by: 'e' }]);
+  expect(deaths).toMatchObject([{ id: 'snack', by: 'e', feast: { dna: expect.any(Number) } }]);
   expect(e.mass).toBeCloseTo(before + snack.mass * ENGULF_SHARE, 0);
   expect(ofKind(state, NutrientKind.debris).filter((n) => Math.hypot(n.x0 - 10, n.y0) < 30)).toEqual([]); // swallowed whole
   for (const id of ['spore', 'newborn', 'far', 'big']) expect(state.players.get(id)!.health).toBeGreaterThan(0);
@@ -1075,4 +1075,15 @@ test('cells are solid: overlapping cells push apart (the lighter moves more) and
   s2.players.set('p', prey);
   stepWorld(s2);
   expect(prey.engulfedBy).toBe('e');
+});
+
+test('DNA comes from plasmids in every phase, never from food', () => {
+  const { state, player, lineage } = animalSpecies();
+  Object.assign(player, { mass: T3_SPAWN_MASS, cocoon: 0 });
+  foodAt(state, player.x, player.y, NutrientKind.algae);
+  stepWorld(state);
+  expect(lineage.lifetimeDna).toBe(0);
+  foodAt(state, player.x, player.y, NutrientKind.plasmid, 0);
+  stepWorld(state);
+  expect(lineage.lifetimeDna).toBe(PLASMID_DNA);
 });

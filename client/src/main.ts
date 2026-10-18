@@ -1,6 +1,6 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
-  ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
+  ACTION_SPORE, ACTION_TOXIN, Input, NutrientKind, PACKET_DNA, PLASMID_DNA, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
   BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
   JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
@@ -12,11 +12,12 @@ import { createLabels } from './labels.ts';
 import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
 import { createMeteor } from './scene/meteor.ts';
-import { createNutrients } from './scene/nutrients.ts';
+import { createNutrients, isDna } from './scene/nutrients.ts';
 import { createGiants } from './scene/giants.ts';
 import { createPlankton } from './scene/plankton.ts';
 import { createPool } from './scene/pool.ts';
 import { createRipples } from './scene/ripples.ts';
+import { createFeast } from './scene/feast.ts';
 import { createPost } from './scene/post.ts';
 import { createPerf, off } from './perf.ts';
 
@@ -98,6 +99,16 @@ const STRONG_CURRENT = 38;
 let bump = 0;
 let lastBuzz = 0;
 const ripples = createRipples();
+const feast = createFeast();
+/** Motes streaming into our body: `energy` and `dna` gained from a disc of radius `r` at (x, y) (prey, a DNA packet). */
+const feed = (x: number, y: number, r: number, energy: number, dna: number, mass: number) => {
+  const me = cells.get(selfId)?.at;
+  if (!me) return;
+  const size = Math.max(10, me.radius * 0.24);
+  if (energy > 0) feast.burst(0, x, y, r, Math.round(Math.min(24, Math.max(4, 4 + (24 * energy) / mass))), size);
+  if (dna > 0) feast.burst(1, x, y, r, Math.round(Math.min(16, Math.max(3, dna / 6))), size);
+  hud.gain(energy, dna);
+};
 /** A ripple around our own body; small ones are rate-limited so a busy moment doesn't become a blur. */
 let lastRipple = 0;
 const ripple = (strength: number) => {
@@ -128,7 +139,7 @@ const layers = {
 for (const [name, object] of Object.entries(layers)) if (off.has(name)) object.visible = false;
 if (import.meta.env.DEV) Object.assign(window, { layers, bloom: post.bloom, nutrientLayer, cloudLayer, camera });
 post.far.add(...pool.far, ...giants.objects);
-scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects, ...ripples.objects);
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects, ...ripples.objects, ...feast.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
 const INTRO_HEIGHT = 1800;
 let introPlayed = false;
@@ -205,6 +216,9 @@ try {
   selfId = room.sessionId;
   hud.message('');
   room.onLeave(() => hud.message('Disconnected'));
+  // We killed or swallowed something: its energy and DNA stream into us.
+  room.onMessage('feast', (f: { x: number; y: number; r: number; energy: number; dna: number }) =>
+    feed(f.x, f.y, f.r * 0.6, f.energy, f.dna, room.state.players.get(room.sessionId)?.mass ?? 1));
   room.onMessage('died', ({ cause, killer, extinct }: { cause: string; killer?: string; extinct: boolean }) => {
     const how = { starvation: 'You starved', phage: 'Phages burst you open', virus: 'A giant virus burst you open' }[cause]
       ?? `Lysed by ${killer}`;
@@ -264,6 +278,11 @@ try {
   callbacks.onRemove('nutrients', (_, id) => {
     const at = nutrientLayer.remove(id);
     if (at) cells.gulp(at.x, at.y, performance.now() / 1000); // the cell that took it up dimples in
+    // A DNA packet gone at our body's edge was ours: its DNA streams in. (The server doesn't say who took it.)
+    const me = cells.get(room.sessionId)?.at;
+    if (at && isDna(at.kind) && me && Math.hypot(at.x - me.x, at.y - me.y) < me.radius * 1.6) {
+      feed(at.x, at.y, me.radius * 0.1, 0, at.kind === NutrientKind.fragment ? PACKET_DNA : PLASMID_DNA, 1);
+    }
   });
   callbacks.onAdd('clouds', (c, id) => cloudLayer.add(id, c));
   callbacks.onRemove('clouds', (_, id) => cloudLayer.remove(id));
@@ -396,8 +415,9 @@ try {
         knownLibrary = lineage.library;
       }
       if (lineage.library & ~knownLibrary) {
-        const found = cat.NAMES.filter((g) => cat.hasGene(lineage.library & ~knownLibrary, g)).map((g) => cat.GENES[g]!.label);
-        say(`Part unlocked: ${found.join(', ')}`);
+        for (const g of cat.NAMES.filter((name) => cat.hasGene(lineage.library & ~knownLibrary, name))) {
+          hud.unlock(cat.GENES[g]!.label, editor.partIcon(lineage, g));
+        }
       }
       knownLibrary = lineage.library;
       if (self.cyst === 0) designedFor = undefined; // an animal stays the same individual: it may mate again
@@ -468,6 +488,7 @@ try {
     perf.mark('nutrients');
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
     ripples.update(time, focus);
+    feast.update(dt, time, focus, cells.get(room.sessionId)?.at);
     perf.mark('clouds');
     perf.gpuBegin();
     // The editor stays up for exactly one division: until this individual hatches (or dies).

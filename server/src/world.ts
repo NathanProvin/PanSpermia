@@ -10,7 +10,7 @@ import {
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN,
   cleanForm, MAX_ARM, RADIAL_ARMS, MAX_BEND, MAX_PLACED, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
-  CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
+  CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, PLASMID_DNA, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, INK, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
@@ -515,6 +515,8 @@ export interface Death {
   by: string;
   /** The lineage had no child left: the species is extinct. */
   extinct?: boolean;
+  /** A kill: where the victim died, its size, and what the killer took from it (energy if swallowed, DNA). */
+  feast?: { x: number; y: number; r: number; energy: number; dna: number };
 }
 
 /** A multiplier gene's effect with `copies` stacked: 1 + (base − 1)·stack(copies). */
@@ -663,18 +665,19 @@ export function stepWorld(state: PoolState): Death[] {
           if (d2 >= r * r || tick < p.graceUntil) return;
           p.infection += VIRUS_LATENT;
         } else if (n.kind === NutrientKind.shard) { // touching a meteor shard takes its part
-          earn(state, id, PACKET_DNA);
+          earn(state, id, PLASMID_DNA);
           if (l?.tier === 2) l.library |= n.gene;
           if (l && isAnimal(l.tier)) { // a random part of its own tier
             const cat = catalogFor(l.tier);
             l.library |= cat.GENES[cat.NAMES[Math.floor(Math.random() * cat.NAMES.length)]!]!.bit;
           }
+        } else if (n.kind === NutrientKind.plasmid || n.kind === NutrientKind.fragment) {
+          earn(state, id, n.kind === NutrientKind.plasmid ? PLASMID_DNA : PACKET_DNA); // DNA for every phase; parts only for bacteria
         } else {
-          // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) and bacterial DNA drift past.
+          // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) drift past.
           const food = mouthYieldOf(n.kind, p);
           if (!food) return;
           p.mass = Math.min(massCapOf(p.tier), p.mass + food);
-          earn(state, id, food * DNA_PER_MASS);
           // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
           if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
         }
@@ -688,8 +691,8 @@ export function stepWorld(state: PoolState): Death[] {
         if (d2 >= reach * reach) return;
         const food = yieldOf(n.kind, p.genome);
         p.mass = Math.min(MASS_CAP, p.mass + food);
-        const dna = n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid; // bacterial DNA only
-        earn(state, id, dna ? PACKET_DNA : food * DNA_PER_MASS);
+        const dna = n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid;
+        if (dna) earn(state, id, n.kind === NutrientKind.plasmid ? PLASMID_DNA : PACKET_DNA);
         // Gene transfer unlocks the part for the species' editor. Plasmids always take; fragments
         // only sometimes recombine (transformation).
         if (l?.tier === 1 && dna && (n.kind === NutrientKind.plasmid || Math.random() < TRANSFORM_CHANCE)) l.library |= n.gene;
@@ -718,8 +721,7 @@ export function stepWorld(state: PoolState): Death[] {
       e.bites = (e.bites + 1) & 255; // the mouth snaps on a swallow too
       hurt(v, v.health + 1, eid, tick);
       const food = v.mass * ENGULF_SHARE;
-      e.mass = Math.min(massCapOf(e.tier), e.mass + food);
-      earn(state, eid, food * DNA_PER_MASS);
+      e.mass = Math.min(massCapOf(e.tier), e.mass + food); // its DNA comes as the kill share (the victim dies by eid)
       // Endosymbiosis: a swallowed bacterium may live on inside as an organelle (unlocked for the editor).
       const l = state.lineages.get(eid);
       if (l?.tier === 2 && v.tier === 1) {
@@ -745,7 +747,6 @@ export function stepWorld(state: PoolState): Death[] {
       if (drained <= 0) continue;
       host.mass -= drained;
       par.mass = Math.min(MASS_CAP, par.mass + drained * ADHESIN_SHARE);
-      earn(state, pid, drained * ADHESIN_SHARE * DNA_PER_MASS);
     }
   }
 
@@ -855,7 +856,9 @@ export function stepWorld(state: PoolState): Death[] {
       }
     }
     if (death.by) {
-      earn(state, death.by, p.mass * KILL_DNA_SHARE);
+      const dna = p.mass * KILL_DNA_SHARE;
+      earn(state, death.by, dna);
+      if (state.players.has(death.by)) death.feast = { x: p.x, y: p.y, r, energy: p.engulfedBy ? p.mass * ENGULF_SHARE : 0, dna };
       const killer = state.lineages.get(death.by);
       if (killer) killer.kills++;
     }

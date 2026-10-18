@@ -26,15 +26,68 @@ export const CHILD_ICON = [
   '<path d="M8 1.5C11.5 4 11.5 12 8 14.5 4.5 12 4.5 4 8 1.5Z"/><path d="M5.6 6h4.8M5.4 9h5.2" class="in"/>',
 ];
 
+// The two gauges are molecules (user direction): energy a stylised starch chain — glucose rings joined by oxygen
+// bridges, each with its CH2OH stub — in orange; DNA a double helix with its base pairs, in mossy green. A dim copy is
+// the track, a bright copy clipped to the fill level shows how full it is.
+const W = 200;
+const H = 20;
+function starch() {
+  let d = '';
+  let atoms = '';
+  const ring = (cx: number, cy: number) => Array.from({ length: 6 }, (_, k) => {
+    const a = ((-90 + 60 * k) * Math.PI) / 180;
+    return [cx + 6.5 * Math.cos(a), cy + 6.5 * Math.sin(a)] as const;
+  });
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const cx = 12 + i * 29;
+    const v = ring(cx, 11);
+    d += `M${v.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}Z`;
+    d += `M${v[0]![0].toFixed(1)} ${v[0]![1].toFixed(1)}l-3 -3.5`; // CH2OH
+    atoms += `<circle cx="${v[1]![0].toFixed(1)}" cy="${v[1]![1].toFixed(1)}" r="1.3"/>`; // the ring oxygen
+    if (i < n - 1) { // the α-1,4 glycosidic bond, through its oxygen
+      const [ax, ay] = v[2]!;
+      const bx = cx + 29 + 6.5 * Math.cos((150 * Math.PI) / 180);
+      const by = 11 + 6.5 * Math.sin((150 * Math.PI) / 180);
+      const ox = (ax + bx) / 2;
+      d += `M${ax.toFixed(1)} ${ay.toFixed(1)}L${ox.toFixed(1)} ${(ay + 3.5).toFixed(1)}L${bx.toFixed(1)} ${by.toFixed(1)}`;
+      atoms += `<circle cx="${ox.toFixed(1)}" cy="${(ay + 3.5).toFixed(1)}" r="1.6"/>`;
+    }
+  }
+  return `<path d="${d}"/>${atoms}`;
+}
+function helix() {
+  const y = (x: number, s: number) => 10 + s * 6.5 * Math.sin((x / W) * Math.PI * 2 * 3.2);
+  const strand = (s: number) => `M${Array.from({ length: W / 2 + 1 }, (_, k) => `${k * 2} ${y(k * 2, s).toFixed(1)}`).join('L')}`;
+  let rungs = '';
+  for (let x = 3; x < W; x += 6) {
+    if (Math.abs(y(x, 1) - y(x, -1)) > 2.5) rungs += `M${x} ${y(x, 1).toFixed(1)}L${x} ${y(x, -1).toFixed(1)}`;
+  }
+  return `<path class="rungs" d="${rungs}"/><path d="${strand(1)}"/><path d="${strand(-1)}"/>`;
+}
+const MOLECULES = { energy: starch(), dna: helix() };
+/** A molecule gauge (an SVG string); fill it with setMolecule. */
+export function molecule(kind: 'energy' | 'dna', label: string) {
+  const id = `clip-${kind}-${Math.random().toString(36).slice(2, 7)}`;
+  return `<svg class="molecule ${kind}" viewBox="0 0 ${W} ${H}" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="100">
+    <defs><clipPath id="${id}"><rect height="${H}" width="0"/></clipPath></defs>
+    <g class="track">${MOLECULES[kind]}</g><g class="lit" clip-path="url(#${id})">${MOLECULES[kind]}</g></svg>`;
+}
+/** Fill a molecule gauge to `pct` (0..100). */
+export function setMolecule(svg: Element, pct: number) {
+  svg.querySelector('clipPath rect')!.setAttribute('width', String((W * Math.max(0, Math.min(100, pct))) / 100));
+  svg.setAttribute('aria-valuenow', String(Math.round(pct)));
+}
+
 export function createHud(root: HTMLElement) {
   root.innerHTML = `
     <div class="hud-panel" hidden>
       <div class="hud-name"><span class="species"></span><small class="gen"></small></div>
       <div class="hud-row" title="Energy: grow to your size cap to reproduce">
-        <span class="hud-label">Energy</span><div class="gauge energy" role="meter" aria-label="Energy" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+        <span class="hud-label">Energy</span>${molecule('energy', 'Energy')}
       </div>
-      <div class="hud-row" title="DNA to spend in the editor; the bar fills toward evolving">
-        <span class="hud-label">DNA <b class="dna-num"></b></span><div class="gauge dna" role="meter" aria-label="Evolution" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+      <div class="hud-row" title="DNA to spend in the editor; the helix fills toward evolving">
+        <span class="hud-label">DNA <b class="dna-num"></b></span>${molecule('dna', 'Evolution')}
       </div>
       <div class="children" aria-label="Children in reserve"></div>
     </div>
@@ -45,8 +98,8 @@ export function createHud(root: HTMLElement) {
     <div class="hud-perf"></div>`;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   const panel = $('.hud-panel');
-  const energy = $('.gauge.energy');
-  const dna = $('.gauge.dna');
+  const energy = root.querySelector('.molecule.energy')!;
+  const dna = root.querySelector<SVGSVGElement>('.molecule.dna')!;
   const abilities = $('.hud-abilities');
   const vignette = $('.hud-vignette');
   const last: Record<string, string | number | boolean> = {};
@@ -57,6 +110,24 @@ export function createHud(root: HTMLElement) {
     write();
   };
   const chips = new Map<string, HTMLElement>();
+  const unlocks: { label: string; icon?: string }[] = [];
+  const showUnlock = () => {
+    const u = unlocks[0];
+    if (!u) return;
+    const card = document.createElement('div');
+    card.className = 'unlock';
+    card.setAttribute('role', 'status');
+    card.innerHTML = `<div class="unlock-icon"><i class="ring"></i>${Array.from({ length: 10 }, (_, k) =>
+      `<i class="spark" style="--a:${k * 36}deg"></i>`).join('')}${u.icon ? `<img src="${u.icon}" alt="">` : '<b>?</b>'}</div>
+      <div class="unlock-text"><small>New part discovered</small><strong></strong><small>Place it in your next generation</small></div>`;
+    card.querySelector('strong')!.textContent = u.label;
+    root.append(card);
+    setTimeout(() => {
+      card.remove();
+      unlocks.shift();
+      showUnlock();
+    }, 3600);
+  };
 
   return {
     update(s: HudState | undefined) {
@@ -72,18 +143,15 @@ export function createHud(root: HTMLElement) {
       set('gen', s.generation, () => { $('.gen').textContent = `gen ${s.generation}`; });
       const e = Math.round(s.energy * 100);
       set('energy', e, () => {
-        (energy.firstElementChild as HTMLElement).style.width = `${e}%`;
-        energy.setAttribute('aria-valuenow', String(e));
+        setMolecule(energy, e);
         energy.classList.toggle('full', e >= 99);
       });
       set('dna', Math.floor(s.dna), () => { $('.dna-num').textContent = String(Math.floor(s.dna)); });
       const v = s.evolve === undefined ? -1 : Math.round(s.evolve * 100);
       set('evolve', v, () => {
-        dna.hidden = v < 0;
-        (dna.firstElementChild as HTMLElement).style.width = `${Math.max(0, v)}%`;
-        dna.setAttribute('aria-valuenow', String(Math.max(0, v)));
+        dna.style.display = v < 0 ? 'none' : '';
+        setMolecule(dna, Math.max(0, v));
         dna.classList.toggle('ready', v >= 100);
-        dna.title = v >= 100 ? 'Ready to evolve at your next division' : 'Lifetime DNA toward evolving';
       });
       set('children', `${s.children}/${s.tier}`, () => {
         const box = $('.children');
@@ -118,7 +186,26 @@ export function createHud(root: HTMLElement) {
       const hurt = Math.round(Math.max(0, Math.min(1, (0.5 - s.health) / 0.5)) * 100) / 100;
       set('hurt', hurt, () => { vignette.style.opacity = String(hurt * 0.85); });
     },
-    /** A short notice that fades away (unlocks, deaths, refusals). */
+    /** Energy and DNA just taken in: a "+N" pops beside each gauge, in its colour, and floats away. */
+    gain(energy: number, dna: number) {
+      for (const [amount, kind] of [[energy, 'energy'], [dna, 'dna']] as const) {
+        if (amount < 1) continue;
+        const pop = document.createElement('span');
+        pop.className = `gain ${kind}`;
+        pop.textContent = `+${Math.round(amount)}`;
+        root.querySelector(`.molecule.${kind}`)?.parentElement?.append(pop);
+        setTimeout(() => pop.remove(), 1400);
+      }
+    },
+    /**
+     * A part discovered (user direction: an animation, not a text): a card drops in under the top edge — the part's
+     * icon in a turning ring of DNA green with sparks bursting out, its name — holds, then rises away. Several queue.
+     */
+    unlock(label: string, icon?: string) {
+      unlocks.push({ label, icon });
+      if (unlocks.length === 1) showUnlock();
+    },
+    /** A short notice that fades away (deaths, refusals). */
     toast(text: string) {
       const box = $('.hud-toasts');
       const t = document.createElement('div');

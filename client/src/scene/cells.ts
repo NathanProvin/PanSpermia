@@ -10,9 +10,8 @@ import { type Chain, type Spring, chain, segmentTurn, spring, stepSpine, stepSpr
 const QUAD_HALF = 1.9;
 /** An animal's quad while it calls a mate or lies in a cocoon: room for the rings around a long curled body, or the spindle. */
 const ANIMAL_HALF = 2.8;
-/** How far a segment's drawing reaches beyond its centre, in its radii (plate, legs; the head's antennae further). */
-const REACH = 2.4;
-const HEAD_REACH = 2.9;
+/** How far a station's drawing reaches beyond its centre, in its radii: the body alone (no default limbs: user direction). */
+const REACH = 1.35;
 /**
  * An animal's shape is its segments', not a stretch of the whole body (which would pull bent segments apart):
  * the shape lays the spine out (longer, or curved) and sets each plate's proportions (half-length along its
@@ -97,20 +96,13 @@ vec3 lightDir() {
 
 // Animals: many-celled bodies, a real step up from a cell. One continuous tube of clay swept along the spine (its width
 // profile sculpted in the editor), lit as a cylinder, with fine rings (larvae, worms) or chitin plates (arthropods), a
-// paler dorsal ridge, mottling and the gut showing through; legs rowing along the sides in a wave running
-// down the body (metachronal, faster as it swims), antennae on the head and two tail filaments. Radial bodies
-// wave tentacles instead. The segments come from the soft rig (the body bends as it follows its head).
-// No membrane, nucleus or glow.
-// Tier 4 (uBody): an arthropod is hard, crisply jointed chitin plates with dark sutures and a glossy sheen, and
-// walks on the legs placed in the editor (no generic legs); a mollusk is one soft, slick body with eye stalks,
-// gliding on a rippling foot skirt (foot), the biggest segment under a coiled shell (shell).
+// paler dorsal ridge, mottling and the gut showing through. Nude: no default legs, antennae, filaments or tentacles
+// (user direction) — limbs, eyes and mouths are parts placed in the editor. The segments come from the soft rig (the body
+// bends as it follows its head). No membrane, nucleus or glow.
+// Tier 4 (uBody, from its parts): hard, crisply jointed chitin plates with dark sutures and a glossy sheen; or, with a
+// foot or a shell, one soft slick body gliding on a rippling foot skirt, the biggest station under a coiled shell.
 int segParent(int i) { // the station a link reaches back to (shared parentOf): the one before, or an arm's centre
   return uArm > 0 && (i - 1) % uArm == 0 ? 0 : i - 1;
-}
-vec2 segAxis(int i) { // a segment's forward direction: toward the one ahead (the head: away from the next); an arm: outward
-  if (uRadial > 0.5) return i == 0 ? vec2(1.0, 0.0) : normalize(uSeg[i].xy - uSeg[segParent(i)].xy);
-  if (i == 0) return uSegN > 1 ? normalize(uSeg[0].xy - uSeg[1].xy) : vec2(1.0, 0.0);
-  return normalize(uSeg[i - 1].xy - uSeg[i].xy);
 }
 // The metamorphosis cocoon: a silk spindle around the whole body (head to tail), fibres wound round it at two
 // slants, lit as a solid, the shape inside showing faintly through; it breathes slowly.
@@ -182,13 +174,12 @@ vec4 drawEggs(vec2 p, float t, vec2 centre, float big) {
 vec4 drawAnimal(vec2 p, float t) {
   vec2 head = uSeg[0].xy, tail = uSeg[0].xy;
   float big = 0.0;
-  float sd = 1e3, limbs = 1e3, eyes = 1e3;
+  float sd = 1e3;
   // The nearest link: its station parameter along the body (s), the distance to its centreline, its radius there,
   // and the direction from the centreline to p (for the tube's normal).
   float sNear = 0.0, dcNear = 1e3, rNear = 1.0;
   vec2 latNear = vec2(0.0, 1.0);
   float dNear = 1e3;
-  float row = 3.0 + 9.0 * uSpeed; // leg strokes, rad/s
   float mollusk = step(1.5, uBody);
   float arthropod = step(0.5, uBody) * (1.0 - mollusk);
   float blend = mix(0.06, 0.28, mollusk); // smooth joints; one soft mollusk body
@@ -218,42 +209,7 @@ vec4 drawAnimal(vec2 p, float t) {
       float k = clamp(0.5 + 0.5 * (di - sd) / blend, 0.0, 1.0);
       sd = i == 1 ? di : mix(di, sd, k) - blend * k * (1.0 - k);
     }
-    // Appendages drawn by the body itself, only near this station (most of the quad is open water).
-    float reach = s.z * (i == 0 && uRadial < 0.5 ? ${HEAD_REACH.toFixed(2)} : ${REACH.toFixed(2)});
-    if (dot(p - s.xy, p - s.xy) > reach * reach) continue;
-    vec2 ax = segAxis(i);
-    vec2 side = vec2(-ax.y, ax.x);
-    for (int k = -1; k <= 1; k += 2) {
-      float fk = float(k);
-      if (uRadial > 0.5) { // a tentacle waving out of each arm's tip
-        if (i == 0 || i % max(uArm, 1) != 0) continue;
-        vec2 base = s.xy + ax * s.z * 0.9 + side * fk * s.z * 0.3;
-        vec2 dir = turn(ax, fk * 0.25 + 0.3 * sin(t * 1.8 + float(i) * 1.7 + fk));
-        vec2 mid = base + dir * s.z * 0.7;
-        vec2 tip = mid + turn(dir, 0.5 * sin(t * 2.3 + float(i))) * s.z * 0.6;
-        limbs = min(limbs, min(segment(p, base, mid) - 0.04 * s.z, segment(p, mid, tip) - 0.022 * s.z));
-      } else if (i == 0) { // antennae: thin, jointed, sweeping — tier 3 only (a tier-4 body is nude: user direction)
-        if (uBody > 0.5) continue;
-        vec2 base = s.xy + ax * s.z * 0.8 + side * fk * s.z * 0.3;
-        vec2 dir = turn(ax, fk * (0.45 + 0.1 * sin(t * 1.7 + fk)));
-        vec2 mid = base + dir * s.z * (0.9 + 0.3 * arthropod);
-        vec2 tip = mid + turn(dir, fk * (0.35 + 0.15 * sin(t * 2.1 - fk))) * s.z * (0.8 + 0.4 * arthropod);
-        limbs = min(limbs, min(segment(p, base, mid) - 0.022 * s.z, segment(p, mid, tip) - 0.014 * s.z));
-      } else if (uBody < 0.5) { // tier 3: a fine jointed leg each side, swept back, rowing (left and right in antiphase)
-        float b = 0.55 + 0.4 * sin(t * row - float(i) * 1.2 + (fk > 0.0 ? 0.0 : 3.14159));
-        vec2 base = s.xy + side * fk * s.z * 0.92;
-        vec2 knee = base + (side * fk * cos(b) - ax * sin(b)) * s.z * 0.6;
-        vec2 foot = knee + (side * fk * cos(b + 0.7) - ax * sin(b + 0.7)) * s.z * 0.5;
-        limbs = min(limbs, min(segment(p, base, knee) - 0.045 * s.z, segment(p, knee, foot) - 0.028 * s.z));
-        if (i == uSegN - 1) { // two tail filaments
-          vec2 cb = s.xy - ax * s.z * 0.85 + side * fk * s.z * 0.25;
-          vec2 tip = cb + turn(-ax, -fk * (0.3 + 0.12 * sin(t * 2.0 + fk))) * s.z * 0.9;
-          limbs = min(limbs, segment(p, cb, tip) - 0.018 * s.z);
-        }
-      }
-    }
   }
-  limbs = min(limbs, eyes);
   if (uCocoon > 0.5) return uBody < 0.5 ? drawEggs(p, t, (head + tail) * 0.5, big) : drawCocoon(p, t, head, tail, big, sd);
   // Edge softness from the pixel size, not fwidth(sd): far links leave sd at 1e3, and that jump between
   // neighbouring pixels made fwidth huge (drew faint rings around bodies).
@@ -263,8 +219,7 @@ vec4 drawAnimal(vec2 p, float t) {
   float pa = atan(p.y, p.x);
   float skirtW = uFoot * mollusk * (0.11 + 0.025 * sin(pa * 14.0 - t * 3.0));
   float skirt = (1.0 - smoothstep(skirtW - aa, skirtW + aa, sd)) * (1.0 - body) * step(0.001, skirtW);
-  float limb = (1.0 - smoothstep(-aa, aa, limbs)) * (1.0 - body);
-  if (body + limb + skirt <= 0.0 && uCall <= 0.0) return vec4(0.0); // open water: most of the quad, skip the shading
+  if (body + skirt <= 0.0 && uCall <= 0.0) return vec4(0.0); // open water: most of the quad, skip the shading
   // A tube, lit as a cylinder: the normal leans out across the body by how far from the centreline p is.
   float u = clamp(dcNear / max(rNear, 1e-3), 0.0, 1.0);
   vec3 n = normalize(vec3(latNear * u * mix(0.95, 0.7, mollusk), sqrt(max(0.0, 1.0 - u * u)) + 0.05));
@@ -324,15 +279,12 @@ vec4 drawAnimal(vec2 p, float t) {
   // Mate call: rings pulsing out from a calling animal.
   float ping = fract(t * 0.6);
   float callRing = uCall * exp(-pow((length(p) - (1.5 + 0.7 * ping)) / 0.04, 2.0)) * (1.0 - ping) * (1.0 - body);
-  // Appendages: thin, jointed chitin tinted by the body, darker than it.
-  vec3 limbCol = mix(mix(base * 0.5, vec3(0.24, 0.19, 0.13), 0.4), base * 0.75, mollusk);
-  limbCol = mix(limbCol, vec3(0.03), mollusk * (1.0 - smoothstep(-aa, aa, eyes))); // eyes on the stalks
   vec3 skirtCol = (base * 1.1 + 0.05) * (0.6 + 0.15 * sin(sd * 90.0 - t * 4.0)); // pedal waves
   // Living tissue is a little see-through at its thin edges (the shell isn't).
   float tissue = body * mix(0.95, 0.62, smoothstep(-0.4, 0.0, rel));
   float solid = max(tissue, shell);
-  vec3 color = col * solid + limbCol * limb * 0.85 + skirtCol * skirt * 0.55 + (uColor * 0.4 + 0.55) * callRing * 0.5;
-  return vec4(color, clamp(solid + limb * 0.85 + skirt * 0.55 + callRing, 0.0, 1.0)); // premultiplied
+  vec3 color = col * solid + skirtCol * skirt * 0.55 + (uColor * 0.4 + 0.55) * callRing * 0.5;
+  return vec4(color, clamp(solid + skirt * 0.55 + callRing, 0.0, 1.0)); // premultiplied
 }
 
 void main() {
@@ -1077,7 +1029,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
         for (let i = 0; i < segments.length; i++) {
           const v = seg[i]!;
-          const reach = v.z * (i === 0 && !radial ? HEAD_REACH : REACH);
+          const reach = v.z * REACH;
           [x0, y0, x1, y1] = [Math.min(x0, v.x - reach), Math.min(y0, v.y - reach), Math.max(x1, v.x + reach), Math.max(y1, v.y + reach)];
         }
         quad.set((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2);
