@@ -248,6 +248,12 @@ export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bit
  * sizes from before TIER_SCALE: bigger bodies mustn't vacuum up the pool (sim: deaths/min ×4 otherwise).
  */
 export const EUK_MOUTH = 0.6;
+/**
+ * An animal eats only what touches its mouthparts (user direction): each placed mouthpart is a mouth on the body's
+ * outline, MOUTH_OUT cell radii beyond it, taking what comes within MOUTH_REACH cell radii (× the part's scale).
+ */
+export const MOUTH_OUT = 0.15;
+export const MOUTH_REACH = 0.3;
 export const ANIMAL_MOUTH = 0.3;
 export const ANIMAL_MOUTH_AHEAD = 0.75;
 export const CARAPACE_ARMOUR = 0.6; // share of bite damage that gets through a carapace

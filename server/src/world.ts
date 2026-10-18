@@ -20,7 +20,7 @@ import {
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
   GENOME_FIELD, grazes4, hunts4, isAnimal, spawnMassOf,
-  ANIMAL_MOUTH, ANIMAL_MOUTH_AHEAD, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  MOUTH_OUT, MOUTH_REACH, BOT_SPECIES, DEFAULT_SEGMENTS, animalRim, segmentsOf, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
   hasBit, withBit,
 } from '@panspermia/shared';
 import { buildGrid, grids, near } from './grid.ts';
@@ -122,7 +122,7 @@ function collide(state: PoolState) {
       const dy = b.y - a.y;
       if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue;
       const d2 = dx * dx + dy * dy;
-      if (!(d2 < reach * reach) || swallows(a, b) || swallows(b, a)) continue; // NaN-safe
+      if (!(d2 < reach * reach) || (a.tier === 2 && swallows(a, b)) || (b.tier === 2 && swallows(b, a))) continue; // NaN-safe
       const d = Math.sqrt(d2);
       const [nx, ny] = d > 1e-6 ? [dx / d, dy / d] : [1, 0];
       const overlap = reach - d;
@@ -141,6 +141,46 @@ function collide(state: PoolState) {
       b.vy += ny * impulse * wb;
     }
   }
+}
+
+/** A mouthpart in the world: where it is, how far it takes things in, which gene. */
+interface MouthPoint { x: number; y: number; r: number; gene: string }
+/** Mouthpart layouts in cell radii (body frame), by design: reused tick after tick. */
+const mouthLayouts = new Map<string, { x: number; y: number; reach: number; gene: string }[]>();
+/** Where an animal's mouthparts are now: each placed mouthpart on the body's outline, turned with its heading. */
+function mouthPointsOf(state: PoolState, id: string, p: Player): MouthPoint[] {
+  const cat = catalogFor(p.tier);
+  const genome = ownGenome(p);
+  const l = state.lineages.get(id);
+  const designed = l && l.tier === p.tier && l.genome === genome;
+  const bot = !l ? BOT_SPECIES.find((s) => s.tier === p.tier && s.name === p.name) : undefined;
+  const key = designed
+    ? `${p.tier}|${[...l.parts].map((q) => `${q.gene},${q.angle.toFixed(2)},${q.x.toFixed(2)},${q.y.toFixed(2)},${q.scale}`).join(';')}|${l.plan}|${[...l.radii].join(',')}|${[...l.bends].join(',')}|${l.arms}`
+    : `${p.tier}|${genome}|${bot?.name ?? ''}`;
+  let layout = mouthLayouts.get(key);
+  if (!layout) {
+    const parts = designed ? [...l.parts].map((q) => ({ gene: cat.NAMES[q.gene]!, x: q.x, y: q.y, angle: q.angle, scale: q.scale })) : cat.defaultParts(genome);
+    const segments = designed && l.radii.length ? segmentsOf(l.plan, [...l.radii], [...l.bends], l.arms)
+      : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : DEFAULT_SEGMENTS;
+    layout = parts.filter((q) => MOUTHS[p.tier]?.[q.gene]).map((q) => {
+      const out = cat.GENES[q.gene]!.slot === 'membrane' ? animalRim(q.angle, segments) + MOUTH_OUT * q.scale : 1;
+      return { x: cat.GENES[q.gene]!.slot === 'membrane' ? Math.cos(q.angle) * out : q.x, y: cat.GENES[q.gene]!.slot === 'membrane' ? Math.sin(q.angle) * out : q.y,
+        reach: MOUTH_REACH * q.scale, gene: q.gene };
+    });
+    if (mouthLayouts.size > 500) mouthLayouts.clear();
+    mouthLayouts.set(key, layout);
+  }
+  const r = radiusOf(p.mass, p.tier);
+  const [c, s] = [Math.cos(p.heading), Math.sin(p.heading)];
+  return layout.map((m) => ({ x: p.x + (m.x * c - m.y * s) * r, y: p.y + (m.x * s + m.y * c) * r, r: m.reach * r, gene: m.gene }));
+}
+/** The best a packet is worth to the mouthparts it touches (0: none touches it, or none takes it). */
+function mouthFood(mouths: MouthPoint[], tier: number, n: { x: number; y: number; kind: number }) {
+  let best = 0;
+  for (const m of mouths) {
+    if ((n.x - m.x) ** 2 + (n.y - m.y) ** 2 < m.r * m.r) best = Math.max(best, MOUTHS[tier]![m.gene]!.food(n.kind));
+  }
+  return best;
 }
 
 /** Parasitic mouths by tier: the gene, what it may drain (a bigger host, or any of a bigger tier), how fast, what it keeps. */
@@ -568,16 +608,38 @@ function mouthYield(kind: number, plant: boolean, meat: boolean, tier: number) {
   if (meat && kind === NutrientKind.debris) return DEBRIS_MASS;
   return 0;
 }
-/** What one packet is worth to an animal: filter combs sweep up plant food, mandibles take meat. */
-export const yield3Of = (kind: number, genome3: number) => {
-  const has = (g: string) => TIER3.hasGene(genome3, g as never);
-  const food = mouthYield(kind, has('filterComb') || has('mastax') || has('oars'), has('mandible'), 3);
-  return has('mastax') && BIG_PLANTS.has(kind) ? food * MASTAX_YIELD : food; // grinding jaws make more of a big plant
-};
 /** The plants a mastax grinds better than any sieve. */
 const BIG_PLANTS = new Set<number>([NutrientKind.spirulina, NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga]);
-/** Tier 4: grazing mouthparts or a radula take plant food, claws or a beak meat. */
-export const yield4Of = (kind: number, genome4: number) => mouthYield(kind, grazes4(genome4), hunts4(genome4), 4);
+/** An animal's own plants: the big ones (an animal leaves the floating bits — motes, algae, filaments — to the small). */
+const ANIMAL_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga]);
+/**
+ * Each animal mouthpart: what a packet touching it is worth, and the tiers of the cells it can swallow (by mass, see
+ * swallows). Plankton: sieves take plant food and filter combs bacteria, a mastax grinds big plants better, mandibles
+ * take meat and single cells. Animals (user direction): grazing mouths take the big plants, predators' claws and beaks
+ * swallow plankton — never bacteria nor the floating food bits.
+ */
+interface Mouth { food: (kind: number) => number; swallows: readonly number[] }
+const plant3 = (kind: number) => mouthYield(kind, true, false, 3);
+const graze4 = (kind: number) => (ANIMAL_PLANTS.has(kind) ? PLANT_MASS[kind]! : 0);
+export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> = {
+  3: {
+    filterComb: { food: plant3, swallows: [1] },
+    oars: { food: plant3, swallows: [] },
+    mastax: { food: (k) => plant3(k) * (BIG_PLANTS.has(k) ? MASTAX_YIELD : 1), swallows: [] },
+    mandible: { food: (k) => mouthYield(k, false, true, 3), swallows: [1, 2] },
+  },
+  4: {
+    maxillae: { food: graze4, swallows: [] },
+    radula: { food: graze4, swallows: [] },
+    claw: { food: () => 0, swallows: [3] },
+    beak: { food: () => 0, swallows: [3] },
+  },
+};
+const mouthsIn = (tier: number, genome: number) =>
+  Object.entries(MOUTHS[tier] ?? {}).filter(([g]) => catalogFor(tier).copiesOf(genome, g) > 0).map(([, m]) => m);
+/** What one packet is worth to an animal: the best of its mouthparts. */
+export const yield3Of = (kind: number, genome3: number) => Math.max(0, ...mouthsIn(3, genome3).map((m) => m.food(kind)));
+export const yield4Of = (kind: number, genome4: number) => Math.max(0, ...mouthsIn(4, genome4).map((m) => m.food(kind)));
 /** What one packet is worth to a eukaryote or bigger, by its tier's mouths. */
 export const mouthYieldOf = (kind: number, p: Player) =>
   p.tier === 4 ? yield4Of(kind, p.genome4) : p.tier === 3 ? yield3Of(kind, p.genome3) : yield2Of(kind, p.genome2);
@@ -592,11 +654,8 @@ export function swallows(e: Player, v: Player) {
   const pallium = e.tier === 2 && TIER2.hasGene(e.genome2, 'pallium'); // wraps bigger prey than a jaw
   if (v.mass > e.mass * (pallium ? PALLIUM_RATIO : ENGULF_RATIO)) return false;
   if (e.tier === 2) return pallium || TIER2.hasGene(e.genome2, 'jaw');
-  // Animals swallow single cells only: a rival animal is a fight (bites), never a mouthful.
-  if (e.tier === 3) return v.tier < 3 && (TIER3.hasGene(e.genome3, 'mandible') || (v.tier === 1 && TIER3.hasGene(e.genome3, 'filterComb')));
-  // Claws and beaks take single cells and smaller animals; grazing mouths sweep up bacteria.
-  if (e.tier === 4) return v.tier < 4 && (hunts4(e.genome4) || (v.tier === 1 && grazes4(e.genome4)));
-  return false;
+  // Animals swallow with the mouthparts that take that tier (MOUTHS); a rival of their own tier is a fight, never a mouthful.
+  return isAnimal(e.tier) && mouthsIn(e.tier, ownGenome(e)).some((m) => m.swallows.includes(v.tier));
 }
 
 /**
@@ -696,13 +755,18 @@ export function stepWorld(state: PoolState): Death[] {
     if (dormant(p) || isMate(id)) continue;
     const r = radiusOf(p.mass, p.tier);
     const t2 = p.tier >= 2; // eukaryotes and animals eat by mouth
-    const reach = t2 ? r * 1.05 : reachOf(p.mass, p.genome);
+    const mouths = isAnimal(p.tier) ? mouthPointsOf(state, id, p) : [];
+    const body = t2 ? r * 1.05 : reachOf(p.mass, p.genome);
+    const reach = isAnimal(p.tier) ? r * (1.1 + MOUTH_OUT + MOUTH_REACH * 2) : body; // the mouthparts reach past the body
     const l = state.lineages.get(id);
     near(grid, p.x, p.y, reach, (n, nid) => {
       if (eaten.has(n)) return; // gone: eaten this tick
       const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
       if (t2) {
-        if (d2 >= reach * reach) return;
+        // Food goes in by a mouth: a eukaryote's body, an animal's mouthparts (DNA and shards just touch the body).
+        const food = n.kind === NutrientKind.virus || n.kind === NutrientKind.shard || n.kind === NutrientKind.plasmid
+          || n.kind === NutrientKind.fragment ? -1 : isAnimal(p.tier) ? mouthFood(mouths, p.tier, n) : d2 < body * body ? mouthYieldOf(n.kind, p) : 0;
+        if (food === -1 ? d2 >= body * body : food <= 0) return;
         if (n.kind === NutrientKind.virus) { // a giant virus binds the cell itself (not the mouth's reach)
           if (p.tier !== 2) return; // ponytail: animals ignore giant viruses until tier-3 hazards (P9d)
           if (d2 >= r * r || tick < p.graceUntil) return;
@@ -724,8 +788,6 @@ export function stepWorld(state: PoolState): Death[] {
           }
         } else {
           // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) drift past.
-          const food = mouthYieldOf(n.kind, p);
-          if (!food) return;
           p.mass = Math.min(massCapOf(p.tier), p.mass + food);
           // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
           if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library = withBit(l.library, n.gene);
@@ -760,13 +822,14 @@ export function stepWorld(state: PoolState): Death[] {
   for (const [eid, e] of state.players) {
     if (e.tier < 2 || dormant(e) || e.engulfedBy || isMate(eid)) continue;
     const r = radiusOf(e.mass, e.tier);
-    const ahead = isAnimal(e.tier) ? r * ANIMAL_MOUTH_AHEAD : 0;
-    const mx = e.x + Math.cos(e.heading) * ahead;
-    const my = e.y + Math.sin(e.heading) * ahead;
-    const mouth = r * (isAnimal(e.tier) ? ANIMAL_MOUTH : EUK_MOUTH);
+    const mouth = r * EUK_MOUTH;
+    const mouths = isAnimal(e.tier) ? mouthPointsOf(state, eid, e) : [];
     for (const [vid, v] of state.players) {
       if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || !swallows(e, v)) continue;
-      if (!((v.x - mx) ** 2 + (v.y - my) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
+      if (isAnimal(e.tier)) { // a mouthpart that takes this tier must touch it
+        const rv = radiusOf(v.mass, v.tier) * 0.5;
+        if (!mouths.some((m) => MOUTHS[e.tier]![m.gene]!.swallows.includes(v.tier) && (v.x - m.x) ** 2 + (v.y - m.y) ** 2 < (m.r + rv) ** 2)) continue;
+      } else if (!((v.x - e.x) ** 2 + (v.y - e.y) ** 2 < mouth * mouth)) continue; // NaN-safe: never swallow on a bad position
       v.engulfedBy = eid;
       e.bites = (e.bites + 1) & 255; // the mouth snaps on a swallow too
       hurt(v, v.health + 1, eid, tick);

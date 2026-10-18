@@ -3,7 +3,7 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -581,17 +581,23 @@ test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and 
   state.players.set('f', filterer);
   const bug = spawnPlayer();
   const eu = spawnPlayer();
-  const mouth = radiusOf(2000, 3) * ANIMAL_MOUTH_AHEAD; // an animal swallows at its head
-  Object.assign(bug, { x: mouth, y: 10, graceUntil: 0 });
-  Object.assign(eu, { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: mouth, y: -10, graceUntil: 0 });
+  // Each mouthpart sits on the outline at its default angle (combs at ±0.5 rad, mandibles at 0): prey must touch it.
+  const at = (angle: number) => radiusOf(2000, 3) * (animalRim(angle, DEFAULT_SEGMENTS) + MOUTH_OUT);
+  Object.assign(bug, { x: Math.cos(0.5) * at(0.5), y: Math.sin(0.5) * at(0.5), graceUntil: 0 });
+  Object.assign(eu, { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: Math.cos(0.5) * at(0.5), y: -Math.sin(0.5) * at(0.5), graceUntil: 0 });
   state.players.set('b', bug);
   state.players.set('e', eu);
   stepWorld(state);
   expect([bug.engulfedBy, eu.engulfedBy]).toEqual(['f', '']); // combs take bacteria, not eukaryotes
   filterer.genome3 = TIER3.genomeOf(['mandible']);
-  Object.assign(eu, { x: mouth, y: 0 }); // the combs' collision pushed it out to touching distance
+  Object.assign(eu, { x: at(0), y: 0 }); // at the mandibles
   stepWorld(state);
   expect(eu.engulfedBy).toBe('f');
+  // A cell against the body's flank, away from every mouthpart, is not eaten: the body is solid.
+  const flank = Object.assign(spawnPlayer(), { x: 0, y: -radiusOf(2000, 3) * 0.95, graceUntil: 0 });
+  state.players.set('flank', flank);
+  stepWorld(state);
+  expect(flank.engulfedBy).toBe('');
   // Two mandibled animals face to face bite each other; a carapace turns part of the bite.
   const s2 = new PoolState();
   const a = animal(['mandible'], 0, 0);
@@ -671,7 +677,7 @@ test('ink: a mollusk squirts a harmless cloud as it dashes; whatever is inside i
   expect([by.lastHitBy, by.health]).toEqual(['', HEALTH_MAX]); // ink doesn't hurt
 });
 
-test('tier 4: claws swallow smaller animals and crush rivals through their armour; grazers sweep up bacteria', () => {
+test('tier 4: claws swallow plankton (never bacteria) and crush rivals through their armour; grazers leave cells alone', () => {
   const state = new PoolState();
   const arthropod = (genes: (typeof TIER4.NAMES)[number][], x: number, heading = 0) => {
     const a = spawnPlayer();
@@ -680,17 +686,19 @@ test('tier 4: claws swallow smaller animals and crush rivals through their armou
   };
   const grazer = arthropod(['maxillae'], 0);
   state.players.set('g', grazer);
-  const mouth = radiusOf(8000, 4) * ANIMAL_MOUTH_AHEAD;
+  const mouth = radiusOf(8000, 4) * (animalRim(0, DEFAULT_SEGMENTS) + MOUTH_OUT);
   const bug = Object.assign(spawnPlayer(), { x: mouth, y: 10, graceUntil: 0 });
   const small = Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3: 0, mass: 3000, health: 1200, x: mouth, y: -10, graceUntil: 0 });
   state.players.set('b', bug);
   state.players.set('s', small);
   stepWorld(state);
-  expect([bug.engulfedBy, small.engulfedBy]).toEqual(['g', '']); // mouthparts take specks, not animals
-  grazer.genome4 = TIER4.genomeOf(['claw']);
-  Object.assign(small, { x: mouth, y: 0 });
+  expect([bug.engulfedBy, small.engulfedBy]).toEqual(['', '']); // grazing mouths take plants, no cells (user direction)
+  grazer.genome4 = TIER4.genomeOf(['claw']); // a pair of claws at ±0.45 rad
+  const claw = radiusOf(8000, 4) * (animalRim(0.45, DEFAULT_SEGMENTS) + MOUTH_OUT);
+  Object.assign(small, { x: Math.cos(0.45) * claw, y: Math.sin(0.45) * claw });
+  Object.assign(bug, { x: Math.cos(0.45) * claw, y: -Math.sin(0.45) * claw });
   stepWorld(state);
-  expect(small.engulfedBy).toBe('g'); // an animal at most half its mass is a mouthful
+  expect([small.engulfedBy, bug.engulfedBy]).toEqual(['g', '']); // claws take plankton, never bacteria
   // Two clawed arthropods face to face: two claws crush harder, a shell turns most of a bite.
   const s2 = new PoolState();
   const a = arthropod(['claw', 'claw'], 0, 0);
@@ -1112,7 +1120,8 @@ test('each phase has its plants: spirulina from eukaryotes, diatoms and dinoflag
   const combs = TIER3.genomeOf(['filterComb']);
   const graze = TIER4.genomeOf(['maxillae']);
   expect(plants.map((k) => [yieldOf(k, ~0) > 0, yield2Of(k, filter) > 0, yield3Of(k, combs) > 0, yield4Of(k, graze) > 0]))
-    .toEqual([[false, true, true, true], [false, false, true, true], [false, false, true, true], [false, false, false, true]]);
+    .toEqual([[false, true, true, false], [false, false, true, true], [false, false, true, true], [false, false, false, true]]); // animals leave spirulina to the small
+  for (const bit of [NutrientKind.dissolved, NutrientKind.algae, NutrientKind.chunk, NutrientKind.cyano]) expect(yield4Of(bit, graze | TIER4.genomeOf(['claw']))).toBe(0);
   expect(yield4Of(NutrientKind.macroalga, TIER4.genomeOf(['claw']))).toBe(0); // a hunter's mouth leaves plants alone
 });
 
