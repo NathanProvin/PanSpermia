@@ -3,7 +3,7 @@
 // steer (no run-and-tumble: eukaryotes turn smoothly). Parts are added as their mechanics land.
 import { TIER3 } from './animal.ts';
 import { TIER4 } from './arthropod.ts';
-import { type Catalog, TIER1, makeCatalog } from './genes.ts';
+import { type Catalog, TIER1, bitsOf, makeCatalog } from './genes.ts';
 
 export const TIER2 = makeCatalog({
   cilia: { upkeep: 0.03, price: 10, maxCopies: 3, slot: 'membrane', at: 2.0, label: 'Cilia' },
@@ -35,8 +35,8 @@ export type Gene2 = (typeof TIER2.NAMES)[number];
 /** A newly evolved eukaryote: a little cilia to steer and both mouths (omnivore) until the editor says otherwise. */
 export const STARTER_GENOME2 = TIER2.genomeOf(['cilia', 'filter', 'jaw']);
 /** Parts a new eukaryote can buy at once; weapons and the jet are found (meteor shards, eaten eukaryotes). */
-export const STARTER_LIBRARY2 = TIER2.GENES.cilia.bit | TIER2.GENES.flagellum.bit | TIER2.GENES.filter.bit
-  | TIER2.GENES.jaw.bit | TIER2.GENES.eye.bit;
+export const STARTER_LIBRARY2 = bitsOf(TIER2.GENES.cilia.bit, TIER2.GENES.flagellum.bit, TIER2.GENES.filter.bit,
+  TIER2.GENES.jaw.bit, TIER2.GENES.eye.bit);
 
 /** The highest tier that exists so far; Evolve is offered below it. */
 export const MAX_TIER = 4;

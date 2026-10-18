@@ -6,6 +6,7 @@ import {
   ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, INK, NutrientKind, type Nutrient, type Player, type PoolState,
   type Species, TICK_DT, TIER2, TIER3, WORLD_RADIUS, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
   radiusOf, sanitizeInput, stepCell,
+  hasBit, withBit,
 } from '@panspermia/shared';
 import { type PacketGrid, buildGrid, grids, near } from './grid.ts';
 import { type Death, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
@@ -141,7 +142,7 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
       return;
     }
     const value = t2 ? mouthYieldOf(n.kind, p)
-      : n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid ? (p.genome & n.gene ? 0 : GENE_VALUE)
+      : n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid ? (hasBit(p.genome, n.gene) ? 0 : GENE_VALUE)
       : yieldOf(n.kind, p.genome);
     const score = value / (d + 30);
     if (score > best) {

@@ -3,6 +3,7 @@ import {
   NAME_MAX, type Placement, TIER_NAMES, catalogFor, cleanName, deform, undeform, DEFAULT_RADII, DEFAULT_RADII_OF, FORM_LIMITS,
   MAX_SEGMENTS, MIN_SEGMENTS, MAX_ARM, DEFAULT_ARMS, RADIAL_ARMS, PATTERN_NAMES, PIGMENTS, PLAN_NAMES, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN, BEND_CENTRE, type Segment,
   animalRim, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
+  hasBit, withBit,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { CHILD_ICON, molecule, setMolecule } from './hud.ts';
@@ -453,7 +454,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     tile.className = 'part';
     tile.dataset.gene = gene;
     const { label, slot, price, maxCopies } = cat.GENES[gene]!;
-    if (!(lineage!.library & cat.GENES[gene]!.bit)) {
+    if (!hasBit(lineage!.library, cat.GENES[gene]!.bit)) {
       tile.disabled = true;
       tile.classList.add('locked');
       tile.innerHTML = '<span class="q" aria-hidden="true">?</span>';

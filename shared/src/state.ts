@@ -22,13 +22,13 @@ export const Player = schema({
   /** 1 = bacterium, 2 = eukaryote, 3 = animal, 4 = arthropod or mollusk. */
   tier: t.uint8().default(1),
   /** Tier-1 part copies (GENES); 0 for a eukaryote. */
-  genome: t.uint32(),
+  genome: t.number(), // a base-4 gene set (genes.ts)
   /** Tier-2 part copies (TIER2); 0 for other tiers. */
-  genome2: t.uint32().default(0),
+  genome2: t.number().default(0),
   /** Tier-3 part copies (TIER3); 0 for other tiers. */
-  genome3: t.uint32().default(0),
+  genome3: t.number().default(0),
   /** Tier-4 part copies (TIER4); 0 for other tiers. */
-  genome4: t.uint32().default(0),
+  genome4: t.number().default(0),
   /** Seconds left dormant as an endospore (0 = active), and until it can sporulate again. */
   spore: t.number().default(0),
   sporeCooldown: t.number().default(0),
@@ -77,7 +77,7 @@ export const Nutrient = schema({
   tick0: t.uint32(),
   kind: t.uint8(),
   // Server-side: the GENES bit a fragment or plasmid carries, and the current position. Never sent.
-  gene: t.uint32().noSync().default(0),
+  gene: t.number().noSync().default(0),
   x: t.number().noSync(),
   y: t.number().noSync(),
   tick: t.uint32().noSync(),
@@ -125,7 +125,7 @@ export const Lineage = schema({
   /** The tier its next individuals hatch at. */
   tier: t.uint8().default(1),
   /** Copy counts (of the tier's catalog) of the current design (what each new individual expresses). */
-  genome: t.uint32(),
+  genome: t.number(), // a base-4 gene set (genes.ts)
   parts: t.array(Part),
   hue: t.float32(),
   shape: t.uint8().default(0),
@@ -141,7 +141,7 @@ export const Lineage = schema({
   /** A radial body's arm count (RADIAL_ARMS; its radii are then [centre, arm stations…]); 0 otherwise. */
   arms: t.uint8().default(0),
   /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */
-  library: t.uint32(),
+  library: t.number(),
   dna: t.number(),
   lifetimeDna: t.number(),
   children: t.uint8(),

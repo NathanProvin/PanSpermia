@@ -3,6 +3,7 @@ import {
   ACTION_SPORE, ACTION_TOXIN, Input, NutrientKind, PACKET_DNA, PLASMID_DNA, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
   BOT_SPECIES, EYE_SIGHT, ANTENNA_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TIER4, TOXINS, TUN_COOLDOWN, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
   JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  hasBit, withBit,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
@@ -416,8 +417,9 @@ try {
         knownTier = lineage.tier;
         knownLibrary = lineage.library;
       }
-      if (lineage.library & ~knownLibrary) {
-        for (const g of cat.NAMES.filter((name) => cat.hasGene(lineage.library & ~knownLibrary, name))) {
+      const found = cat.NAMES.filter((name) => hasBit(lineage.library, cat.GENES[name]!.bit) && !hasBit(knownLibrary, cat.GENES[name]!.bit));
+      if (found.length) {
+        for (const g of found) {
           hud.unlock(cat.GENES[g]!.label, editor.partIcon(lineage, g));
         }
       }

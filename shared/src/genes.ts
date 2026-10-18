@@ -1,5 +1,6 @@
-// Tier-1 gene catalog. A genome packs a copy count (0–3) per gene in 2 bits, so `GENES.x.bit` is one
-// copy of x and ORing bits of different genes builds a genome. Extra copies stack with diminishing
+// Tier-1 gene catalog. A genome packs a copy count (0–3) per gene as one base-4 digit, so `GENES.x.bit` (4^index)
+// is one copy of x and adding bits of different genes builds a genome (bitsOf). Arithmetic, not JS bit operators:
+// those stop at 32 bits (16 genes), and a catalog may hold up to MAX_GENES (4^26 = 2^52, exact in a double). Extra copies stack with diminishing
 // returns (see `stack`); every copy costs upkeep (mass/s on top of metabolism): bigger genomes must
 // eat more, which is real biology and free balancing. `price` is the DNA cost of one copy in the editor.
 // Genes are added here as their mechanics land; append only (the index is the wire format).
@@ -41,6 +42,15 @@ export interface Placement<G extends string = Gene> { gene: G; x: number; y: num
  */
 export const MAX_PLACED = 6;
 
+/** Most genes a catalog may hold: 26 base-4 digits stay below 2^53, exact in a double (the wire's number). */
+export const MAX_GENES = 26;
+/** Whether a gene set (a genome or a library) holds `bit`'s gene. */
+export const hasBit = (set: number, bit: number) => Math.floor(set / bit) % 4 > 0;
+/** `set` with `bit`'s gene (one copy) added if it lacks it — a library's "|=". */
+export const withBit = (set: number, bit: number) => (hasBit(set, bit) ? set : set + bit);
+/** The set of these genes, one copy each — a library's "a | b | c". */
+export const bitsOf = (...bits: number[]) => bits.reduce(withBit, 0);
+
 /** Diminishing returns: total strength of n copies, each worth half the previous (0, 1, 1.5, 1.75). */
 export const stack = (n: number) => 2 - 2 ** (1 - n);
 
@@ -51,13 +61,12 @@ export const stack = (n: number) => 2 - 2 ** (1 - n);
 export function makeCatalog<const C extends Record<string, CatalogEntry>>(entries: C) {
   type G = keyof C & string;
   const NAMES = Object.keys(entries) as G[];
-  const GENES = Object.fromEntries(NAMES.map((g, index) => [g, { ...entries[g], index, bit: 1 << (2 * index) }])) as
+  if (NAMES.length > MAX_GENES) throw new Error(`a catalog holds at most ${MAX_GENES} genes`);
+  const GENES = Object.fromEntries(NAMES.map((g, index) => [g, { ...entries[g], index, bit: 4 ** index }])) as
     { [K in G]: C[K] & { index: number; bit: number } };
-  const copiesOf = (genome: number, gene: G) => (genome >>> (2 * GENES[gene].index)) & 3;
-  const withCopies = (genome: number, gene: G, n: number) => {
-    const shift = 2 * GENES[gene].index;
-    return ((genome & ~(3 << shift)) | (Math.max(0, Math.min(3, n)) << shift)) >>> 0;
-  };
+  const copiesOf = (genome: number, gene: G) => Math.floor(genome / GENES[gene].bit) % 4;
+  const withCopies = (genome: number, gene: G, n: number) =>
+    genome + (Math.max(0, Math.min(3, n)) - copiesOf(genome, gene)) * GENES[gene].bit;
   return {
     GENES,
     NAMES,
@@ -105,4 +114,4 @@ export const GENE_NAMES = TIER1.NAMES;
 /** New individuals start able to steer precisely, if slowly. */
 export const STARTER_GENOME = GENES.pili.bit;
 /** Parts a new species can already buy; the rest arrive by gene transfer (fragments, plasmids). */
-export const STARTER_LIBRARY = GENES.pili.bit | GENES.flagellum.bit | GENES.transporters.bit;
+export const STARTER_LIBRARY = bitsOf(GENES.pili.bit, GENES.flagellum.bit, GENES.transporters.bit);

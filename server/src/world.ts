@@ -21,6 +21,7 @@ import {
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
   GENOME_FIELD, grazes4, hunts4, isAnimal, spawnMassOf,
   ANIMAL_MOUTH, ANIMAL_MOUTH_AHEAD, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  hasBit, withBit,
 } from '@panspermia/shared';
 import { buildGrid, grids, near } from './grid.ts';
 
@@ -334,7 +335,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
     const { gene, x, y, angle, scale, group } = (part ?? {}) as Record<string, unknown>;
     if (typeof gene !== 'string' || !Object.hasOwn(cat.GENES, gene)) return 'unknown part';
     const g = cat.GENES[gene]!;
-    if (!(l.library & g.bit)) return 'part not unlocked';
+    if (!hasBit(l.library, g.bit)) return 'part not unlocked';
     if (typeof x !== 'number' || typeof y !== 'number' || typeof angle !== 'number' || typeof scale !== 'number'
       || !Number.isFinite(angle) || !(Math.hypot(x, y) <= 1.5) || !(scale >= 0.5 && scale <= 2)
       || typeof group !== 'number' || !Number.isInteger(group) || group < 0 || group > 255) {
@@ -708,18 +709,18 @@ export function stepWorld(state: PoolState): Death[] {
           p.infection += VIRUS_LATENT;
         } else if (n.kind === NutrientKind.shard) { // touching a meteor shard takes its part
           earn(state, id, PLASMID_DNA);
-          if (l?.tier === 2) l.library |= n.gene;
+          if (l?.tier === 2) l.library = withBit(l.library, n.gene);
           if (l && isAnimal(l.tier)) { // a random part of its own tier
             const cat = catalogFor(l.tier);
-            l.library |= cat.GENES[cat.NAMES[Math.floor(Math.random() * cat.NAMES.length)]!]!.bit;
+            l.library = withBit(l.library, cat.GENES[cat.NAMES[Math.floor(Math.random() * cat.NAMES.length)]!]!.bit);
           }
         } else if (n.kind === NutrientKind.plasmid || n.kind === NutrientKind.fragment) {
           earn(state, id, n.kind === NutrientKind.plasmid ? PLASMID_DNA : PACKET_DNA); // DNA for every phase
           // A eukaryote's plasmid may carry one of its own undiscovered parts (bacteria get the plasmid's gene).
           if (l?.tier === 2 && p.tier === 2 && n.kind === NutrientKind.plasmid && Math.random() < PLASMID_UNLOCK_CHANCE) {
-            const hidden = TIER2.NAMES.filter((g) => !(l.library & TIER2.GENES[g].bit));
+            const hidden = TIER2.NAMES.filter((g) => !hasBit(l.library, TIER2.GENES[g].bit));
             const gene = hidden[Math.floor(Math.random() * hidden.length)];
-            if (gene) l.library |= TIER2.GENES[gene].bit;
+            if (gene) l.library = withBit(l.library, TIER2.GENES[gene].bit);
           }
         } else {
           // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) drift past.
@@ -727,7 +728,7 @@ export function stepWorld(state: PoolState): Death[] {
           if (!food) return;
           p.mass = Math.min(massCapOf(p.tier), p.mass + food);
           // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
-          if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
+          if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library = withBit(l.library, n.gene);
         }
       } else if (isPlant(n.kind) || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
         return; // too big for a bacterium to take in (algae and every plant); not its kind of DNA
@@ -744,7 +745,7 @@ export function stepWorld(state: PoolState): Death[] {
         // Gene transfer unlocks the part for the species' editor. Plasmids always take; fragments
         // only sometimes recombine (transformation).
         const take = n.kind === NutrientKind.plasmid ? PLASMID_UNLOCK_CHANCE : TRANSFORM_CHANCE;
-        if (l?.tier === 1 && dna && Math.random() < take) l.library |= n.gene;
+        if (l?.tier === 1 && dna && Math.random() < take) l.library = withBit(l.library, n.gene);
       }
       eaten.add(n);
       state.nutrients.delete(nid);
@@ -775,7 +776,7 @@ export function stepWorld(state: PoolState): Death[] {
       const l = state.lineages.get(eid);
       if (l?.tier === 2 && v.tier === 1) {
         for (const [gene, organelle] of [['transporters', 'mitochondrion'], ['thylakoid', 'chloroplast']] as const) {
-          if (hasGene(v.genome, gene) && Math.random() < ENDOSYMBIOSIS_CHANCE) l.library |= TIER2.GENES[organelle].bit;
+          if (hasGene(v.genome, gene) && Math.random() < ENDOSYMBIOSIS_CHANCE) l.library = withBit(l.library, TIER2.GENES[organelle].bit);
         }
       }
     }

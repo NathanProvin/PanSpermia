@@ -3,7 +3,7 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -702,7 +702,7 @@ test('tier 4: claws swallow smaller animals and crush rivals through their armou
   expect(T4_HEALTH_MAX - a.health).toBeCloseTo(BITE_DAMAGE[4]!, 6);
   // Tier 4 takes tier 3's plans (spine or radial) and any part on either; a foot or a shell makes the body soft.
   const { state: s4, player: p4, lineage: l4 } = species();
-  Object.assign(l4, { tier: 4, genome: 0, library: ~0 >>> 0, dna: 1e4 });
+  Object.assign(l4, { tier: 4, genome: 0, library: bitsOf(...TIER4.NAMES.map((g) => TIER4.GENES[g].bit)), dna: 1e4 });
   Object.assign(p4, { tier: 4, genome: 0, genome4: 0, mass: T4_SPAWN_MASS, cyst: CYST_TIME });
   const part = (gene: string, angle = 0) => ({ gene, x: Math.cos(angle), y: Math.sin(angle), angle, scale: 1, group: 0 });
   const design = (plan: number, ...genes: string[]) =>
@@ -1273,4 +1273,15 @@ test('a proboscis drains another animal; cerata sting a biter back', () => {
   animalAt('v', TIER4.genomeOf(['cerata']), radiusOf(8000, 4) * 2, s2);
   stepWorld(s2);
   expect(T4_HEALTH_MAX - biter.health).toBeCloseTo(BITE_DAMAGE[4]! * CERATA_REFLECT, 6);
+});
+
+test('a catalog may hold up to 26 genes: copies and library bits round-trip past the old 16 (32-bit) limit', () => {
+  const big = makeCatalog(Object.fromEntries(Array.from({ length: 26 }, (_, i) =>
+    [`g${i}`, { upkeep: 0, price: 1, maxCopies: 3, slot: 'internal' as const, at: [0, 0] as const, label: `G${i}` }])));
+  let genome = 0;
+  for (const [i, g] of big.NAMES.entries()) genome = big.withCopies(genome, g, i % 4);
+  expect(big.NAMES.map((g) => big.copiesOf(genome, g))).toEqual(big.NAMES.map((_, i) => i % 4));
+  const library = bitsOf(big.GENES.g25!.bit, big.GENES.g17!.bit, big.GENES.g0!.bit);
+  expect([hasBit(library, big.GENES.g25!.bit), hasBit(library, big.GENES.g17!.bit), hasBit(library, big.GENES.g16!.bit)]).toEqual([true, true, false]);
+  expect(withBit(library, big.GENES.g17!.bit)).toBe(library); // already there
 });

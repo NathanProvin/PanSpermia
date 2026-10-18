@@ -2,6 +2,7 @@ import { Room, type Client } from '@colyseus/core';
 import {
   ACTION_TOXIN, BOT_FILL, GENOME_FIELD, massCapOf, BOT_SPECIES, catalogFor, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
   stepCell,
+  hasBit, withBit,
 } from '@panspermia/shared';
 import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
 import {
@@ -89,7 +90,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         if (!p || !l || !Number.isInteger(index) || !gene) return;
         const field = GENOME_FIELD[p.tier] ?? 'genome';
         p[field] = cat.withCopies(p[field], gene, (cat.copiesOf(p[field], gene) + 1) % (cat.GENES[gene]!.maxCopies + 1));
-        if (l.tier === p.tier) l.library |= cat.GENES[gene]!.bit;
+        if (l.tier === p.tier) l.library = withBit(l.library, cat.GENES[gene]!.bit);
       });
       // Drop a plasmid or a phage onto the cell.
       this.onMessage('dev:spawn', (client, what: unknown) => {
@@ -112,7 +113,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
       // Unlock every part of the species' tier for the editor (to look at the whole catalog).
       this.onMessage('dev:unlock', (client) => {
         const l = this.state.lineages.get(client.sessionId);
-        if (l) l.library = catalogFor(l.tier).NAMES.reduce((lib, g) => lib | catalogFor(l.tier).GENES[g]!.bit, l.library);
+        if (l) l.library = catalogFor(l.tier).NAMES.reduce((lib, g) => withBit(lib, catalogFor(l.tier).GENES[g]!.bit), l.library);
       });
       this.onMessage('dev:die', (client) => {
         const p = this.state.players.get(client.sessionId);
