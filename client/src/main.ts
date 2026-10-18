@@ -196,7 +196,8 @@ if (sharedCard) {
 const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogFor(l.tier).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
-  tier: l.tier, shape: l.shape, ...(l.sx > 0 ? { form: formOf(l) } : {}), plan: l.plan, radii: [...l.radii],
+  tier: l.tier, shape: l.shape, ...(l.sx > 0 ? { form: formOf(l) } : {}), ...(l.bends.length ? { bends: [...l.bends] } : {}),
+  plan: l.plan, radii: [...l.radii],
 });
 
 try {
@@ -246,7 +247,7 @@ try {
     // The species design, unless this individual differs (dev cheats) or has no lineage (bots).
     const parts = l && l.tier === p.tier && l.genome === genome ? partsOf(l) : cat.defaultParts(genome);
     const bot = !l && isAnimal(p.tier) ? BOT_SPECIES.find((s) => s.tier === p.tier && s.name === p.name) : undefined; // bots: their species' body
-    const segments = l && isAnimal(p.tier) && l.tier === p.tier && l.radii.length ? segmentsOf(l.plan, [...l.radii])
+    const segments = l && isAnimal(p.tier) && l.tier === p.tier && l.radii.length ? segmentsOf(l.plan, [...l.radii], [...l.bends])
       : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : undefined;
     const plan = l && l.tier === p.tier ? l.plan : bot?.plan;
     return { tier: p.tier, genome, parts, hue: l?.hue ?? hashId(id), shape: l ? formOf(l) : p.shape, segments, plan };

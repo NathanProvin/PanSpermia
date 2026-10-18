@@ -1,5 +1,5 @@
 import {
-  DEFAULT_RADII, MAX_PARTS, MAX_TIER, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN, TIER_NAMES, catalogFor, cleanForm, type Form, cleanName, isAnimal, segmentsOf,
+  DEFAULT_RADII, MAX_PARTS, MAX_TIER, MAX_SEGMENTS, MIN_SEGMENTS, PLAN_NAMES, SEGMENT_MAX, SEGMENT_MIN, TIER_NAMES, catalogFor, cleanForm, type Form, MAX_BEND, cleanName, isAnimal, segmentsOf,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { createCellView } from './scene/cells.ts';
@@ -19,6 +19,8 @@ export interface CardData {
   shape: number;
   /** A sculpted body shape (polish S4); absent: the shape preset. */
   form?: Form;
+  /** A curled spine (segmentsOf bends); absent: straight. */
+  bends?: number[];
   parts: CardPart[];
   /** Animals: body plan and segment sizes. */
   plan: number;
@@ -37,7 +39,9 @@ export function encodeCard(d: CardData) {
   // The hue keeps 3 decimals: it carries the pigment and the pattern.
   const json = JSON.stringify([d.name, Math.round(d.hue * 1000) / 1000, d.generation, Math.round(d.dna), d.kills, FATES.indexOf(d.fate),
     d.parts.map((p) => [catalogOf(d.tier).GENES[p.gene]!.index, round(p.x), round(p.y), round(p.angle), round(p.scale)]), d.tier, d.shape, d.plan, d.radii.map(round),
-    ...(d.form ? [[round(d.form.sx), round(d.form.sy), round(d.form.bend)]] : [])]);
+    // Optional tail: the sculpted form (or null), then the spine's bends.
+    ...(d.form || d.bends?.length ? [d.form ? [round(d.form.sx), round(d.form.sy), round(d.form.bend)] : null] : []),
+    ...(d.bends?.length ? [d.bends.map(round)] : [])]);
   const bytes = new TextEncoder().encode(json);
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
@@ -45,15 +49,18 @@ export function encodeCard(d: CardData) {
 export function decodeCard(text: string): CardData | undefined {
   try {
     const bytes = Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
-    const [rawName, hue, generation, dna, kills, fate, parts, rawTier = 1, shape = 0, plan = 0, radii = DEFAULT_RADII, rawForm] =
+    const [rawName, hue, generation, dna, kills, fate, parts, rawTier = 1, shape = 0, plan = 0, radii = DEFAULT_RADII, rawForm = null, rawBends = []] =
       JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
     if (typeof rawTier !== 'number' || !Number.isInteger(rawTier) || rawTier < 1 || rawTier > MAX_TIER) return undefined;
     if (typeof plan !== 'number' || !PLAN_NAMES[plan] || !Array.isArray(radii) || radii.length < MIN_SEGMENTS
       || radii.length > MAX_SEGMENTS || !radii.every((r) => typeof r === 'number' && r >= SEGMENT_MIN && r <= SEGMENT_MAX)) return undefined;
     if (shape !== 0 && shape !== 1 && shape !== 2) return undefined;
     const [fx, fy, fb] = Array.isArray(rawForm) ? rawForm : [];
-    const form = rawForm === undefined ? undefined : cleanForm({ sx: fx, sy: fy, bend: fb });
-    if (rawForm !== undefined && !form) return undefined;
+    const form = rawForm === null ? undefined : cleanForm({ sx: fx, sy: fy, bend: fb });
+    if (rawForm !== null && !form) return undefined;
+    if (!Array.isArray(rawBends) || rawBends.length > radii.length
+      || !rawBends.every((b) => typeof b === 'number' && Math.abs(b) <= MAX_BEND)) return undefined;
+    const bends = rawBends as number[];
     const tier = rawTier;
     const name = cleanName(rawName);
     const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1e6 ? v : undefined);
@@ -71,7 +78,7 @@ export function decodeCard(text: string): CardData | undefined {
       if (!name || Math.hypot(x!, y!) > 1.5 || scale! < 0.5 || scale! > 2) return undefined;
       placed.push({ gene: name, x: x!, y: y!, angle: angle!, scale: scale!, group: 0 });
     }
-    return { name, hue, tier, shape, ...(form ? { form } : {}), plan, radii: radii as number[], parts: placed, generation: g, dna: d, kills: k, fate: f };
+    return { name, hue, tier, shape, ...(form ? { form } : {}), ...(bends.length ? { bends } : {}), plan, radii: radii as number[], parts: placed, generation: g, dna: d, kills: k, fate: f };
   } catch {
     return undefined;
   }
@@ -90,7 +97,7 @@ function renderCell(d: CardData, size: number) {
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
   createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
     { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.form ?? d.shape,
-      segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii) : undefined, plan: d.plan }, 1.7, 0);
+      segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii, d.bends) : undefined, plan: d.plan }, 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;

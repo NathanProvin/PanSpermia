@@ -67,7 +67,11 @@
         padding: 12px; box-sizing: border-box; background: var(--glass-strong); border: 1px solid var(--line);
         border-radius: var(--radius); backdrop-filter: var(--blur); scrollbar-color: var(--line) transparent; }
       #palette { left: 12px; width: 232px; }
-      #editor-side { right: 12px; width: 232px; display: grid; gap: 10px; align-content: start; }
+      #editor .ed-side { position: absolute; top: 52px; right: 12px; width: 232px; max-height: calc(100% - 100px); overflow: auto;
+        display: grid; gap: 8px; align-content: start; pointer-events: auto; scrollbar-color: var(--line) transparent; }
+      #editor .ed-side .panel { position: static; max-height: none; display: grid; gap: 8px; }
+      #editor .ed-side h2 { margin: 0; }
+      #editor .kids-note { color: var(--ink-soft); font-size: 11px; }
       #editor h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink-soft); letter-spacing: 0.04em; text-transform: uppercase; }
       #editor .parts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
       #editor .part { position: relative; aspect-ratio: 1; padding: 0; border-radius: 8px; cursor: grab; touch-action: none;
@@ -100,29 +104,48 @@
       #editor .ed-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       #editor .swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid rgb(0 0 0 / 0.25); }
       #editor .swatch[aria-checked='true'] { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); background: var(--c); }
-      #editor .tools .plans { display: inline-flex; gap: 6px; margin-left: auto; }
+      #editor .plans:empty { display: none; }
       #editor .kids { gap: 4px; }
       #editor .eggs { display: flex; flex-wrap: wrap; gap: 2px; flex: 1; min-height: 16px; }
       #editor .eggs svg { width: 15px; height: 15px; fill: rgb(238 247 242 / 0.15); stroke: var(--ink-soft); stroke-width: 1.1; }
       #editor .eggs svg.new { fill: rgb(240 199 94 / 0.45); stroke: var(--energy); }
       #editor .eggs svg .in { fill: none; }
       #editor .stats { color: var(--ink-soft); font-size: 11px; }
-      #editor .message { color: var(--danger); font-size: 12px; min-height: 1em; }
+      #editor .message { color: var(--danger); font-size: 12px; }
+      #editor .message:empty { display: none; }
       #editor .primary { font-size: 15px; font-weight: 600; padding: 10px; background: rgb(159 231 208 / 0.22); border-color: var(--accent); }
       #editor .evolution { display: grid; gap: 6px; }
       #editor .evolve:not(:disabled) { background: rgb(255 214 120 / 0.22); border-color: var(--evolve); color: #ffe6a8; }
       #editor .gauge.dna.ready i { background: var(--evolve); }
-      #editor .ed-timer { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 5px 14px; border-radius: 999px;
-        background: var(--glass-strong); border: 1px solid var(--line); backdrop-filter: var(--blur); white-space: nowrap; }
+      /* The countdown: a ring that empties and a hand that ticks once a second. */
+      #editor .ed-clock { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+        padding: 4px 14px 4px 5px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line);
+        backdrop-filter: var(--blur); white-space: nowrap; }
+      #editor .ed-clock svg { width: 40px; height: 40px; }
+      #editor .ed-clock .track { fill: rgb(255 255 255 / 0.06); stroke: var(--line); stroke-width: 3; }
+      #editor .ed-clock .left { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 100; transform: rotate(-90deg);
+        transform-origin: 20px 20px; transition: stroke-dashoffset 0.25s linear; }
+      #editor .ed-clock .hand { stroke: var(--ink); stroke-width: 2; stroke-linecap: round; transform-origin: 20px 20px;
+        transition: transform 0.12s cubic-bezier(0.3, 1.8, 0.6, 1); }
+      #editor .ed-clock .pin { fill: var(--ink); }
+      #editor .ed-clock .secs { display: block; font-size: 18px; font-variant-numeric: tabular-nums; line-height: 1; }
+      #editor .ed-clock .what { color: var(--ink-soft); font-size: 11px; }
+      #editor .ed-clock.late .left { stroke: var(--danger); }
+      #editor .ed-clock.late .secs { color: var(--danger); }
       #editor .ed-help { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); color: var(--ink-soft); font-size: 12px;
         text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); white-space: nowrap; }
+      /* Sculpting handles, colour-coded: length amber, width cyan, bend magenta (the help line is the legend). */
+      #editor .h-length { --h: #f2b84b; }
+      #editor .h-width { --h: #57d2f2; }
+      #editor .h-bend { --h: #e27ad8; }
       #editor .handle { position: fixed; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; pointer-events: auto;
-        cursor: grab; touch-action: none; background: rgb(255 255 255 / 0.85); border: 2px solid var(--glass-strong);
-        box-shadow: 0 0 0 3px rgb(159 231 208 / 0.45); }
-      #editor .handle:hover { box-shadow: 0 0 0 5px rgb(159 231 208 / 0.6); }
-      #editor .handle.width { width: 13px; height: 13px; left: -6.5px; top: -6.5px; background: rgb(255 255 255 / 0.7); }
+        cursor: grab; touch-action: none; background: var(--h); border: 2px solid var(--glass-strong);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 45%, transparent); }
+      #editor .handle:hover { box-shadow: 0 0 0 5px color-mix(in srgb, var(--h) 65%, transparent); }
+      #editor .handle.small { width: 13px; height: 13px; left: -6.5px; top: -6.5px; }
+      #editor .key { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--h); margin-left: 6px; vertical-align: -1px; }
       #editor .drag-ghost { position: fixed; left: -32px; top: -32px; width: 64px; height: 64px; pointer-events: none; opacity: 0.85; }
-      @media (max-width: 760px) { #palette, #editor-side { width: 40%; } #editor .ed-help { display: none; } }
+      @media (max-width: 760px) { #palette, #editor .ed-side { width: 40%; } #editor .ed-help { display: none; } }
       #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
       #labels div { position: absolute; left: 0; top: 0; font: 12px system-ui, sans-serif; color: rgb(220 245 240 / 0.8);
         white-space: nowrap; text-shadow: 0 1px 3px #000; will-change: transform; }

@@ -3,7 +3,7 @@ import {
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
   EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
-  radiusOf, formOf, MAX_SEGMENTS, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  radiusOf, formOf, segmentsOf, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -418,6 +418,18 @@ test('reaching the cap starts a shielded division cyst; timing out hatches the o
   expect([child.genome, lineage.generation]).toEqual([STARTER_GENOME, 2]);
 });
 
+test('symmetry: a part may be placed up to MAX_PLACED times, paid per placement, its effect capped at maxCopies', () => {
+  const { state, player, lineage } = species();
+  player.cyst = CYST_TIME;
+  lineage.dna = 1000;
+  const pili = (a: number) => ({ gene: 'pili', x: Math.cos(a), y: Math.sin(a), angle: a, scale: 1, group: 0 });
+  const current = lineage.parts.length * GENES.pili.price; // the starter's pili, refunded
+  const five = [0, 1, 2, 3, 4].map((k) => pili((2 * Math.PI * k) / 5)); // a five-fold radial group
+  expect(submitDesign(state, 'p', { parts: five, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
+  expect([copiesOf(lineage.genome, 'pili'), lineage.parts.length]).toEqual([GENES.pili.maxCopies, 5]);
+  expect(1000 - lineage.dna).toBe(5 * GENES.pili.price - current);
+});
+
 test('a design submission is validated, priced, refunds removed parts and hatches', () => {
   const { state, player, lineage } = species();
   const part = (gene: string, x = 1) => ({ gene, x, y: 0, angle: 0, scale: 1, group: 0 });
@@ -431,7 +443,7 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   expect(submitDesign(state, 'p', design([part('pili', 9)]))).toBe('bad placement');
   expect(submitDesign(state, 'p', design([{ ...part('pili'), scale: Number.NaN }]))).toBe('bad placement');
   expect(submitDesign(state, 'p', design([{ ...part('pili'), group: 256 }]))).toBe('bad placement');
-  expect(submitDesign(state, 'p', design(Array(4).fill(part('pili'))))).toBe('too many copies');
+  expect(submitDesign(state, 'p', design(Array(MAX_PLACED + 1).fill(part('pili'))))).toBe('too many copies');
   expect(submitDesign(state, 'p', design([], MAX_CHILDREN))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0.5))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0, 1))).toBe('bad hue');
@@ -963,6 +975,15 @@ test('an animal species designs its body: plan and segment sizes are validated, 
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: Array(MAX_SEGMENTS + 1).fill(0.5) })).toBe('bad segments');
   expect(submitDesign(state, 'p', { ...base, plan: 1, radii: [0.6, 0.4, 0.4, 0.4] })).toBeUndefined();
   expect([lineage.plan, [...lineage.radii].map((r) => Math.round(r * 10) / 10)]).toEqual([1, [0.6, 0.4, 0.4, 0.4]]);
+  // A spine curled into a comma: bends are validated, then kept (and lay the body out curved).
+  player.cyst = CYST_TIME;
+  const radii = [0.5, 0.5, 0.5, 0.4];
+  expect(submitDesign(state, 'p', { ...base, plan: 0, radii, bends: [0, 2, 0, 0] })).toBe('bad bends');
+  expect(submitDesign(state, 'p', { ...base, plan: 0, radii, bends: [0, 0.6, 0.6, 0, 0] })).toBe('bad bends'); // more bends than stations
+  expect(submitDesign(state, 'p', { ...base, plan: 0, radii, bends: [0, 0.6, 0.6, 0] })).toBeUndefined();
+  expect([...lineage.bends].map((b) => Math.round(b * 10) / 10)).toEqual([0, 0.6, 0.6, 0]);
+  const tail = segmentsOf(0, radii, [...lineage.bends]).at(-1)!;
+  expect(Math.abs(tail[1])).toBeGreaterThan(0.1); // the tail curls off the axis
 });
 
 /** A player species 'p' that is an animal, at the size cap. */

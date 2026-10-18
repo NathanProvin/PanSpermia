@@ -34,6 +34,13 @@ export interface CatalogEntry {
 /** A placed part, as on the wire (Part) and in the editor; x forward, y left, in cell radii. */
 export interface Placement<G extends string = Gene> { gene: G; x: number; y: number; angle: number; scale: number; group: number }
 
+/**
+ * How many times one part may be placed on a body: symmetry repeats a placement (a pair, or 3–6 around the centre).
+ * Every placement is paid for in DNA; only the first maxCopies of them add effect (and upkeep) — the genome
+ * stores min(placed, maxCopies). Coats are whole-body: one at most.
+ */
+export const MAX_PLACED = 6;
+
 /** Diminishing returns: total strength of n copies, each worth half the previous (0, 1, 1.5, 1.75). */
 export const stack = (n: number) => 2 - 2 ** (1 - n);
 

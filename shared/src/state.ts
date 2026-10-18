@@ -133,6 +133,8 @@ export const Lineage = schema({
   bend: t.float32().default(0),
   plan: t.uint8().default(0),
   radii: t.array('float32'),
+  /** Spine plans: the turn of the spine at each station (rad; see segmentsOf) — a comma, an S, a spiral. */
+  bends: t.array('float32'),
   /** Genes the editor may place (one-copy bits): starters plus gene-transfer finds. */
   library: t.uint32(),
   dna: t.number(),
