@@ -145,7 +145,22 @@
       #editor .part.used { border-color: var(--accent); }
       #editor .part.locked { cursor: default; background: rgb(255 255 255 / 0.04); }
       #editor .part .q { font-size: 20px; color: var(--ink-soft); opacity: 0.6; }
-      #editor .part-info { min-height: 2.6em; margin: 8px 0 0; color: var(--ink-soft); font-size: 12px; }
+      /* A part's tooltip: a glass card beside the tile (the design language of the panels). */
+      #editor .part-tip { position: fixed; left: 0; top: 0; z-index: 5; width: 230px; padding: 10px 12px; display: grid; gap: 6px;
+        background: var(--glass-strong); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: var(--blur);
+        box-shadow: 0 6px 20px rgb(0 0 0 / 0.35); pointer-events: none; }
+      #editor .part-tip strong { font-size: 14px; }
+      #editor .part-tip p { color: var(--ink-soft); font-size: 12px; line-height: 1.35; }
+      #editor .tip-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+      #editor .tip-row small { color: var(--ink-soft); font-size: 10px; margin-left: 1px; }
+      #editor .tip-row svg { width: 12px; height: 16px; vertical-align: -3px; margin-right: 3px; fill: none; }
+      #editor .tip-dna { color: var(--dna); font-weight: 600; }
+      #editor .tip-dna .strand { stroke: var(--dna); stroke-width: 1.8; }
+      #editor .tip-dna .pair { stroke: #cfe8a6; stroke-width: 1.1; }
+      #editor .tip-upkeep { color: var(--energy); font-weight: 600; }
+      #editor .tip-upkeep svg { width: 13px; height: 13px; fill: rgb(240 149 58 / 0.25); stroke: var(--energy); stroke-width: 1.2; }
+      #editor .tip-copies { color: var(--ink-soft); }
+      #editor .part-tip .click-badge { position: static; }
       #editor button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); border-radius: 8px;
         background: rgb(255 255 255 / 0.06); padding: 6px 10px; }
       #editor button:hover:not(:disabled) { background: rgb(255 255 255 / 0.12); }

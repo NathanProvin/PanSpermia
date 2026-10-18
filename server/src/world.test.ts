@@ -364,8 +364,9 @@ test('new cells are shielded from lysis and phages for the spawn grace', () => {
 
 // --- Lineage --------------------------------------------------------------------------------------
 
-test('copies stack with diminishing returns', () => {
-  expect([0, 1, 2, 3].map(stack)).toEqual([0, 1, 1.5, 1.75]);
+test('copies stack linearly: each extra copy adds half the first', () => {
+  expect([0, 1, 2, 3].map(stack)).toEqual([0, 1, 1.5, 2]);
+  expect(yield2Of(NutrientKind.algae, TIER2.GENES.filter.bit * 3)).toBeCloseTo(ALGAE_MASS * 2, 10); // three filter mouths
   const two = GENES.transporters.bit * 2; // two copies in the packed genome
   expect(copiesOf(two, 'transporters')).toBe(2);
   expect(yieldOf(NutrientKind.dissolved, two)).toBeCloseTo(NUTRIENT_MASS * (1 + (TRANSPORTER_YIELD - 1) * 1.5), 10);

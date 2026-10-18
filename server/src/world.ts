@@ -662,8 +662,12 @@ export function swallows(e: Player, v: Player) {
  * What one packet is worth to a eukaryote, by mouth: a filter takes plant food (dissolved, algae), a jaw
  * takes meat (debris, chunks); 0 means it can't take it in.
  */
-export const yield2Of = (kind: number, genome2: number) =>
-  mouthYield(kind, TIER2.hasGene(genome2, 'filter'), TIER2.hasGene(genome2, 'jaw') || TIER2.hasGene(genome2, 'pallium'), 2);
+export const yield2Of = (kind: number, genome2: number) => {
+  const filters = TIER2.copiesOf(genome2, 'filter');
+  const jaws = Math.max(TIER2.copiesOf(genome2, 'jaw'), TIER2.copiesOf(genome2, 'pallium'));
+  // More mouths take more of each packet, linearly (stack).
+  return Math.max(mouthYield(kind, filters > 0, false, 2) * stack(filters), mouthYield(kind, false, jaws > 0, 2) * stack(jaws));
+};
 
 
 /**

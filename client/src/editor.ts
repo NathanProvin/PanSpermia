@@ -128,6 +128,78 @@ const GROUPS: readonly (readonly [string, readonly string[]])[] = [
   ['Defence', ['capsule', 'thickWall', 'effluxPump', 'theca', 'carapace', 'spines', 'exoskeleton', 'shell', 'cerata']],
   ['Senses & metabolism', ['chemoreceptor', 'eye', 'antennae', 'mitochondrion', 'oil']],
 ];
+/** What each part does, by tier, for the palette's tooltip (user direction: the effect on hover). */
+const PART_INFO: Readonly<Record<number, Readonly<Record<string, string>>>> = {
+  1: {
+    pili: 'Twitching motility: slow, precise turns, and a grip against the current.',
+    flagellum: 'Run-and-tumble swimming: fast, but it turns by tumbling. Each copy swims faster.',
+    chemoreceptor: 'Senses the gradient: tumbles land closer to where you steer.',
+    transporters: 'Takes up more of each dissolved mote. Each copy: +50 % more.',
+    siderophores: 'Scavenges food further from the membrane: a wider reach.',
+    exoenzymes: 'Digests debris and meat chunks: twice the food from them.',
+    bacteriocin: 'Left click: a wide toxin cloud that harms other bacteria for a while.',
+    poreFormer: 'Left click: a short, brutal toxin burst around you.',
+    t6ss: 'A molecular syringe: stabs the cells you touch.',
+    capsule: 'Slime coat: some phages can\'t bind to you. A little slower.',
+    thickWall: 'A tough wall: toxins and stabs hurt less. Slower.',
+    effluxPump: 'Pumps toxins back out: clouds hurt you less.',
+    endospore: 'Right click: a dormant spore for 5 s — nothing can harm you.',
+    thylakoid: 'Photosynthesis: makes energy from light.',
+    adhesin: 'Parasite: cling to a bigger cell and drain its energy.',
+  },
+  2: {
+    cilia: 'Rows of beating hairs: precise steering, quick turns. Each copy swims faster.',
+    flagellum: 'A long whip: fast swimming, wide turns. Each copy swims faster.',
+    filter: 'Mouth: plant food — motes, algae, filaments, spirulina. Each copy takes more of each.',
+    jaw: 'Mouth: swallows cells up to half your mass, eats meat, bites bigger ones. Each copy takes more.',
+    spike: 'Stabs whatever it points at.',
+    poison: 'Left click: leaves a poison cloud behind you.',
+    electric: 'Shocks everything touching you, all around.',
+    jet: 'Right click: a burst of speed.',
+    eye: 'See further: your view widens.',
+    mitochondrion: 'Burns less energy, swims a little faster.',
+    chloroplast: 'Makes energy from light.',
+    peduncle: 'Parasite: pierces a bigger cell or an animal you touch and sucks it dry.',
+    pallium: 'Mouth: wraps and digests prey up to 0.8× your mass (a jaw: 0.5×).',
+    theca: 'Cellulose plates: bites do 30 % less. A little slower.',
+    trichocysts: 'Left click: harpoon threads fired in front of you.',
+  },
+  3: {
+    paddle: 'Rowing legs: precise steering. Each copy swims faster.',
+    tail: 'A beating tail: fast swimming, wide turns. Each copy swims faster.',
+    filterComb: 'Mouthpart: sieves plant food and sweeps up bacteria it touches.',
+    mandible: 'Mouthpart: eats meat, swallows single cells it touches, bites rivals in front.',
+    eye: 'See further: your view widens.',
+    carapace: 'Armour: bites do 40 % less.',
+    mastax: 'Grinding mouthpart: plant food, and 1.5× from big plants (diatoms, dinoflagellates).',
+    stylet: 'Parasite: spears a bigger animal you touch and pumps it dry.',
+    oars: 'Bristled limbs: jump-and-glide rowing, and they sieve small plant food.',
+    muscles: 'A stronger swimming wave: +25 % speed per copy.',
+    lobopods: 'Stubby clawed legs: a steady crawl, and bites knock you back far less.',
+    nematocysts: 'Left click: stinging threads lash out all round your head.',
+    spines: 'Too wide to swallow: only an eater 6× your mass can take you.',
+    tun: 'Right click: dry out into a barrel for 4 s — nothing can harm you.',
+    oil: 'Lipid store: burn 15 % less energy per copy.',
+  },
+  4: {
+    legs: 'Walking legs: precise steering. Each copy walks faster.',
+    tailFan: 'Flip away fast with a tail fan; wide turns.',
+    claw: 'Predator: swallows plankton it touches, crushes rivals. Two claws crush harder.',
+    maxillae: 'Grazing mouthparts: eat diatoms, dinoflagellates and seaweed.',
+    exoskeleton: 'Chitin plates: bites do 45 % less. Slower.',
+    foot: 'A muscular foot: glide steadily, held against the current.',
+    siphon: 'Jet water through a siphon: fast, wide turns.',
+    radula: 'A rasping tongue: grazes diatoms, dinoflagellates and seaweed.',
+    beak: 'Predator: swallows plankton it touches, bites rivals.',
+    shell: 'A shell: bites do 65 % less. Much slower.',
+    eye: 'See further: your view widens.',
+    inkSac: 'Right click: squirt an ink cloud and jet away — hunters can\'t see into it.',
+    proboscis: 'Parasite: pierces another animal you touch and drains it.',
+    cerata: 'Stolen stinging cells: whoever bites you takes 35 % back per copy.',
+    antennae: 'Feel the water: your view widens.',
+  },
+};
+
 /** The parts the player triggers, and with which button (as the game's input: toxins left, the rest right). */
 const ACTIVE: Readonly<Record<string, 'left' | 'right'>> = {
   bacteriocin: 'left', poreFormer: 'left', poison: 'left', trichocysts: 'left', nematocysts: 'left', tun: 'right', endospore: 'right', jet: 'right', inkSac: 'right',
@@ -201,7 +273,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         <div class="click right"><small>Right click</small><span></span></div>
       </div>
       <div class="part-groups"></div>
-      <p class="part-info" aria-live="polite"></p>
+
     </section>
     <div class="ed-side">
       <section class="panel" aria-label="Body and colour">
@@ -234,6 +306,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     <div class="handle h-length" data-h="tail" title="Length: drag out to add stations, in to remove them"></div>
     ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle h-width small" data-w="${i}" title="Width: drag in or out"></div>`).join('')}
     ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle h-bend small" data-b="${i}" title="Bend: drag sideways to turn the body here"></div>`).join('')}
+    <div class="part-tip" role="tooltip" hidden></div>
     <img class="drag-ghost" alt="" hidden>
     <p class="ed-help"><span class="key h-length"></span> length <span class="key h-width"></span> width <span class="key h-bend"></span> bend</p>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
@@ -467,9 +540,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     tile.innerHTML = `<img src="${icons.get(gene)}" alt="" draggable="false"><span class="price">${price}</span><span class="pips"></span>`
       + (slot === 'coat' ? '<span class="coat">coat</span>' : '')
       + (button ? `<span class="click-badge" title="${button} click">${button === 'left' ? 'L' : 'R'}</span>` : '');
-    tile.title = `${label} — ${price} DNA a copy${slot === 'coat' ? ' (click to toggle)' : `, its effect stacks up to ${maxCopies} (drag onto the body, or click)`}`
-      + (button ? ` · triggered by ${button} click` : '');
-    tile.setAttribute('aria-label', `${label}, ${price} DNA`);
+    tile.setAttribute('aria-label', `${label}, ${price} DNA a copy: ${PART_INFO[lineage!.tier]?.[gene] ?? ''}`);
     return tile;
   };
   /** Plan icons for an animal tier: a spine or a radial body (tiers 3 and 4 alike: user direction). */
@@ -604,11 +675,28 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     drag = undefined;
     ghost.hidden = true;
   });
+  // The tooltip: a card beside the hovered tile — the part, what it does, its cost, upkeep, stacking and button.
+  const tip = $<HTMLElement>('.part-tip');
   palette.addEventListener('pointerover', (e) => {
-    const gene = (e.target as Element).closest<HTMLButtonElement>('.part:not(.locked)')?.dataset.gene;
+    const tile = (e.target as Element).closest<HTMLButtonElement>('.part');
+    const gene = tile?.dataset.gene;
     const g = gene && cat.GENES[gene];
-    $('.part-info').textContent = g ? `${g.label} · ${g.price} DNA a copy · stacks up to ${g.maxCopies} · upkeep ${g.upkeep} energy/s` : '';
+    if (!tile || !g || tile.classList.contains('locked')) {
+      tip.hidden = true;
+      return;
+    }
+    const button = ACTIVE[gene];
+    tip.innerHTML = `<strong></strong><p></p><div class="tip-row"><span class="tip-dna">${DNA_ICON}${g.price}<small>/copy</small></span>`
+      + `<span class="tip-upkeep">${UPKEEP_ICON}−${g.upkeep}<small>/s</small></span>`
+      + `<span class="tip-copies">${g.slot === 'coat' ? 'coat' : `stacks ×${g.maxCopies}`}</span>`
+      + (button ? `<span class="click-badge">${button === 'left' ? 'L' : 'R'}</span>` : '') + '</div>';
+    tip.querySelector('strong')!.textContent = g.label;
+    tip.querySelector('p')!.textContent = PART_INFO[lineage!.tier]?.[gene] ?? '';
+    const box = tile.getBoundingClientRect();
+    tip.style.transform = `translate(${Math.round(box.right + 10)}px, ${Math.round(box.top)}px)`;
+    tip.hidden = false;
   });
+  palette.addEventListener('pointerleave', () => { tip.hidden = true; });
   const canvas = renderer.domElement;
   const grab = (el: HTMLElement, start: (e: PointerEvent) => void) => el.addEventListener('pointerdown', (e) => {
     if (root.hidden || submitted) return;

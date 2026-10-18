@@ -51,8 +51,12 @@ export const withBit = (set: number, bit: number) => (hasBit(set, bit) ? set : s
 /** The set of these genes, one copy each — a library's "a | b | c". */
 export const bitsOf = (...bits: number[]) => bits.reduce(withBit, 0);
 
-/** Diminishing returns: total strength of n copies, each worth half the previous (0, 1, 1.5, 1.75). */
-export const stack = (n: number) => 2 - 2 ** (1 - n);
+/**
+ * Total strength of n copies: linear (user direction: mouths feed and locomotion moves linearly with the number of
+ * parts) — the first copy is worth 1, each extra one half that, every one the same (0, 1, 1.5, 2). Prices and upkeep
+ * are per copy, so cost and benefit both grow linearly.
+ */
+export const stack = (n: number) => (n > 0 ? (n + 1) / 2 : 0);
 
 /**
  * Genome helpers for one tier's part catalog. Each tier has its own catalog and genome field (tier 1:

@@ -8,8 +8,8 @@ import { type Catalog, TIER1, bitsOf, makeCatalog } from './genes.ts';
 export const TIER2 = makeCatalog({
   cilia: { upkeep: 0.03, price: 10, maxCopies: 3, slot: 'membrane', at: 2.0, label: 'Cilia' },
   flagellum: { upkeep: 0.05, price: 25, maxCopies: 3, slot: 'membrane', at: Math.PI, label: 'Flagellum' },
-  filter: { upkeep: 0.02, price: 15, maxCopies: 1, slot: 'membrane', at: 0.45, label: 'Filter mouth' },
-  jaw: { upkeep: 0.03, price: 20, maxCopies: 1, slot: 'membrane', at: 0, label: 'Jaw' },
+  filter: { upkeep: 0.02, price: 15, maxCopies: 3, slot: 'membrane', at: 0.45, label: 'Filter mouth' },
+  jaw: { upkeep: 0.03, price: 20, maxCopies: 3, slot: 'membrane', at: 0, label: 'Jaw' },
   // P8c — weapons, the jet, eyes. Spikes only stab where they point; the electric organ shocks anything
   // touching the body; poison is left behind as a cloud (left click); the jet is a dash (right click/Shift).
   spike: { upkeep: 0.03, price: 18, maxCopies: 3, slot: 'membrane', at: 0.3, label: 'Spike' },
