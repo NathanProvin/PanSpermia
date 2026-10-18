@@ -27,6 +27,14 @@ export const TIER4 = makeCatalog({
   cerata: { upkeep: 0.2, price: 45, maxCopies: 3, slot: 'membrane', at: 2.4, label: 'Cerata' },
   // Long jointed antennae: the animal senses further (its view widens, like eyes).
   antennae: { upkeep: 0.04, price: 20, maxCopies: 2, slot: 'membrane', at: 0.4, label: 'Antennae' },
+  // A jellyfish's trailing tentacles: the filtering mouth — they catch the eukaryotes drifting into them.
+  filterTentacles: { upkeep: 0.15, price: 40, maxCopies: 3, slot: 'membrane', at: Math.PI, label: 'Filtering tentacles' },
+  // A coral polyp's crown of stinging tentacles: catches eukaryotes and plankton that brush against it.
+  polypTentacles: { upkeep: 0.2, price: 45, maxCopies: 3, slot: 'membrane', at: 0, label: 'Polyp tentacles' },
+  // A fish's fins: fast, agile swimming.
+  fins: { upkeep: 0.2, price: 45, maxCopies: 3, slot: 'membrane', at: 2.4, label: 'Fins' },
+  // Feathery external gills: more oxygen — a lower burn and a little more speed.
+  gills: { upkeep: 0, price: 35, maxCopies: 3, slot: 'membrane', at: 1.2, label: 'External gills' },
 });
 export type Gene4 = (typeof TIER4.NAMES)[number];
 

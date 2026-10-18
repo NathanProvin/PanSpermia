@@ -901,6 +901,52 @@ void main() {
     float annuli = body * smoothstep(0.7, 1.0, cos(length(p - a0) * 55.0)) * 0.3;
     a = body * 0.92 + joints * 0.3;
     col = chitin() * (1.0 - annuli) + joints * 0.15;
+  } else if (k == ${KIND4 + TIER4.GENES.filterTentacles.index}) { // a jellyfish's trailing tentacles: long, wavy, translucent, beaded with stinging cells
+    for (int i = 0; i < 4; i++) {
+      float fi = float(i) - 1.5;
+      float y0 = fi * 0.16;
+      float wave = (0.08 + 0.05 * fi * fi) * sin(p.x * (4.0 + float(i)) - t * (2.0 + 0.3 * float(i)) + fi);
+      float d = abs(p.y - y0 - wave * smoothstep(-0.9, 0.2, p.x));
+      float along = clamp((p.x + 0.95) / 1.9, 0.0, 1.0);
+      float strand = (1.0 - smoothstep(0.012, 0.03 - 0.012 * along, d)) * step(-0.95, p.x) * (1.0 - smoothstep(0.75, 0.95, p.x + 0.1 * fi));
+      float beads = strand * smoothstep(0.7, 1.0, sin(p.x * 40.0 + fi * 3.0));
+      a = max(a, strand * 0.55 + beads * 0.35);
+    }
+    col = mix(vec3(0.75, 0.82, 0.98), vec3(1.0, 0.82, 0.9), 0.4);
+  } else if (k == ${KIND4 + TIER4.GENES.polypTentacles.index}) { // a polyp's crown: short, thick tentacles with knobbed stinging tips, swaying
+    for (int i = 0; i < 6; i++) {
+      float fi = float(i) - 2.5;
+      vec2 base = vec2(-0.8, fi * 0.13);
+      float ang = fi * 0.32 + 0.18 * sin(t * 1.2 + fi);
+      vec2 tip = base + 1.05 * vec2(cos(ang), sin(ang));
+      float along = clamp(dot(p - base, tip - base) / dot(tip - base, tip - base), 0.0, 1.0);
+      float body = 1.0 - smoothstep(0.0, 0.025, segment(p, base, tip) - mix(0.09, 0.045, along));
+      float knob = 1.0 - smoothstep(0.06, 0.09, length(p - tip));
+      a = max(a, max(body * 0.85, knob * 0.95));
+      col = max(col, mix(vec3(0.95, 0.5, 0.55), vec3(1.0, 0.92, 0.7), knob) * max(body, knob));
+    }
+  } else if (k == ${KIND4 + TIER4.GENES.fins.index}) { // a fin: a translucent membrane stretched over radiating rays, rippling
+    vec2 q = p - vec2(-0.85, 0.0);
+    float rr = length(q);
+    float ang = atan(q.y, q.x) + 0.12 * sin(t * 4.0 - rr * 3.0);
+    float fin = (1.0 - smoothstep(1.55, 1.65, rr + 0.25 * cos(ang * 3.0))) * (1.0 - smoothstep(0.75, 0.95, abs(ang)));
+    float rays = fin * smoothstep(0.8, 1.0, cos(ang * 14.0));
+    a = fin * 0.45 + rays * 0.4;
+    col = mix(uColor * 0.6 + 0.25, vec3(0.92, 0.9, 0.85), rays);
+  } else if (k == ${KIND4 + TIER4.GENES.gills.index}) { // feathery external gills: three stalks fringed with blood-red filaments
+    for (int i = 0; i < 3; i++) {
+      float fi = float(i) - 1.0;
+      vec2 base = vec2(-0.85, fi * 0.3);
+      float ang = fi * 0.35 + 0.1 * sin(t * 1.5 + fi);
+      vec2 dir = vec2(cos(ang), sin(ang));
+      vec2 tip = base + 1.2 * dir;
+      float stalk = 1.0 - smoothstep(0.02, 0.045, segment(p, base, tip));
+      float along = clamp(dot(p - base, dir) / 1.2, 0.0, 1.0);
+      float across = abs(dot(p - base, vec2(-dir.y, dir.x)));
+      float fringe = (1.0 - smoothstep(0.0, 0.16 * sin(3.14 * along), across)) * smoothstep(0.75, 1.0, sin(along * 60.0)) * step(0.15, along);
+      a = max(a, max(stalk * 0.9, fringe * 0.75));
+      col = max(col, mix(vec3(0.85, 0.35, 0.38), vec3(1.0, 0.55, 0.55), fringe) * max(stalk, fringe));
+    }
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -950,6 +996,10 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND4 + TIER4.GENES.proboscis.index]: { size: 0.7, out: 0.45 },
   [KIND4 + TIER4.GENES.cerata.index]: { size: 0.6, out: 0.3 },
   [KIND4 + TIER4.GENES.antennae.index]: { size: 0.9, out: 0.45 },
+  [KIND4 + TIER4.GENES.filterTentacles.index]: { size: 1.4, out: 0.5 },
+  [KIND4 + TIER4.GENES.polypTentacles.index]: { size: 0.8, out: 0.35 },
+  [KIND4 + TIER4.GENES.fins.index]: { size: 0.8, out: 0.35 },
+  [KIND4 + TIER4.GENES.gills.index]: { size: 0.6, out: 0.3 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
   [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
   [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },

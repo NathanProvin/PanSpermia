@@ -241,6 +241,10 @@ export const OIL_METABOLISM = 0.15; // burn × (1 − this × stack(oil))
 // Richer catalog, animals.
 export const CERATA_REFLECT = 0.35; // share of a bite's damage stung back into the biter, × stack(cerata)
 export const ANTENNA_SIGHT = 0.15; // the view widens this much more per stacked antenna pair (client)
+export const T4_SWIM_FINS = 1.15; // fins: fast and agile
+export const FIN_TURN = 2.0;
+export const GILL_METABOLISM = 0.12; // burn × (1 − this × stack(gills))
+export const GILL_SPEED = 0.08; // swim × (1 + this × stack(gills))
 export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bite (see BITE_*)
 /**
  * Swallowing reach. A eukaryote engulfs with its body (EUK_MOUTH radii around its centre); an animal with its

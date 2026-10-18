@@ -4,7 +4,7 @@ import {
   DRIFT_PILI, FLAGELLUM_STACK, MASS_CAP, MIN_MASS, RADIUS_PER_SQRT_MASS, SPAWN_MASS, T2_DRIFT, T2_MASS_CAP,
   T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
   JET_COOLDOWN, JET_TIME, MITO_SPEED, THECA_SWIM, TUN_TIME, TUN_COOLDOWN, T3_SWIM_OARS, OAR_STROKES, MUSCLE_SWIM,
-  T3_SWIM_LOBOPOD, LOBOPOD_DRIFT, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
+  T3_SWIM_LOBOPOD, LOBOPOD_DRIFT, T4_SWIM_FINS, FIN_TURN, GILL_SPEED, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
   PILI_TURN, TUMBLE_SPIN, EVOLVE_DNA_T3, FOOT_DRIFT, LEG_TURN, T4_DRIFT, T4_MASS_CAP, T4_MIN_MASS, T4_SPAWN_MASS, T4_SPEED_COEF,
@@ -227,11 +227,14 @@ function stepArthropod(
   const fan = TIER4.hasGene(genome4, 'tailFan');
   const siphon = TIER4.hasGene(genome4, 'siphon');
   const foot = TIER4.hasGene(genome4, 'foot');
+  const fins = TIER4.copiesOf(genome4, 'fins');
   let swim = 0;
   if (throttle > 0) {
-    turnToward(b, want, legs ? LEG_TURN : foot ? CREEP_TURN : fan || siphon ? T4_TURN_RATE : CREEP_TURN, dt);
+    turnToward(b, want, legs ? LEG_TURN : fins ? FIN_TURN : foot ? CREEP_TURN : fan || siphon ? T4_TURN_RATE : CREEP_TURN, dt);
     swim = Math.max(T4_SWIM_CREEP, fan ? T4_SWIM_TAILFAN : 0, siphon ? T4_SWIM_SIPHON : 0, foot ? T4_SWIM_FOOT : 0,
-      legs ? T4_SWIM_LEGS * (1 + FLAGELLUM_STACK * (stack(legs) - 1)) : 0);
+      legs ? T4_SWIM_LEGS * (1 + FLAGELLUM_STACK * (stack(legs) - 1)) : 0,
+      fins ? T4_SWIM_FINS * (1 + FLAGELLUM_STACK * (stack(fins) - 1)) : 0);
+    swim *= 1 + GILL_SPEED * stack(TIER4.copiesOf(genome4, 'gills'));
   }
   swim *= (TIER4.hasGene(genome4, 'exoskeleton') ? EXOSKELETON_SWIM : 1) * (TIER4.hasGene(genome4, 'shell') ? SHELL_SWIM : 1);
   if (b.dash > 0) swim = Math.max(swim, T4_SWIM_LEGS) * INK_BOOST; // the squirt pushes even a creeping snail

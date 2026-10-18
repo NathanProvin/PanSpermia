@@ -120,13 +120,13 @@ const clampTo = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi,
 
 /** The palette's sections (user direction: parts sorted by type), every tier's parts; a part missing here goes under Other. */
 const GROUPS: readonly (readonly [string, readonly string[]])[] = [
-  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'pallium', 'peduncle', 'chloroplast', 'filterComb', 'mastax', 'stylet', 'proboscis',
+  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'pallium', 'peduncle', 'chloroplast', 'filterComb', 'mastax', 'stylet', 'proboscis', 'filterTentacles', 'polypTentacles',
     'mandible', 'maxillae', 'radula']],
-  ['Locomotion', ['pili', 'flagellum', 'cilia', 'paddle', 'tail', 'oars', 'muscles', 'lobopods', 'legs', 'tailFan', 'foot', 'siphon']],
+  ['Locomotion', ['pili', 'flagellum', 'cilia', 'paddle', 'tail', 'oars', 'muscles', 'lobopods', 'legs', 'tailFan', 'foot', 'siphon', 'fins']],
   ['Weapons', ['t6ss', 'spike', 'electric', 'claw', 'beak']],
   ['Active', ['bacteriocin', 'poreFormer', 'poison', 'trichocysts', 'nematocysts', 'endospore', 'jet', 'tun', 'inkSac']],
   ['Defence', ['capsule', 'thickWall', 'effluxPump', 'theca', 'carapace', 'spines', 'exoskeleton', 'shell', 'cerata']],
-  ['Senses & metabolism', ['chemoreceptor', 'eye', 'antennae', 'mitochondrion', 'oil']],
+  ['Senses & metabolism', ['chemoreceptor', 'eye', 'antennae', 'mitochondrion', 'oil', 'gills']],
 ];
 /** What each part does, by tier, for the palette's tooltip (user direction: the effect on hover). */
 const PART_INFO: Readonly<Record<number, Readonly<Record<string, string>>>> = {
@@ -197,6 +197,10 @@ const PART_INFO: Readonly<Record<number, Readonly<Record<string, string>>>> = {
     proboscis: 'Parasite: pierces another animal you touch and drains it.',
     cerata: 'Stolen stinging cells: whoever bites you takes 35 % back per copy.',
     antennae: 'Feel the water: your view widens.',
+    filterTentacles: 'Filtering mouth: long trailing tentacles catch the eukaryotes drifting into them.',
+    polypTentacles: 'Stinging crown: catches eukaryotes and plankton that brush against it.',
+    fins: 'Fins: fast, agile swimming. Each copy swims faster.',
+    gills: 'External gills: burn 12 % less and swim 8 % faster per copy.',
   },
 };
 

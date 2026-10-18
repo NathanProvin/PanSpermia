@@ -1295,3 +1295,34 @@ test('a catalog may hold up to 26 genes: copies and library bits round-trip past
   expect([hasBit(library, big.GENES.g25!.bit), hasBit(library, big.GENES.g17!.bit), hasBit(library, big.GENES.g16!.bit)]).toEqual([true, true, false]);
   expect(withBit(library, big.GENES.g17!.bit)).toBe(library); // already there
 });
+
+test('animal tentacles: a filtering crown swallows eukaryotes, a polyp crown plankton too; fins swim, gills save energy', () => {
+  const eater = (gene: 'filterTentacles' | 'polypTentacles') => {
+    const state = new PoolState();
+    const e = Object.assign(spawnPlayer(), { tier: 4, genome: 0, genome4: TIER4.genomeOf([gene]), mass: 8000, health: T4_HEALTH_MAX, x: 0, y: 0, heading: 0 });
+    state.players.set('e', e);
+    const at = TIER4.GENES[gene].at as number;
+    const out = radiusOf(8000, 4) * (animalRim(at, DEFAULT_SEGMENTS) + (gene === 'filterTentacles' ? 0.7 : 0.4));
+    const euk = Object.assign(spawnPlayer(), { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: Math.cos(at) * out, y: Math.sin(at) * out, graceUntil: 0 });
+    const plk = Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3: 0, mass: 1500, health: 1200, x: Math.cos(at) * out, y: Math.sin(at) * out + 1, graceUntil: 0 });
+    state.players.set('u', euk);
+    state.players.set('k', plk);
+    stepWorld(state);
+    return [euk.engulfedBy, plk.engulfedBy];
+  };
+  expect(eater('filterTentacles')).toEqual(['e', '']);
+  expect(eater('polypTentacles')).toEqual(['e', 'e']);
+  const speed = (genes: (typeof TIER4.NAMES)[number][]) => {
+    const b = Object.assign(spawnPlayer(), { tier: 4, genome4: TIER4.genomeOf(genes), mass: 8000, heading: 0, vx: 0, vy: 0 });
+    for (let i = 0; i < 60; i++) stepCell(b, b.mass, 0, 1, 0, 0, TICK_DT, 0, 4, 0, 0, b.genome4);
+    return b.vx;
+  };
+  expect(speed(['fins'])).toBeGreaterThan(speed([]) * 2);
+  expect(speed(['fins', 'fins'])).toBeGreaterThan(speed(['fins']));
+  const burn = (genes: (typeof TIER4.NAMES)[number][]) => {
+    const p = { mass: 8000, health: 1, genome: 0, genome4: TIER4.genomeOf(genes), tier: 4 };
+    metabolize(p, 1);
+    return 8000 - p.mass;
+  };
+  expect(burn(['gills'])).toBeLessThan(burn([]));
+});

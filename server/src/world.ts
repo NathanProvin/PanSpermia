@@ -1,7 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
-  ADHESIN_DRAIN, ADHESIN_SHARE, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
+  ADHESIN_DRAIN, ADHESIN_SHARE, GILL_METABOLISM, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
@@ -163,9 +163,10 @@ function mouthPointsOf(state: PoolState, id: string, p: Player): MouthPoint[] {
     const segments = designed && l.radii.length ? segmentsOf(l.plan, [...l.radii], [...l.bends], l.arms)
       : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : DEFAULT_SEGMENTS;
     layout = parts.filter((q) => MOUTHS[p.tier]?.[q.gene]).map((q) => {
-      const out = cat.GENES[q.gene]!.slot === 'membrane' ? animalRim(q.angle, segments) + MOUTH_OUT * q.scale : 1;
+      const m = MOUTHS[p.tier]![q.gene]!;
+      const out = cat.GENES[q.gene]!.slot === 'membrane' ? animalRim(q.angle, segments) + (m.out ?? MOUTH_OUT) * q.scale : 1;
       return { x: cat.GENES[q.gene]!.slot === 'membrane' ? Math.cos(q.angle) * out : q.x, y: cat.GENES[q.gene]!.slot === 'membrane' ? Math.sin(q.angle) * out : q.y,
-        reach: MOUTH_REACH * q.scale, gene: q.gene };
+        reach: (m.reach ?? MOUTH_REACH) * q.scale, gene: q.gene };
     });
     if (mouthLayouts.size > 500) mouthLayouts.clear();
     mouthLayouts.set(key, layout);
@@ -502,7 +503,8 @@ export function metabolize(
   const genome2 = p.genome2 ?? 0;
   const floor = minMassOf(tier);
   // Mitochondria make metabolism cheaper; thylakoids / chloroplasts make mass from light.
-  const burn = tier === 4 ? T4_METABOLISM_BASE + T4_METABOLISM_RATE * p.mass + TIER4.upkeepOf(p.genome4 ?? 0)
+  const burn = tier === 4 ? (T4_METABOLISM_BASE + T4_METABOLISM_RATE * p.mass) * (1 - GILL_METABOLISM * stack(TIER4.copiesOf(p.genome4 ?? 0, 'gills')))
+      + TIER4.upkeepOf(p.genome4 ?? 0)
     : tier === 3 ? (T3_METABOLISM_BASE + T3_METABOLISM_RATE * p.mass) * (1 - OIL_METABOLISM * stack(TIER3.copiesOf(p.genome3 ?? 0, 'oil')))
       + TIER3.upkeepOf(p.genome3 ?? 0)
     : tier === 2
@@ -618,7 +620,8 @@ const ANIMAL_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinofla
  * take meat and single cells. Animals (user direction): grazing mouths take the big plants, predators' claws and beaks
  * swallow plankton — never bacteria nor the floating food bits.
  */
-interface Mouth { food: (kind: number) => number; swallows: readonly number[] }
+/** `out`, `reach`: where the mouth sits beyond the outline and how far it takes things in (cell radii; MOUTH_OUT, MOUTH_REACH). */
+interface Mouth { food: (kind: number) => number; swallows: readonly number[]; out?: number; reach?: number }
 const plant3 = (kind: number) => mouthYield(kind, true, false, 3);
 const graze4 = (kind: number) => (ANIMAL_PLANTS.has(kind) ? PLANT_MASS[kind]! : 0);
 export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> = {
@@ -633,6 +636,9 @@ export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> =
     radula: { food: graze4, swallows: [] },
     claw: { food: () => 0, swallows: [3] },
     beak: { food: () => 0, swallows: [3] },
+    // Tentacles reach far: a jellyfish's filter for the eukaryotes drifting in, a polyp's stinging crown for plankton too.
+    filterTentacles: { food: () => 0, swallows: [2], out: 0.7, reach: 0.7 },
+    polypTentacles: { food: () => 0, swallows: [2, 3], out: 0.4, reach: 0.55 },
   },
 };
 const mouthsIn = (tier: number, genome: number) =>
