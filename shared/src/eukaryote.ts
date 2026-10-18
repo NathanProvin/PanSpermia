@@ -20,6 +20,15 @@ export const TIER2 = makeCatalog({
   // P8d — organelles from endosymbiosis: swallowed bacteria that became part of the cell.
   mitochondrion: { upkeep: 0, price: 20, maxCopies: 3, slot: 'internal', at: [-0.45, 0.25], label: 'Mitochondrion' },
   chloroplast: { upkeep: 0, price: 20, maxCopies: 3, slot: 'internal', at: [0.1, -0.45], label: 'Chloroplast' },
+  // Richer catalog (user direction: ~15 parts a phase, balanced roles). Appended: earlier indices stay valid.
+  // A parasite's feeding tube (myzocytosis): pierces a bigger cell or an animal it touches and sucks it dry.
+  peduncle: { upkeep: 0.03, price: 25, maxCopies: 2, slot: 'membrane', at: -0.35, label: 'Peduncle' },
+  // A predatory dinoflagellate's veil: wraps prey bigger than a jaw could take and digests it outside the cell.
+  pallium: { upkeep: 0.04, price: 30, maxCopies: 1, slot: 'membrane', at: 0, label: 'Pallium' },
+  // Cellulose plates in the membrane: armour against bites, a little slower.
+  theca: { upkeep: 0.03, price: 30, maxCopies: 1, slot: 'coat', at: 0, label: 'Theca' },
+  // Ballistic harpoons: fired in front on left click (with any poison), a short, brutal burst.
+  trichocysts: { upkeep: 0.03, price: 28, maxCopies: 2, slot: 'internal', at: [0.3, 0.28], label: 'Trichocysts' },
 });
 export type Gene2 = (typeof TIER2.NAMES)[number];
 

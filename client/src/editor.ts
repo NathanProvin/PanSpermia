@@ -119,17 +119,17 @@ const clampTo = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi,
 
 /** The palette's sections (user direction: parts sorted by type), every tier's parts; a part missing here goes under Other. */
 const GROUPS: readonly (readonly [string, readonly string[]])[] = [
-  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'chloroplast', 'filterComb',
+  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'pallium', 'peduncle', 'chloroplast', 'filterComb',
     'mandible', 'maxillae', 'radula']],
   ['Locomotion', ['pili', 'flagellum', 'cilia', 'paddle', 'tail', 'legs', 'tailFan', 'foot', 'siphon']],
   ['Weapons', ['t6ss', 'spike', 'electric', 'claw', 'beak']],
-  ['Active', ['bacteriocin', 'poreFormer', 'poison', 'endospore', 'jet', 'inkSac']],
-  ['Defence', ['capsule', 'thickWall', 'effluxPump', 'carapace', 'exoskeleton', 'shell']],
+  ['Active', ['bacteriocin', 'poreFormer', 'poison', 'trichocysts', 'endospore', 'jet', 'inkSac']],
+  ['Defence', ['capsule', 'thickWall', 'effluxPump', 'theca', 'carapace', 'exoskeleton', 'shell']],
   ['Senses & metabolism', ['chemoreceptor', 'eye', 'mitochondrion']],
 ];
 /** The parts the player triggers, and with which button (as the game's input: toxins left, the rest right). */
 const ACTIVE: Readonly<Record<string, 'left' | 'right'>> = {
-  bacteriocin: 'left', poreFormer: 'left', poison: 'left', endospore: 'right', jet: 'right', inkSac: 'right',
+  bacteriocin: 'left', poreFormer: 'left', poison: 'left', trichocysts: 'left', endospore: 'right', jet: 'right', inkSac: 'right',
 };
 const MOUSE_ICON = '<svg viewBox="0 0 20 28" aria-hidden="true"><rect x="1" y="1" width="18" height="26" rx="9"/><path class="btn left" d="M10 1.5A8.5 8.5 0 0 0 1.5 10V12H10Z"/><path class="btn right" d="M10 1.5A8.5 8.5 0 0 1 18.5 10V12H10Z"/><path d="M1 12h18M10 1v11" class="line"/></svg>';
 
@@ -428,7 +428,10 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   };
 
   /** Part tiles, rebuilt on opening and when the body changes (icons are drawn on it). */
+  /** The library the palette was built for: a part found while the editor is open (dev unlocks) rebuilds it. */
+  let builtLibrary = -1;
   const buildPalette = () => {
+    builtLibrary = lineage!.library;
     const listed = new Set(GROUPS.flatMap(([, genes]) => genes));
     const sections = [...GROUPS, ['Other', cat.NAMES.filter((g) => !listed.has(g))] as const]
       .map(([title, genes]) => [title, genes.filter((g) => g in cat.GENES)] as const)
@@ -850,6 +853,10 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     },
     /** Draw the preview; `secondsLeft` is the cyst timer (the server applies the last draft at 0). */
     frame(time: number, dt: number, secondsLeft: number, aspect: number) {
+      if (lineage!.library !== builtLibrary) {
+        buildPalette();
+        render();
+      }
       const half = animal() ? ANIMAL_VIEW_HALF : VIEW_HALF;
       [camera.top, camera.bottom] = [half, -half];
       camera.left = -half * aspect;

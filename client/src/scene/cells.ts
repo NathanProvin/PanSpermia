@@ -46,6 +46,7 @@ uniform float uSidero;
 uniform float uExo;
 uniform float uReach;
 uniform float uCapsule;
+uniform float uTheca;
 uniform float uWall;
 uniform float uSpore;
 uniform float uInfect;
@@ -373,6 +374,15 @@ void main() {
 
   // Capsule: a translucent slime shell around the membrane.
   float gel = uCapsule * smoothstep(-0.02, 0.02, d) * (1.0 - smoothstep(0.18, 0.28, d));
+  // Theca (eukaryote coat): cellulose plates armouring the cell — a pale band under the membrane cut into plates by
+  // fine dark sutures, with a girdle groove round its middle.
+  float band = uTheca * smoothstep(-0.17, -0.11, d) * inside;
+  float sector = fract(a * 9.0 / 6.2831853 + 0.25 * sin(a * 3.0 + uSeed * 9.0));
+  float suture = 1.0 - smoothstep(0.0, 0.07, min(sector, 1.0 - sector));
+  float girdle = exp(-pow(dot(p, vec2(-fwd.y, fwd.x)) / 0.025, 2.0));
+  cyto = mix(cyto, vec3(0.8, 0.77, 0.62) * 0.75, band * 0.5);
+  cyto = mix(cyto, uColor * 0.12, band * max(suture, girdle) * 0.75);
+  cytoAlpha = mix(cytoAlpha, 0.9 * inside, band);
 
   // Phage infection: a violet tint and pale virions crowding the cytoplasm, flickering as they assemble.
   vec2 vg = p * 8.0 + vec2(0.0, t * 0.05);
@@ -700,6 +710,40 @@ void main() {
     a = sac * 0.9;
     col = vec3(0.06, 0.045, 0.04) + vec3(0.25, 0.16, 0.1) * smoothstep(0.55, 0.85, swirl) * 0.6
       + vec3(0.3) * exp(-dot(p - vec2(0.18, 0.2), p - vec2(0.18, 0.2)) * 30.0);
+  } else if (k == ${KIND2 + TIER2.GENES.peduncle.index}) { // a parasite's feeding tube, gulps pulsing down it
+    float s = (p.x + 0.9) / 1.8; // 0 at the cell, 1 at the tip
+    float w = mix(0.17, 0.05, s) * (1.0 + 0.12 * sin(s * 18.0 + t * 6.0));
+    float tube = step(0.0, s) * step(s, 0.92) * (1.0 - smoothstep(w - 0.02, w + 0.02, abs(p.y)));
+    float wall = tube * smoothstep(w * 0.4, w, abs(p.y));
+    float rings = tube * smoothstep(0.8, 1.0, cos(s * 60.0)) * 0.4;
+    float tip = 1.0 - smoothstep(0.0, 0.035, segment(p, vec2(0.75, 0.0), vec2(1.0, 0.0)));
+    float gulp = tube * smoothstep(0.75, 1.0, sin(s * 12.0 + t * 7.0)) * (1.0 - smoothstep(0.0, w * 0.7, abs(p.y)));
+    a = max(tube * (0.4 + 0.45 * wall + rings), tip * 0.85) + gulp * 0.35;
+    col = mix(uColor * 0.45 + 0.3, vec3(0.92, 0.88, 0.8), wall * 0.6) + gulp * vec3(0.55, 0.85, 0.45);
+  } else if (k == ${KIND2 + TIER2.GENES.pallium.index}) { // a web-like veil fanned out to wrap and digest prey
+    vec2 q = p - vec2(-0.95, 0.0);
+    float rr = length(q);
+    float ang = atan(q.y, q.x);
+    float edge = 1.5 + 0.12 * sin(ang * 9.0 + t * 1.5) + 0.06 * sin(ang * 17.0 - t);
+    float veil = (1.0 - smoothstep(edge - 0.06, edge, rr)) * (1.0 - smoothstep(0.8, 1.0, abs(ang))) * step(0.12, rr);
+    float strands = smoothstep(0.86, 1.0, cos(ang * 22.0));
+    float web = smoothstep(0.84, 1.0, cos(rr * 18.0 - t * 0.8));
+    float hem = smoothstep(edge - 0.2, edge - 0.04, rr);
+    a = veil * (0.16 + 0.45 * max(strands, web * 0.7) + 0.35 * hem);
+    col = vec3(0.86, 0.8, 0.96);
+  } else if (k == ${KIND2 + TIER2.GENES.trichocysts.index}) { // harpoon spindles packed under the membrane, aimed out
+    for (int i = 0; i < 6; i++) {
+      float fi = float(i) - 2.5;
+      vec2 c = vec2(-0.1 + 0.08 * abs(fi), fi * 0.2);
+      vec2 dir = normalize(vec2(1.0, fi * 0.18));
+      vec2 rel = p - c;
+      vec2 q = vec2(dot(rel, dir), dot(rel, vec2(-dir.y, dir.x)));
+      float spindle = length(q * vec2(1.0 / 0.42, 1.0 / 0.075));
+      float body = 1.0 - smoothstep(0.85, 1.0, spindle);
+      float core = 1.0 - smoothstep(0.0, 0.5, spindle);
+      a = max(a, body * 0.8);
+      col = max(col, mix(vec3(0.68, 0.74, 0.86), vec3(1.0), core) * body);
+    }
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -721,6 +765,9 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND2 + TIER2.GENES.electric.index]: { size: 0.5, out: 0 },
   [KIND2 + TIER2.GENES.jet.index]: { size: 0.6, out: 0.35 },
   [KIND2 + TIER2.GENES.eye.index]: { size: 0.32, out: 0 },
+  [KIND2 + TIER2.GENES.peduncle.index]: { size: 0.55, out: 0.4 },
+  [KIND2 + TIER2.GENES.pallium.index]: { size: 0.85, out: 0.25 },
+  [KIND2 + TIER2.GENES.trichocysts.index]: { size: 0.5, out: 0 },
   [KIND3 + TIER3.GENES.paddle.index]: { size: 0.7, out: 0.35 },
   [KIND3 + TIER3.GENES.filterComb.index]: { size: 0.45, out: 0.3 },
   [KIND3 + TIER3.GENES.mandible.index]: { size: 0.65, out: 0.35 },
@@ -815,7 +862,7 @@ const material = (vertexShader: string, fragmentShader: string, uniforms: Record
 const bodyGeometry = new THREE.PlaneGeometry(2 * QUAD_HALF, 2 * QUAD_HALF);
 const bodyMaterial = material(VERTEX, FRAGMENT, {
   uTime: { value: 0 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() }, uHeading: { value: 0 },
-  uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 },
+  uSidero: { value: 0 }, uExo: { value: 0 }, uReach: { value: SIDEROPHORE_REACH }, uCapsule: { value: 0 }, uTheca: { value: 0 },
   uWall: { value: 0 }, uSpore: { value: 0 }, uInfect: { value: 0 }, uCyst: { value: 0 }, uCall: { value: 0 }, uTier: { value: 0 },
   uJiggle: { value: 0 }, uSpeed: { value: 0 }, uContact: { value: new THREE.Vector2() }, uHurt: { value: 0 },
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
@@ -1067,6 +1114,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uSidero!.value = hasGene(g1, 'siderophores') ? 1 : 0;
       u.uExo!.value = hasGene(g1, 'exoenzymes') ? 1 : 0;
       u.uCapsule!.value = hasGene(g1, 'capsule') ? 1 : 0;
+      u.uTheca!.value = look.tier === 2 && TIER2.hasGene(look.genome, 'theca') ? 1 : 0;
       u.uWall!.value = hasGene(g1, 'thickWall') ? 1 : 0;
       u.uSpore!.value = pose.spore > 0 ? 1 : 0;
       u.uCyst!.value = pose.cyst > 0 ? 1 : 0;

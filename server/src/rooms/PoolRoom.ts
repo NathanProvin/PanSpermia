@@ -109,6 +109,11 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
           l.lifetimeDna += 100; // counts as earned, so Evolve can be tested too
         }
       });
+      // Unlock every part of the species' tier for the editor (to look at the whole catalog).
+      this.onMessage('dev:unlock', (client) => {
+        const l = this.state.lineages.get(client.sessionId);
+        if (l) l.library = catalogFor(l.tier).NAMES.reduce((lib, g) => lib | catalogFor(l.tier).GENES[g]!.bit, l.library);
+      });
       this.onMessage('dev:die', (client) => {
         const p = this.state.players.get(client.sessionId);
         if (p) p.health = -1; // below 0: one tick of regen must not save it

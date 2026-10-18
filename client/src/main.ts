@@ -318,6 +318,7 @@ try {
       if (e.key === 'p') room.send('dev:spawn', 'plasmid');
       if (e.key === 'v') room.send('dev:spawn', 'phage');
       if (e.key === 'g') room.send('dev:grow');
+      if (e.key === 'u') room.send('dev:unlock');
       if (e.key === 'k') room.send('dev:die');
       if (e.key === 'n') room.send('dev:dna');
     });

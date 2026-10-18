@@ -198,6 +198,20 @@ export const VIRUS_DPS = 20;
 export const VIRUS_BURST = 6;
 export const ADHESIN_DRAIN = 2; // energy/s taken from a eukaryote host, × stack(adhesins)
 export const ADHESIN_SHARE = 0.8; // of the drained energy, to the parasite
+/**
+ * Parasitic mouths of the bigger phases (richer catalog): a eukaryote's peduncle, a plankton's stylet, an animal's
+ * proboscis drain a bigger host they touch, mass/s × stack(copies), keeping PARASITE_SHARE. Sized to rival grazing
+ * (a few times the parasite's burn) without killing a host quickly.
+ */
+export const PEDUNCLE_DRAIN = 8;
+export const STYLET_DRAIN = 30;
+export const PROBOSCIS_DRAIN = 60;
+export const PARASITE_SHARE = 0.8;
+/** A pallium wraps prey up to this share of the eater's mass (a jaw: ENGULF_RATIO). */
+export const PALLIUM_RATIO = 0.8;
+/** A theca lets this share of a bite through, and slows the cell. */
+export const THECA_ARMOUR = 0.7;
+export const THECA_SWIM = 0.92;
 
 // Tier 3 — small multicellular animals (P9). Mass continues from the tier-2 cap.
 export const T3_SPAWN_MASS = 1200; // radius ≈ 305 (TIER_SCALE 2.2)

@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
@@ -1125,4 +1125,55 @@ test('DNA comes from plasmids in every phase, never from food', () => {
   foodAt(state, player.x, player.y, NutrientKind.plasmid, 0);
   stepWorld(state);
   expect(lineage.lifetimeDna).toBe(PLASMID_DNA);
+});
+
+// --- Richer catalog: tier 2 -----------------------------------------------------------------------
+test('a peduncle drains a bigger cell it touches, never a smaller one', () => {
+  const setup = (hostMass: number) => {
+    const { state, e } = eukaryote(TIER2.GENES.cilia.bit, hostMass);
+    const par = spawnPlayer();
+    Object.assign(par, { tier: 2, genome: 0, genome2: TIER2.GENES.peduncle.bit, mass: 300, health: 300,
+      x: radiusOf(hostMass, 2) + radiusOf(300, 2) + 1, y: 0, graceUntil: 0 });
+    state.players.set('par', par);
+    return { state, e, par };
+  };
+  const big = setup(900);
+  const [host0, par0] = [big.e.mass, big.par.mass];
+  run(big.state, 1);
+  expect(host0 - big.e.mass).toBeGreaterThan(PEDUNCLE_DRAIN * 0.8);
+  expect(big.par.mass).toBeGreaterThan(par0 + PEDUNCLE_DRAIN * PARASITE_SHARE * 0.6);
+  const small = setup(200);
+  const host1 = small.e.mass;
+  run(small.state, 1);
+  expect(host1 - small.e.mass).toBeLessThan(1); // its own metabolism only
+});
+
+test('a pallium wraps prey a jaw could not swallow', () => {
+  for (const [genome2, swallowed] of [[TIER2.GENES.jaw.bit, false], [TIER2.GENES.pallium.bit, true]] as const) {
+    const { state } = eukaryote(genome2, 300);
+    const prey = spawnPlayer();
+    Object.assign(prey, { tier: 2, genome: 0, genome2: 0, mass: 210, health: 300, x: 10, y: 0, graceUntil: 0 }); // 0.7× the eater
+    state.players.set('prey', prey);
+    stepWorld(state);
+    expect(prey.engulfedBy === 'e').toBe(swallowed);
+  }
+});
+
+test('a theca blunts bites; trichocysts fire a burst in front', () => {
+  const bitten = (genome2: number) => {
+    const { state, e } = eukaryote(TIER2.GENES.jaw.bit, 300);
+    e.heading = 0;
+    const v = spawnPlayer();
+    Object.assign(v, { tier: 2, genome: 0, genome2, mass: 300, health: 300, x: radiusOf(300, 2) * 2, y: 0, graceUntil: 0 });
+    state.players.set('v', v);
+    stepWorld(state);
+    return 300 - v.health;
+  };
+  expect(bitten(TIER2.GENES.theca.bit)).toBeCloseTo(bitten(0) * THECA_ARMOUR, 6);
+  const { state, e } = eukaryote(TIER2.GENES.trichocysts.bit, 300);
+  e.heading = 0;
+  secrete(state, 'e');
+  const [cloud] = [...state.clouds.values()];
+  expect(TOXINS[cloud!.kind]!.gene).toBe('trichocysts');
+  expect(cloud!.x0).toBeGreaterThan(e.x + radiusOf(300, 2)); // in front (heading 0)
 });

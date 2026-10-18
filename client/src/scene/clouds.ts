@@ -21,6 +21,12 @@ void main() {
     float wisps = 0.55 + 0.45 * valueNoise(p * 3.2 + vec2(uTime * 0.35, -uTime * 0.27));
     float body = (1.0 - smoothstep(0.25, 1.0, r)) * wisps;
     color = vec3(1.0, 0.18, 0.22) * body * 0.42 * fade;
+  } else if (kind > 3.5 && kind < 4.5) {
+    // Trichocysts: a burst of harpoon threads shot out from the middle, pale and fast-fading.
+    float a = atan(p.y, p.x);
+    float threads = smoothstep(0.82, 1.0, cos(a * 13.0 + floor(life * 3.0) * 1.7)) * (1.0 - smoothstep(0.2, 1.0, r)) * smoothstep(0.0, 0.15, r);
+    float tips = exp(-pow((r - 0.2 - 0.7 * sqrt(life)) / 0.05, 2.0)) * smoothstep(0.6, 1.0, cos(a * 13.0 + floor(life * 3.0) * 1.7));
+    color = vec3(0.85, 0.92, 1.0) * (threads * 0.55 + tips * 0.8) * fade;
   } else if (kind > 1.5) {
     float mist = 0.5 + 0.5 * valueNoise(p * 2.6 + vec2(-uTime * 0.4, uTime * 0.3));
     float bubbles = smoothstep(0.75, 0.95, valueNoise(p * 9.0 + uTime * 0.8));

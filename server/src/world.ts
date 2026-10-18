@@ -1,7 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
-  ADHESIN_DRAIN, ADHESIN_SHARE, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
+  ADHESIN_DRAIN, ADHESIN_SHARE, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
@@ -142,11 +142,18 @@ function collide(state: PoolState) {
   }
 }
 
+/** Parasitic mouths by tier: the gene, what it may drain (a bigger host, or any of a bigger tier), how fast, what it keeps. */
+const PARASITES: Readonly<Record<number, { gene: string; host: (h: Player, p: Player) => boolean; rate: number; share: number }>> = {
+  1: { gene: 'adhesin', host: (h) => h.tier >= 2, rate: ADHESIN_DRAIN, share: ADHESIN_SHARE },
+  2: { gene: 'peduncle', host: (h, p) => h.tier > 2 || (h.tier === 2 && h.mass > p.mass), rate: PEDUNCLE_DRAIN, share: PARASITE_SHARE },
+};
+
 /** A mouth that bites (and swallows): a eukaryote's jaw, an animal's mandibles, an arthropod's claws or a mollusk's beak. */
 const bitesWith = (p: Player) => p.tier === 2 ? TIER2.hasGene(p.genome2, 'jaw') : p.tier === 3 ? TIER3.hasGene(p.genome3, 'mandible')
   : p.tier === 4 && hunts4(p.genome4);
 /** Share of a bite's damage that gets through: a carapace, an exoskeleton, a shell; a bacterium's thick wall. */
 function armourOf(v: Player) {
+  if (v.tier === 2) return TIER2.hasGene(v.genome2, 'theca') ? THECA_ARMOUR : 1;
   if (v.tier === 3) return TIER3.hasGene(v.genome3, 'carapace') ? CARAPACE_ARMOUR : 1;
   if (v.tier === 4) return TIER4.hasGene(v.genome4, 'shell') ? SHELL_ARMOUR : TIER4.hasGene(v.genome4, 'exoskeleton') ? EXOSKELETON_ARMOUR : 1;
   return contactFactor(v.genome);
@@ -473,9 +480,9 @@ export function secrete(state: PoolState, id: string) {
     if (!power || p.mass - toxin.cost * power < minMassOf(p.tier)) continue;
     p.mass -= toxin.cost * power;
     p.toxinCooldown = Math.max(p.toxinCooldown, toxin.cooldown);
-    const back = p.tier === 2 ? radiusOf(p.mass, p.tier) * 1.2 : 0; // a eukaryote leaves its poison behind it
-    const x0 = Math.fround(p.x - Math.cos(p.heading) * back);
-    const y0 = Math.fround(p.y - Math.sin(p.heading) * back);
+    const ahead = radiusOf(p.mass, p.tier) * toxin.at; // poison is left behind, harpoons shot in front
+    const x0 = Math.fround(p.x + Math.cos(p.heading) * ahead);
+    const y0 = Math.fround(p.y + Math.sin(p.heading) * ahead);
     state.clouds.set(`c${nextCloudId++}`, new Cloud({ x0, y0, tick0: state.tick, kind, owner: id, power, x: x0, y: y0, tick: state.tick }));
   }
 }
@@ -568,8 +575,9 @@ export const mouthYieldOf = (kind: number, p: Player) =>
  * sweep up bacteria.
  */
 export function swallows(e: Player, v: Player) {
-  if (v.mass > e.mass * ENGULF_RATIO) return false;
-  if (e.tier === 2) return TIER2.hasGene(e.genome2, 'jaw');
+  const pallium = e.tier === 2 && TIER2.hasGene(e.genome2, 'pallium'); // wraps bigger prey than a jaw
+  if (v.mass > e.mass * (pallium ? PALLIUM_RATIO : ENGULF_RATIO)) return false;
+  if (e.tier === 2) return pallium || TIER2.hasGene(e.genome2, 'jaw');
   // Animals swallow single cells only: a rival animal is a fight (bites), never a mouthful.
   if (e.tier === 3) return v.tier < 3 && (TIER3.hasGene(e.genome3, 'mandible') || (v.tier === 1 && TIER3.hasGene(e.genome3, 'filterComb')));
   // Claws and beaks take single cells and smaller animals; grazing mouths sweep up bacteria.
@@ -582,7 +590,7 @@ export function swallows(e: Player, v: Player) {
  * takes meat (debris, chunks); 0 means it can't take it in.
  */
 export const yield2Of = (kind: number, genome2: number) =>
-  mouthYield(kind, TIER2.hasGene(genome2, 'filter'), TIER2.hasGene(genome2, 'jaw'), 2);
+  mouthYield(kind, TIER2.hasGene(genome2, 'filter'), TIER2.hasGene(genome2, 'jaw') || TIER2.hasGene(genome2, 'pallium'), 2);
 
 
 /**
@@ -762,19 +770,22 @@ export function stepWorld(state: PoolState): Death[] {
 
   bite(state, tick);
 
-  // Parasitism: a bacterium with adhesins drains the energy of every eukaryote it clings to.
+  // Parasitism: a bacterium's adhesins, a eukaryote's peduncle, a plankton's stylet, an animal's proboscis drain the
+  // energy of every bigger host they touch.
   for (const [pid, par] of state.players) {
-    const hooks = par.tier === 1 && !dormant(par) ? copiesOf(par.genome, 'adhesin') : 0;
-    if (!hooks) continue;
+    const kind = PARASITES[par.tier];
+    if (!kind || dormant(par) || isMate(pid)) continue;
+    const copies = catalogFor(par.tier).copiesOf(ownGenome(par), kind.gene);
+    if (!copies) continue;
     const rp = radiusOf(par.mass, par.tier);
-    for (const host of state.players.values()) {
-      if (host.tier < 2 || dormant(host) || tick < host.graceUntil) continue; // eukaryotes and animals
+    for (const [hid, host] of state.players) {
+      if (hid === pid || isMate(hid) || !kind.host(host, par) || dormant(host) || tick < host.graceUntil) continue;
       const touch = (radiusOf(host.mass, host.tier) + rp) * 1.08; // collisions hold cells at touching distance
       if (!((host.x - par.x) ** 2 + (host.y - par.y) ** 2 < touch * touch)) continue;
-      const drained = Math.min(ADHESIN_DRAIN * stack(hooks) * TICK_DT, host.mass - minMassOf(host.tier));
+      const drained = Math.min(kind.rate * stack(copies) * TICK_DT, host.mass - minMassOf(host.tier));
       if (drained <= 0) continue;
       host.mass -= drained;
-      par.mass = Math.min(MASS_CAP, par.mass + drained * ADHESIN_SHARE);
+      par.mass = Math.min(massCapOf(par.tier), par.mass + drained * kind.share);
     }
   }
 
