@@ -20,6 +20,13 @@ export const TIER4 = makeCatalog({
   eye: { upkeep: 0.05, price: 15, maxCopies: 3, slot: 'internal', at: [0.55, 0.2], label: 'Eye' },
   // P10d — a mollusk's escape: right click squirts a big ink cloud behind it and jets away (bots can't see into ink).
   inkSac: { upkeep: 0.3, price: 50, maxCopies: 1, slot: 'internal', at: [-0.45, 0], label: 'Ink sac' },
+  // Richer catalog (user direction: ~15 parts a phase). Appended.
+  // A leech's or ribbon worm's eversible proboscis: the parasitic mouth — drains another animal it touches.
+  proboscis: { upkeep: 0.25, price: 50, maxCopies: 1, slot: 'membrane', at: 0.15, label: 'Proboscis' },
+  // A sea slug's cerata, tipped with stolen stinging cells (kleptocnids): a biter gets stung back.
+  cerata: { upkeep: 0.2, price: 45, maxCopies: 3, slot: 'membrane', at: 2.4, label: 'Cerata' },
+  // Long jointed antennae: the animal senses further (its view widens, like eyes).
+  antennae: { upkeep: 0.04, price: 20, maxCopies: 2, slot: 'membrane', at: 0.4, label: 'Antennae' },
 });
 export type Gene4 = (typeof TIER4.NAMES)[number];
 

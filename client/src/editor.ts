@@ -119,13 +119,13 @@ const clampTo = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi,
 
 /** The palette's sections (user direction: parts sorted by type), every tier's parts; a part missing here goes under Other. */
 const GROUPS: readonly (readonly [string, readonly string[]])[] = [
-  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'pallium', 'peduncle', 'chloroplast', 'filterComb', 'mastax', 'stylet',
+  ['Feeding', ['transporters', 'siderophores', 'exoenzymes', 'thylakoid', 'adhesin', 'filter', 'jaw', 'pallium', 'peduncle', 'chloroplast', 'filterComb', 'mastax', 'stylet', 'proboscis',
     'mandible', 'maxillae', 'radula']],
   ['Locomotion', ['pili', 'flagellum', 'cilia', 'paddle', 'tail', 'oars', 'muscles', 'lobopods', 'legs', 'tailFan', 'foot', 'siphon']],
   ['Weapons', ['t6ss', 'spike', 'electric', 'claw', 'beak']],
   ['Active', ['bacteriocin', 'poreFormer', 'poison', 'trichocysts', 'nematocysts', 'endospore', 'jet', 'tun', 'inkSac']],
-  ['Defence', ['capsule', 'thickWall', 'effluxPump', 'theca', 'carapace', 'spines', 'exoskeleton', 'shell']],
-  ['Senses & metabolism', ['chemoreceptor', 'eye', 'mitochondrion', 'oil']],
+  ['Defence', ['capsule', 'thickWall', 'effluxPump', 'theca', 'carapace', 'spines', 'exoskeleton', 'shell', 'cerata']],
+  ['Senses & metabolism', ['chemoreceptor', 'eye', 'antennae', 'mitochondrion', 'oil']],
 ];
 /** The parts the player triggers, and with which button (as the game's input: toxins left, the rest right). */
 const ACTIVE: Readonly<Record<string, 'left' | 'right'>> = {

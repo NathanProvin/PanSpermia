@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
@@ -1251,4 +1251,26 @@ test('oil droplets lower the burn; oars row in strokes; nematocysts sting around
   const [cloud] = [...state.clouds.values()];
   expect(TOXINS[cloud!.kind]!.gene).toBe('nematocysts');
   expect(cloud!.x0).toBeGreaterThan(a.x);
+});
+
+// --- Richer catalog: tier 4 -----------------------------------------------------------------------
+test('a proboscis drains another animal; cerata sting a biter back', () => {
+  const animalAt = (id: string, genome4: number, x: number, state: PoolState) => {
+    const p = spawnPlayer();
+    Object.assign(p, { tier: 4, genome: 0, genome4, mass: 8000, health: T4_HEALTH_MAX, x, y: 0, heading: 0, graceUntil: 0 });
+    state.players.set(id, p);
+    return p;
+  };
+  const s1 = new PoolState();
+  const leech = animalAt('l', TIER4.genomeOf(['proboscis']), 0, s1);
+  const host = animalAt('h', 0, radiusOf(8000, 4) * 2 + 1, s1);
+  const [h0, l0] = [host.mass, leech.mass];
+  run(s1, 1);
+  expect(h0 - host.mass).toBeGreaterThan(PROBOSCIS_DRAIN * 0.8);
+  expect(leech.mass).toBeGreaterThan(l0);
+  const s2 = new PoolState();
+  const biter = animalAt('b', TIER4.genomeOf(['claw']), 0, s2);
+  animalAt('v', TIER4.genomeOf(['cerata']), radiusOf(8000, 4) * 2, s2);
+  stepWorld(s2);
+  expect(T4_HEALTH_MAX - biter.health).toBeCloseTo(BITE_DAMAGE[4]! * CERATA_REFLECT, 6);
 });

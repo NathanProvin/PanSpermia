@@ -863,6 +863,44 @@ void main() {
       a = max(a, drop * 0.85);
       col = max(col, (vec3(1.0, 0.68, 0.16) * (0.75 + 0.25 * smoothstep(rad, 0.0, rr)) + glint) * drop);
     }
+  } else if (k == ${KIND4 + TIER4.GENES.proboscis.index}) { // an eversible proboscis: an annulated tube shooting out and drawing back, hooks at its tip
+    float reach = 0.55 + 0.4 * smoothstep(-0.3, 1.0, sin(t * 1.6));
+    float s = (p.x + 0.9) / (0.9 + reach);
+    float w = mix(0.16, 0.08, clamp(s, 0.0, 1.0));
+    float tube = step(0.0, s) * step(s, 1.0) * (1.0 - smoothstep(w - 0.02, w + 0.02, abs(p.y + 0.06 * sin(s * 6.0 + t * 2.0))));
+    float rings = tube * smoothstep(0.8, 1.0, cos(s * 45.0)) * 0.35;
+    vec2 tip = vec2(reach, 0.06 * sin(6.0 + t * 2.0));
+    float hooks = min(segment(p, tip, tip + vec2(0.1, 0.12)), segment(p, tip, tip + vec2(0.1, -0.12)));
+    float hook = 1.0 - smoothstep(0.015, 0.035, hooks);
+    a = max(tube * (0.75 - rings), hook);
+    col = mix(mix(uColor * 0.5, vec3(0.85, 0.55, 0.55), 0.5), vec3(0.95, 0.9, 0.82), hook);
+  } else if (k == ${KIND4 + TIER4.GENES.cerata.index}) { // cerata: translucent fingers swaying, a dark gland branch inside, white stinging tips
+    for (int i = 0; i < 4; i++) {
+      float fi = float(i) - 1.5;
+      vec2 base = vec2(-0.85, fi * 0.32);
+      float ang = fi * 0.32 + 0.15 * sin(t * 1.4 + fi * 1.9);
+      vec2 tip = base + (1.2 + 0.25 * hash12(vec2(fi, 2.0))) * vec2(cos(ang), sin(ang));
+      float d = segment(p, base, tip);
+      float along = clamp(dot(p - base, tip - base) / dot(tip - base, tip - base), 0.0, 1.0);
+      float w = mix(0.14, 0.09, along);
+      float finger = 1.0 - smoothstep(w - 0.02, w + 0.02, d);
+      float gland = finger * (1.0 - smoothstep(0.0, w * 0.45, d)) * step(along, 0.82);
+      float sac = exp(-dot(p - tip, p - tip) / 0.012);
+      a = max(a, finger * 0.7 + sac * 0.6);
+      col = max(col, mix(mix(uColor * 0.7 + 0.15, vec3(0.32, 0.2, 0.12), gland * 0.8), vec3(1.0), sac) * max(finger, sac));
+    }
+  } else if (k == ${KIND4 + TIER4.GENES.antennae.index}) { // a long jointed antenna, curving and sweeping as it feels the water
+    float sweep = 0.35 * sin(t * 1.3);
+    vec2 a0 = vec2(-0.9, 0.0);
+    vec2 a1 = a0 + 0.6 * vec2(cos(sweep * 0.5), sin(sweep * 0.5));
+    vec2 a2 = a1 + 0.6 * vec2(cos(sweep + 0.25), sin(sweep + 0.25));
+    vec2 a3 = a2 + 0.55 * vec2(cos(sweep * 1.6 + 0.45), sin(sweep * 1.6 + 0.45));
+    float d = min(min(segment(p, a0, a1) - 0.05, segment(p, a1, a2) - 0.035), segment(p, a2, a3) - 0.022);
+    float body = 1.0 - smoothstep(-0.015, 0.015, d);
+    float joints = exp(-dot(p - a1, p - a1) / 0.004) + exp(-dot(p - a2, p - a2) / 0.003);
+    float annuli = body * smoothstep(0.7, 1.0, cos(length(p - a0) * 55.0)) * 0.3;
+    a = body * 0.92 + joints * 0.3;
+    col = chitin() * (1.0 - annuli) + joints * 0.15;
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -909,6 +947,9 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND4 + TIER4.GENES.beak.index]: { size: 0.45, out: 0.25 },
   [KIND4 + TIER4.GENES.eye.index]: { size: 0.18, out: 0 },
   [KIND4 + TIER4.GENES.inkSac.index]: { size: 0.4, out: 0 },
+  [KIND4 + TIER4.GENES.proboscis.index]: { size: 0.7, out: 0.45 },
+  [KIND4 + TIER4.GENES.cerata.index]: { size: 0.6, out: 0.3 },
+  [KIND4 + TIER4.GENES.antennae.index]: { size: 0.9, out: 0.45 },
   [GENES.thylakoid.index]: { size: 0.45, out: 0 },
   [GENES.adhesin.index]: { size: 0.4, out: 0.35 },
   [KIND2 + TIER2.GENES.mitochondrion.index]: { size: 0.38, out: 0 },

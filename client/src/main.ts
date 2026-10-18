@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, NutrientKind, PACKET_DNA, PLASMID_DNA, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TIER4, TOXINS, TUN_COOLDOWN, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
+  BOT_SPECIES, EYE_SIGHT, ANTENNA_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TIER4, TOXINS, TUN_COOLDOWN, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
   JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -366,7 +366,8 @@ try {
       // Follow the cell; zoom out as it grows.
       // Eyes let a eukaryote or bigger see further: the camera pulls back.
       const own = catalogFor(self.tier);
-      const sight = 1 + EYE_SIGHT * stack('eye' in own.GENES ? own.copiesOf(ownGenome(self), 'eye') : 0);
+      const sight = (1 + EYE_SIGHT * stack('eye' in own.GENES ? own.copiesOf(ownGenome(self), 'eye') : 0))
+        * (1 + ANTENNA_SIGHT * stack(self.tier === 4 ? TIER4.copiesOf(self.genome4, 'antennae') : 0)); // antennae sense further
       // bacterium: spawn ≈ 290, cap ≈ 620; eukaryote ≈ 930–1970; animal (gentler: specks still readable) ≈ 2540–4420;
       // arthropod (gentler still: the pool is only so big) ≈ 4990–5740
       const r = radiusOf(self.mass, self.tier);

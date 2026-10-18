@@ -1,7 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
-  ADHESIN_DRAIN, ADHESIN_SHARE, STYLET_DRAIN, MASTAX_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
+  ADHESIN_DRAIN, ADHESIN_SHARE, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
@@ -147,6 +147,7 @@ const PARASITES: Readonly<Record<number, { gene: string; host: (h: Player, p: Pl
   1: { gene: 'adhesin', host: (h) => h.tier >= 2, rate: ADHESIN_DRAIN, share: ADHESIN_SHARE },
   2: { gene: 'peduncle', host: (h, p) => h.tier > 2 || (h.tier === 2 && h.mass > p.mass), rate: PEDUNCLE_DRAIN, share: PARASITE_SHARE },
   3: { gene: 'stylet', host: (h, p) => h.tier > 3 || (h.tier === 3 && h.mass > p.mass), rate: STYLET_DRAIN, share: PARASITE_SHARE },
+  4: { gene: 'proboscis', host: (h) => h.tier === 4, rate: PROBOSCIS_DRAIN, share: PARASITE_SHARE },
 };
 
 /** A mouth that bites (and swallows): a eukaryote's jaw, an animal's mandibles, an arthropod's claws or a mollusk's beak. */
@@ -170,22 +171,25 @@ function bite(state: PoolState, tick: number) {
     a.biteCooldown = Math.max(0, a.biteCooldown - TICK_DT);
     if (!bitesWith(a) || a.biteCooldown > 0 || dormant(a) || a.engulfedBy || isMate(aid)) continue;
     const ra = radiusOf(a.mass, a.tier);
-    let target: { v: Player; d: number; dx: number; dy: number } | undefined;
+    let target: { vid: string; v: Player; d: number; dx: number; dy: number } | undefined;
     for (const [vid, v] of state.players) {
       if (vid === aid || isMate(vid) || dormant(v) || v.engulfedBy || tick < v.graceUntil || swallows(a, v) || outranks(v, a.tier)) continue;
       const dx = v.x - a.x;
       const dy = v.y - a.y;
       const d = Math.hypot(dx, dy);
       if (!(d < ra * (1 + BITE_REACH) + radiusOf(v.mass, v.tier)) || d >= (target?.d ?? Infinity)) continue;
-      if (Math.abs(wrapAngle(Math.atan2(dy, dx) - a.heading)) < MANDIBLE_ARC) target = { v, d, dx, dy };
+      if (Math.abs(wrapAngle(Math.atan2(dy, dx) - a.heading)) < MANDIBLE_ARC) target = { vid, v, d, dx, dy };
     }
     if (!target) continue;
-    const { v, d } = target;
+    const { vid, v, d } = target;
     const nx = d > 1e-6 ? target.dx / d : Math.cos(a.heading);
     const ny = d > 1e-6 ? target.dy / d : Math.sin(a.heading);
     const claws = a.tier === 4 ? Math.max(1, stack(TIER4.copiesOf(a.genome4, 'claw'))) : 1; // a second claw crushes harder
     const small = v.tier > a.tier ? SMALLER_BITE : 1; // small jaws on a bigger body
-    hurt(v, BITE_DAMAGE[a.tier]! * claws * small * armourOf(v), aid, tick);
+    const dealt = BITE_DAMAGE[a.tier]! * claws * small * armourOf(v);
+    hurt(v, dealt, aid, tick);
+    const cerata = v.tier === 4 ? TIER4.copiesOf(v.genome4, 'cerata') : 0; // stolen stinging cells fire back
+    if (cerata) hurt(a, dealt * CERATA_REFLECT * stack(cerata), vid, tick);
     // A torn-off bit of the victim, at the wound: food for whoever grabs it first.
     const torn = Math.min(v.tier >= 2 ? CHUNK_MASS : DEBRIS_MASS, v.mass - minMassOf(v.tier));
     if (torn > 0) {

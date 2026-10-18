@@ -238,6 +238,9 @@ export const SPINE_GAPE = 6; // a spined animal can only be swallowed by an eate
 export const TUN_TIME = 4; // s dormant: invulnerable, still, no metabolism
 export const TUN_COOLDOWN = 20;
 export const OIL_METABOLISM = 0.15; // burn × (1 − this × stack(oil))
+// Richer catalog, animals.
+export const CERATA_REFLECT = 0.35; // share of a bite's damage stung back into the biter, × stack(cerata)
+export const ANTENNA_SIGHT = 0.15; // the view widens this much more per stacked antenna pair (client)
 export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bite (see BITE_*)
 /**
  * Swallowing reach. A eukaryote engulfs with its body (EUK_MOUTH radii around its centre); an animal with its
