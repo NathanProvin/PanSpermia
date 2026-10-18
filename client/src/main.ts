@@ -2,7 +2,7 @@ import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, NutrientKind, PACKET_DNA, PLASMID_DNA, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
   BOT_SPECIES, EYE_SIGHT, ANTENNA_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TIER4, TOXINS, TUN_COOLDOWN, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
-  JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
+  JET_COOLDOWN, formOf, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
   hasBit, withBit,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -193,6 +193,10 @@ let knownTier = 0;
 const STAGEUP_MS = 4500;
 let stageupUntil = 0;
 let pendingStageUp: Lineage | undefined;
+/** The species whose win (walking onto land) was shown. */
+let wonBy: Lineage | undefined;
+/** A predicted timer, on (its value) or off (0): smoothing leaves it hovering around 0 after it runs out. */
+const on = (v: number) => (v > 0.02 ? v : 0);
 
 /** A shared card link opens the card alone; Play drops the fragment and starts the game. */
 const sharedCard = location.hash.startsWith('#card=') ? decodeCard(location.hash.slice('#card='.length)) : undefined;
@@ -355,10 +359,22 @@ try {
       tickArrivedAt = now;
     }
 
+    const own = room.state.lineages.get(room.sessionId);
+    if (own?.evolved && wonBy !== own) { // our animals walked onto land: the game is won (title, then the species card)
+      wonBy = own;
+      const subtitle = document.createElement('small');
+      subtitle.textContent = 'Lungs and legs: a new world awaits. You won!';
+      stageup.replaceChildren(`${own.name} walked onto land`, subtitle);
+      stageup.classList.add('on');
+      stageupUntil = performance.now() + STAGEUP_MS;
+      setTimeout(() => showCard(cardScreen, cardOf(own, 'evolved'), { label: 'Found a new species', action: newSpecies }), STAGEUP_MS);
+    }
     const seenH = camera.position.z * Math.tan((camera.fov * Math.PI) / 360); // last frame's view of the plane
     cells.update(players, time, dt, (p) => ({
       x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
-      tumble: predict.value(p, 'tumble'), spore: predict.value(p, 'spore'), cyst: p.cyst, dash: predict.value(p, 'dash'), call: p.call, cocoon: p.cocoon,
+      // Timers read as on/off: the prediction's output smoothing extrapolates them past 0 (a tiny negative spore hid every
+      // part for up to a minute after a spore or a tun — user report), so near-zero is off.
+      tumble: predict.value(p, 'tumble'), spore: on(predict.value(p, 'spore')), cyst: p.cyst, dash: on(predict.value(p, 'dash')), call: p.call, cocoon: p.cocoon,
     }), lookOf, { x: camera.position.x, y: camera.position.y, halfW: seenH * camera.aspect * 1.2, halfH: seenH * 1.2 });
     perf.mark('cells');
     const self = players.get(room.sessionId);
@@ -466,7 +482,7 @@ try {
       hud.update(editor.isOpen ? undefined : {
         name: lineage.name, generation: lineage.generation, tier: lineage.tier,
         energy: Math.max(0, Math.min(1, (self.mass - floor) / (massCapOf(self.tier) - floor))),
-        dna: lineage.dna, evolve: lineage.tier < MAX_TIER ? Math.min(1, lineage.lifetimeDna / evolveDnaOf(lineage.tier)) : undefined,
+        dna: lineage.dna, evolve: lineage.evolved ? undefined : Math.min(1, lineage.lifetimeDna / evolveDnaOf(lineage.tier)),
         children: lineage.children, abilities, status, health: self.health / healthMaxOf(self.genome, self.tier),
       });
       if (import.meta.env.DEV) hud.perf(`${Math.round(fps)} fps · ${perf.text()} · ${Math.round(renderScale * 100)}% res · ${players.size} cells`);

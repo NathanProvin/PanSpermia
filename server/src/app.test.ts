@@ -3,6 +3,7 @@ import { Callbacks, Client, Predict, type Room } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, GENES, INK, T4_HEALTH_MAX, T4_SPAWN_MASS, TIER4, HEALTH_MAX, MASS_CAP, STARTER_CHILDREN, TIER2, TOXINS, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, MIN_MASS, type Player, PoolState, ROOM_NAME, SEEP_COUNT,
   SPAWN_MASS, STARTER_GENOME, TICK_DT, TICK_RATE, insidePool, drift, sanitizeInput, stepCell,
+  withBit,
 } from '@panspermia/shared';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 
@@ -226,6 +227,7 @@ test('a draft sent over the wire is what a timed-out division hatches with', asy
   authority.players.get(room.sessionId)!.mass = MASS_CAP; // the next tick starts the division cyst
   await vi.waitFor(() => expect(authority.players.get(room.sessionId)!.cyst).toBeGreaterThan(0));
 
+  lineage.library = withBit(lineage.library, GENES.flagellum.bit); // found (not a starter)
   room.send('draft', { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.3, children: 1, name: 'Wire draft' });
   await sleep(150);
   authority.players.get(room.sessionId)!.cyst = 0.1; // fast-forward to the editor timing out

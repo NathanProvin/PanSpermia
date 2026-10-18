@@ -140,7 +140,7 @@ export function renderCard(d: CardData) {
   g.fillStyle = '#9fe7e0';
   g.font = '24px system-ui, sans-serif';
   g.fillText(`Tier ${d.tier} · ${TIER_NAMES[d.tier]}${d.tier === 4 ? ` (${PLAN_NAMES[d.plan]?.toLowerCase()})` : ''}`, x, 195); // tier 4: and its plan
-  const fate = { evolved: '✦ Evolved into eukaryotes', extinct: '✝ Extinct', living: '● Still dividing' }[d.fate];
+  const fate = { evolved: '✦ Walked onto land', extinct: '✝ Extinct', living: '● Still dividing' }[d.fate];
   g.fillStyle = d.fate === 'evolved' ? '#ffd678' : d.fate === 'extinct' ? '#ff9a8a' : '#9fe7e0';
   g.font = '600 26px system-ui, sans-serif';
   g.fillText(fate, x, 245);

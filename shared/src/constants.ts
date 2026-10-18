@@ -55,10 +55,10 @@ export const HEALTH_REGEN = 5;
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
 export const SEEP_COUNT = Math.round(131 * AREA);
-export const SEEP_RATE = 0.55; // packets/s per seep (1.1 of 1-mass motes before the pool grew: same food, half the packets)
+export const SEEP_RATE = 0.605; // +10 % (user direction) // packets/s per seep (1.1 of 1-mass motes before the pool grew: same food, half the packets)
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = (113 / 2) * AREA; // packets/s scattered over the whole pool (motes now 2 mass: same food, half the packets)
+export const BACKGROUND_RATE = (113 / 2) * 1.1 * AREA; // +10 % (user direction) // packets/s scattered over the whole pool (motes now 2 mass: same food, half the packets)
 export const NUTRIENT_LIFETIME = 60; // s
 export const NUTRIENT_CAP = Math.round(37500 * AREA); // packets alive at most
 export const NUTRIENT_MASS = 2; // dissolved packet (1 before the 9750 pool: twice the mass, half as many — the server drifts every packet)
@@ -85,7 +85,7 @@ export const PLASMID_RATE = (3.5 / 0.815) * AREA; // user: 30 % fewer than the 5
 
 // Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
 // lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
-export const PHAGE_RATE = (9) * AREA; // wild phages/s
+export const PHAGE_RATE = (4.5) * AREA; // wild phage swarms/s (VIRUS_SWARM each: 2.25× the phages of the old lone ones)
 export const PHAGE_CLEARANCE = 200; // wild phages never appear this close to a cell
 export const PHAGE_LATENT = 5; // s of damage per infecting phage
 export const PHAGE_DPS = 10;
@@ -114,6 +114,8 @@ export const MAX_CHILDREN = 9; // reserve cap
 /** Lifetime DNA a species must earn before it can evolve to the next tier (Spore's "Grow legs?"). */
 export const EVOLVE_DNA = 250;
 export const EVOLVE_DNA_T2 = 2500; // lifetime DNA for a eukaryote species to become an animal
+/** And for an animal species to walk onto land: the game won (user direction). Provisional. */
+export const EVOLVE_DNA_T4 = 60000;
 export const EVOLVE_DNA_T3 = 15000; // and for an animal species to become an arthropod or mollusk (~2–3 animal generations)
 
 // Tier 2 — eukaryotes (P8). Mass continues from the tier-1 cap; speed and metabolism get their own
@@ -135,8 +137,8 @@ export const T2_TURN_RATE = 2.2; // rad/s with a flagellum and no cilia
 // Diets. Algae are tier-2 plant food (bacteria can't take them in); a dead eukaryote falls apart
 // into meat chunks; a jaw engulfs any cell at most ENGULF_RATIO of the eater's mass.
 export const ALGAE_MASS = 6;
-export const ALGAE_RATE = (28) * AREA; // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
-export const SEEP_ALGAE = 0.25; // per s per seep
+export const ALGAE_RATE = (25.2) * AREA; // −10 % (user direction; was 28) // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
+export const SEEP_ALGAE = 0.225; // per s per seep (−10 %, was 0.25)
 export const CHUNK_MASS = 10;
 /**
  * More plant food (user direction): cyanobacteria filaments and fungal hyphae, eaten like algae — by plant mouths
@@ -197,7 +199,9 @@ export const ENDOSYMBIOSIS_CHANCE = 0.25; // per qualifying bacterium swallowed
 // Hazards of eukaryotes (P8f). Giant viruses (like mimivirus in amoebae) are the eukaryote's phages:
 // they drift, infect on contact and burst out of the dead; bacteria are immune to them, as eukaryotes are
 // to phages. Parasitic bacteria with adhesins drain the energy of any eukaryote they cling to.
-export const VIRUS_RATE = (2.6) * AREA; // wild giant viruses/s
+export const VIRUS_RATE = (1.3) * AREA; // wild giant virus swarms/s
+/** Wild viruses come in swarms (user direction: more of them, grouped): this many, scattered this far (world units). */
+export const VIRUS_SWARM = { min: 3, max: 6, spread: 220 };
 export const VIRUS_LATENT = 6; // s of damage per infecting virus
 export const VIRUS_DPS = 20;
 export const VIRUS_BURST = 6;
@@ -222,7 +226,7 @@ export const THECA_SWIM = 0.92;
 export const T3_SPAWN_MASS = 1200; // radius ≈ 305 (TIER_SCALE 2.2)
 export const T3_MIN_MASS = 600;
 export const T3_MASS_CAP = 6000; // radius ≈ 680
-export const T3_SPEED_COEF = 2350; // 138 u/s at spawn, 72 at cap
+export const T3_SPEED_COEF = 3055; // 180 u/s at spawn, 94 at cap (2350 until animals felt too slow: +30 %)
 export const T3_HEALTH_MAX = 1200;
 export const T3_METABOLISM_BASE = 0.5; // energy/s: ~1 at spawn, ~2.9 at cap
 export const T3_METABOLISM_RATE = 0.0004;
@@ -282,7 +286,7 @@ export const EGG_TIME = 5;
 export const T4_SPAWN_MASS = 6000; // radius ≈ 870 (TIER_SCALE 2.8)
 export const T4_MIN_MASS = 3000;
 export const T4_MASS_CAP = 10000; // radius ≈ 1120
-export const T4_SPEED_COEF = 4860; // 150 u/s at spawn, 122 at cap
+export const T4_SPEED_COEF = 6318; // 195 u/s at spawn, 159 at cap (4860 until animals felt too slow: +30 %)
 export const T4_HEALTH_MAX = 5000; // 3000 → 5000 (polish S0): tier-3 jaws mustn't kill an unarmed snail in a minute
 export const T4_METABOLISM_BASE = 1.5; // energy/s: ~3.3 at spawn, ~4.5 at cap
 export const T4_METABOLISM_RATE = 0.0003;

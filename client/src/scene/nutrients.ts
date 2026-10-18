@@ -44,7 +44,7 @@ void main() {
     d = min(d, min(segment(q, vec2(0.0, -0.4), vec2(-0.32, -0.72)), segment(q, vec2(0.0, -0.4), vec2(0.32, -0.72))));
     d = min(d, min(segment(q, vec2(0.0, -0.4), vec2(-0.12, -0.78)), segment(q, vec2(0.0, -0.4), vec2(0.12, -0.78))));
     float fill = (1.0 - smoothstep(-0.02, 0.0, head)) * 0.25; // packed genome inside the capsid
-    color = vec3(1.0, 0.3, 0.25) * (exp(-pow(d / 0.035, 2.0)) * 0.9 + fill); // danger: red
+    color = vec3(0.78, 0.22, 0.07) * (exp(-pow(d / 0.035, 2.0)) * 0.9 + fill); // danger: brick red (no blue: it adds onto the water)
   } else if (kind < 5.5) {
     vec2 q = rotate(p, seed * 6.2831);
     float body = length(q * vec2(1.0, 1.25));
@@ -66,7 +66,7 @@ void main() {
     float shell = capsid * smoothstep(0.3, 0.44, hex);
     float a = atan(q.y, q.x);
     float fur = (1.0 - capsid) * (1.0 - smoothstep(0.46, 0.66, hex)) * smoothstep(0.5, 0.9, sin(a * 40.0 + seed * 9.0));
-    color = vec3(1.0, 0.32, 0.26) * (shell * 0.9 + capsid * 0.2 + fur * 0.5) + vec3(0.9, 0.2, 0.15) * exp(-r2 * 3.0) * 0.12; // danger: red
+    color = vec3(0.78, 0.22, 0.07) * (shell * 0.9 + capsid * 0.2 + fur * 0.5) + vec3(0.7, 0.16, 0.04) * exp(-r2 * 3.0) * 0.12; // danger: brick red
   } else if (kind < 9.5) {
     // Cyanobacteria: a trichome — a chain of green cells with one larger, paler heterocyst. Each one its own length,
     // curl and waviness (from its seed).

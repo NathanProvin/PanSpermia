@@ -4,6 +4,7 @@ import {
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, rimAt, FAULTS, keepInPool, insidePool, FAULT_SPAWN, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
+  EVOLVE_DNA_T4,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -453,6 +454,7 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   expect(submitDesign(state, 'p', design([], MAX_CHILDREN))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0.5))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0, 1))).toBe('bad hue');
+  lineage.library = withBit(lineage.library, GENES.flagellum.bit); // found (not a starter)
   // Two flagella (2 × 20) + one child (30) = 70, minus the refunded pili (8) = 62 > 50.
   const twoFlagella = [part('flagellum'), part('flagellum', -1)];
   expect(submitDesign(state, 'p', design(twoFlagella, 1))).toBe('not enough DNA');
@@ -483,6 +485,7 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
   const { state, player, lineage } = species();
   player.cyst = CYST_TIME;
   lineage.dna = 100;
+  lineage.library = withBit(lineage.library, GENES.flagellum.bit);
   const draft = { parts: [{ gene: 'flagellum', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }], hue: 0.2, children: 1, name: 'Draftus' };
   expect(submitDesign(state, 'p', draft, false)).toBeUndefined();
   expect(submitDesign(state, 'p', { ...draft, children: 99 }, false)).toBe('bad children'); // keeps the valid one
@@ -542,6 +545,8 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   const parts = [{ gene: 'jaw', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
   expect(submitDesign(state, 'p', { ...evolve, parts })).toBe('not ready to evolve'); // a eukaryote needs far more
   expect(submitDesign(state, 'p', { ...evolve, parts: keep, evolve: false })).toBe('unknown part'); // tier-1 'pili' isn't a eukaryote part
+  expect(submitDesign(state, 'p', { ...evolve, parts, evolve: false })).toBe('part not unlocked'); // the jaw is found now
+  lineage.library = withBit(lineage.library, TIER2.GENES.jaw.bit);
   expect(submitDesign(state, 'p', { ...evolve, parts, evolve: false })).toBeUndefined(); // tier-2 parts validate
   const hatched = state.players.get('p')!;
   expect([hatched.tier, hatched.cyst, hatched.evolving]).toEqual([2, 0, false]); // the designed eukaryote, free
@@ -552,6 +557,7 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   expect([animal.tier, animal.genome2, animal.genome3, animal.mass]).toEqual([3, 0, 0, T3_SPAWN_MASS]);
   expect([lineage.tier, lineage.genome, lineage.library]).toEqual([3, 0, STARTER_LIBRARY3]);
   expect(animal.evolving).toBe(true);
+  lineage.library = withBit(lineage.library, TIER3.GENES.mandible.bit);
   const parts3 = [{ gene: 'mandible', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBe('not ready to evolve');
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3, evolve: false })).toBeUndefined();
@@ -564,11 +570,15 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   expect([arthropod.tier, arthropod.genome3, arthropod.genome4, arthropod.mass, arthropod.health])
     .toEqual([4, 0, 0, T4_SPAWN_MASS, T4_HEALTH_MAX]);
   expect([lineage.tier, lineage.genome, lineage.library, arthropod.evolving]).toEqual([4, 0, STARTER_LIBRARY4, true]);
-  const parts4 = [{ gene: 'claw', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
-  lineage.lifetimeDna = 1e9;
-  expect(submitDesign(state, 'p', { ...evolve, parts: parts4 })).toBe('cannot evolve further yet');
-  expect(submitDesign(state, 'p', { ...evolve, parts: parts4, evolve: false })).toBeUndefined();
-  expect([state.players.get('p')!.tier, state.players.get('p')!.cyst]).toEqual([4, 0]);
+  // The last step: an animal species walks onto land — the game won (user direction); its individual still hatches.
+  const parts4 = [{ gene: 'maxillae', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
+  lineage.lifetimeDna = EVOLVE_DNA_T4 - 1;
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts4 })).toBe('not ready to evolve');
+  lineage.lifetimeDna = EVOLVE_DNA_T4;
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts4 })).toBeUndefined();
+  expect([lineage.evolved, lineage.tier, state.players.get('p')!.tier, state.players.get('p')!.cyst]).toEqual([true, 4, 4, 0]);
+  state.players.get('p')!.cyst = CYST_TIME;
+  expect(submitDesign(state, 'p', { ...evolve, parts: parts4 })).toBe('already on land');
 });
 
 test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and bite rivals in front', () => {
@@ -732,6 +742,7 @@ test('tier 4: claws swallow plankton (never bacteria) and crush rivals through t
   run(s3, MATE_TIMEOUT + 1);
   expect(player.cyst).toBeGreaterThan(0);
   lineage.dna = 1000;
+  lineage.library = withBit(lineage.library, TIER4.GENES.tailFan.bit);
   const fan = [{ gene: 'tailFan', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
   expect(submitDesign(s3, 'p', { parts: fan, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
   expect([s3.players.get('p'), player.cyst, player.cocoon]).toEqual([player, 0, COCOON_TIME]);
@@ -1037,6 +1048,7 @@ test('an animal at the cap calls; its mate swims in; mating opens the editor; th
   // play on), and the new design hatches from it.
   Object.assign(player, { x: 100, y: -50, vx: 0, vy: 0 });
   const parts = [{ gene: 'tail', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
+  lineage.library = withBit(lineage.library, TIER3.GENES.tail.bit);
   lineage.dna = 1000;
   expect(submitDesign(state, 'p', { parts, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
   expect(state.players.get('p')).toBe(player);
@@ -1121,7 +1133,11 @@ test('each phase has its plants: spirulina from eukaryotes, diatoms and dinoflag
   const combs = TIER3.genomeOf(['filterComb']);
   const graze = TIER4.genomeOf(['maxillae']);
   expect(plants.map((k) => [yieldOf(k, ~0) > 0, yield2Of(k, filter) > 0, yield3Of(k, combs) > 0, yield4Of(k, graze) > 0]))
-    .toEqual([[false, true, true, false], [false, false, true, true], [false, false, true, true], [false, false, false, true]]); // animals leave spirulina to the small
+    .toEqual([[false, true, true, false], [false, false, true, true], [false, false, true, true], [false, false, false, false]]); // animals leave spirulina to the small
+  // Two grazers, two diets: maxillae nibble diatoms and dinoflagellates, a radula rasps seaweed (drifting or on the rock) and diatoms.
+  const radula = TIER4.genomeOf(['radula']);
+  expect([NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga, NutrientKind.wallAlga].map((k) => [yield4Of(k, graze) > 0, yield4Of(k, radula) > 0]))
+    .toEqual([[true, true], [true, false], [false, true], [false, true]]);
   for (const bit of [NutrientKind.dissolved, NutrientKind.algae, NutrientKind.chunk, NutrientKind.cyano]) expect(yield4Of(bit, graze | TIER4.genomeOf(['claw']))).toBe(0);
   expect(yield4Of(NutrientKind.macroalga, TIER4.genomeOf(['claw']))).toBe(0); // a hunter's mouth leaves plants alone
 });
@@ -1342,4 +1358,16 @@ test('the shore: rugged, its faults let small cells in but keep big bodies out; 
     && Math.hypot(p.x, p.y) > rimAt(q.angle) - q.depth)).length;
   expect(inFaults).toBeGreaterThan(200 * FAULT_SPAWN * 0.7);
   for (const p of born) expect(insidePool(p.x, p.y)).toBe(true);
+});
+
+test('a design places at most two mouthparts, all kinds together', () => {
+  const { state, player, lineage } = species();
+  Object.assign(lineage, { tier: 2, genome: 0, dna: 1000 });
+  lineage.parts.clear();
+  lineage.library = TIER2.genomeOf(['filter', 'jaw', 'pallium', 'cilia']);
+  Object.assign(player, { tier: 2, cyst: CYST_TIME });
+  const at = (gene: string, angle: number, group: number) => ({ gene, x: Math.cos(angle), y: Math.sin(angle), angle, scale: 1, group });
+  const design = (parts: unknown[]) => ({ parts, hue: 0.1, children: 0, name: lineage.name });
+  expect(submitDesign(state, 'p', design([at('filter', 0, 0), at('jaw', 0.5, 1), at('pallium', -0.5, 2)]), false)).toBe('at most 2 mouthparts');
+  expect(submitDesign(state, 'p', design([at('filter', 0, 0), at('jaw', 0.5, 1), at('cilia', 2, 2)]), false)).toBeUndefined();
 });

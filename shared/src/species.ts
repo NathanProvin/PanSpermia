@@ -63,9 +63,9 @@ export const BOT_SPECIES: readonly Species[] = [
     radii: [0.5, 0.7, 0.62, 0.5, 0.38, 0.28], rare: true },
   // Animals: a drifting jellyfish trailing its filtering tentacles, a coral polyp fixed to the rock, a small fish, a snail
   // grazing the seaweed on the shore.
-  { name: 'Aurelia vagans', tier: 4, archetype: 'drifter', genes: ['filterTentacles', 'filterTentacles', 'filterTentacles', 'siphon'], shape: 0, plan: 1,
+  { name: 'Aurelia vagans', tier: 4, archetype: 'drifter', genes: ['filterTentacles', 'filterTentacles', 'siphon'], shape: 0, plan: 1,
     radii: [0.85, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4], rare: true },
-  { name: 'Coralla fixa', tier: 4, archetype: 'anchored', genes: ['polypTentacles', 'polypTentacles', 'polypTentacles'], shape: 0, plan: 0,
+  { name: 'Coralla fixa', tier: 4, archetype: 'anchored', genes: ['polypTentacles', 'polypTentacles'], shape: 0, plan: 0,
     radii: [0.6, 0.75, 0.6], rare: true },
   { name: 'Piscis parvus', tier: 4, archetype: 'hunter', genes: ['eye', 'eye', 'beak', 'fins', 'fins', 'gills', 'tailFan'], shape: 0, plan: 0,
     radii: [0.55, 0.78, 0.65, 0.45, 0.28], rare: true },

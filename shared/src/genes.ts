@@ -117,5 +117,5 @@ export const GENE_NAMES = TIER1.NAMES;
 
 /** New individuals start able to steer precisely, if slowly. */
 export const STARTER_GENOME = GENES.pili.bit;
-/** Parts a new species can already buy; the rest arrive by gene transfer (fragments, plasmids). */
-export const STARTER_LIBRARY = bitsOf(GENES.pili.bit, GENES.flagellum.bit, GENES.transporters.bit);
+/** Parts a new species can already buy — the bare minimum: a slow mover, a basic feeder; the rest arrive by gene transfer. */
+export const STARTER_LIBRARY = bitsOf(GENES.pili.bit, GENES.transporters.bit);

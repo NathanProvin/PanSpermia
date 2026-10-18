@@ -35,8 +35,8 @@ export type Gene3 = (typeof TIER3.NAMES)[number];
 
 /** A newly evolved animal: paddles to steer, filter combs to feed, an eye (a water-flea larva). */
 export const STARTER_GENOME3 = TIER3.genomeOf(['paddle', 'paddle', 'filterComb', 'eye']);
-export const STARTER_LIBRARY3 = bitsOf(TIER3.GENES.paddle.bit, TIER3.GENES.tail.bit, TIER3.GENES.filterComb.bit,
-  TIER3.GENES.mandible.bit, TIER3.GENES.eye.bit);
+/** The bare minimum (paddles and a filter comb); everything else is found. */
+export const STARTER_LIBRARY3 = bitsOf(TIER3.GENES.paddle.bit, TIER3.GENES.filterComb.bit);
 
 /**
  * Body plans: stations in a chain along a spine (worms, larvae, crustaceans, slugs), or arms around a centre (radial).

@@ -34,12 +34,21 @@ export type Gene2 = (typeof TIER2.NAMES)[number];
 
 /** A newly evolved eukaryote: a little cilia to steer and both mouths (omnivore) until the editor says otherwise. */
 export const STARTER_GENOME2 = TIER2.genomeOf(['cilia', 'filter', 'jaw']);
-/** Parts a new eukaryote can buy at once; weapons and the jet are found (meteor shards, eaten eukaryotes). */
-export const STARTER_LIBRARY2 = bitsOf(TIER2.GENES.cilia.bit, TIER2.GENES.flagellum.bit, TIER2.GENES.filter.bit,
-  TIER2.GENES.jaw.bit, TIER2.GENES.eye.bit);
+/** Parts a new eukaryote can buy at once (the bare minimum: cilia and a filter mouth); everything else is found. */
+export const STARTER_LIBRARY2 = bitsOf(TIER2.GENES.cilia.bit, TIER2.GENES.filter.bit);
 
 /** The highest tier that exists so far; Evolve is offered below it. */
 export const MAX_TIER = 4;
+/**
+ * Mouthparts, per tier (user direction: stacking mouths was too easy) — a design places MAX_MOUTHS of them at most, all
+ * kinds together (a mirrored pair counts two).
+ */
+export const MOUTH_PARTS: Readonly<Record<number, readonly string[]>> = {
+  2: ['filter', 'jaw', 'pallium', 'peduncle'],
+  3: ['filterComb', 'mastax', 'mandible', 'stylet'],
+  4: ['maxillae', 'radula', 'claw', 'beak', 'filterTentacles', 'polypTentacles', 'proboscis'],
+};
+export const MAX_MOUTHS = 2;
 /** Phase names (user: phase 3 is plankton, phase 4 animals); arthropod / mollusk are tier 4's body plans. */
 export const TIER_NAMES = ['', 'Bacterium', 'Eukaryote', 'Plankton', 'Animal'] as const;
 /** The part catalog of a tier: the editor, rendering, validation and cards all go through this. */

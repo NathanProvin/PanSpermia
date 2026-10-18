@@ -40,9 +40,8 @@ export type Gene4 = (typeof TIER4.NAMES)[number];
 
 /** A newly evolved arthropod: a pair of walking legs, grazing mouthparts, an eye. */
 export const STARTER_GENOME4 = TIER4.genomeOf(['legs', 'legs', 'maxillae', 'eye']);
-/** Both plans' basics; the exoskeleton, the shell and the siphon are found (meteor shards). */
-export const STARTER_LIBRARY4 = bitsOf(TIER4.GENES.legs.bit, TIER4.GENES.tailFan.bit, TIER4.GENES.claw.bit,
-  TIER4.GENES.maxillae.bit, TIER4.GENES.eye.bit, TIER4.GENES.foot.bit, TIER4.GENES.radula.bit, TIER4.GENES.beak.bit);
+/** The bare minimum (legs and grazing maxillae); everything else is found (plasmids, meteor shards). */
+export const STARTER_LIBRARY4 = bitsOf(TIER4.GENES.legs.bit, TIER4.GENES.maxillae.bit);
 
 /** A tier-4 body looks soft and slick (a mollusk, a jellyfish, a polyp, a fish) with a foot, a shell, tentacles, fins or gills; otherwise plated chitin. */
 export const softBody4 = (genome4: number) => TIER4.hasGene(genome4, 'foot') || TIER4.hasGene(genome4, 'shell')

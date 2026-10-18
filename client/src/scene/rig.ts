@@ -87,7 +87,7 @@ function place(c: Chain, i: number, x: number, y: number) {
  * The first link is held along `dir`; the rest trails through the water and straightens out behind it.
  * dt ≤ 0 or a dead chain lays it out straight (editor, card, first frame).
  */
-export function stepWhip(c: Chain, rx: number, ry: number, dir: number, link: number, dt: number) {
+export function stepWhip(c: Chain, rx: number, ry: number, dir: number, link: number, dt: number, stiff = 1) {
   const n = c.x.length;
   if (!c.live || dt <= 0) {
     for (let i = 0; i < n; i++) place(c, i, rx + Math.cos(dir) * link * i, ry + Math.sin(dir) * link * i);
@@ -110,7 +110,7 @@ export function stepWhip(c: Chain, rx: number, ry: number, dir: number, link: nu
       const dx = c.x[i - 1]! - c.x[i - 2]!;
       const dy = c.y[i - 1]! - c.y[i - 2]!;
       const d = Math.hypot(dx, dy) || 1;
-      const k = 1 - Math.exp(-h * WHIP_BEND * (1 - (0.5 * i) / n));
+      const k = 1 - Math.exp(-h * WHIP_BEND * stiff * (1 - (0.5 * i) / n));
       relax(c, i, c.x[i - 1]! + (dx / d) * link, c.y[i - 1]! + (dy / d) * link, k);
       keep(c, i, i - 1, link);
     }

@@ -9,7 +9,7 @@ import {
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_TIME, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN,
   cleanForm, MAX_ARM, RADIAL_ARMS, MAX_BEND, MAX_PLACED, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
-  T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
+  T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, MAX_MOUTHS, MOUTH_PARTS, VIRUS_SWARM, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, PLASMID_DNA, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, INK, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
@@ -358,7 +358,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
   const name = cleanName(rawName);
   if (!name) return 'bad name';
   if (typeof evolve !== 'boolean') return 'bad evolve';
-  if (evolve && l.tier >= MAX_TIER) return 'cannot evolve further yet';
+  if (evolve && l.evolved) return 'already on land';
   if (evolve && l.lifetimeDna < evolveDnaOf(l.tier)) return 'not ready to evolve';
   if (!Array.isArray(parts) || parts.length > MAX_PARTS) return 'bad parts';
   if (typeof hue !== 'number' || !(hue >= 0 && hue < 1)) return 'bad hue';
@@ -399,6 +399,8 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
     price += g.price; // every placement is paid for
     placed.push(new Part({ gene: g.index, x, y, angle, scale, group }));
   }
+  const mouths = MOUTH_PARTS[l.tier] ?? [];
+  if (placed.filter((p) => mouths.includes(cat.NAMES[p.gene]!)).length > MAX_MOUTHS) return `at most ${MAX_MOUTHS} mouthparts`;
   // Removing parts refunds them, as in Spore: the price is the new placements' minus the current design's.
   const current = [...l.parts].reduce((sum, p) => sum + (cat.GENES[cat.NAMES[p.gene]!]?.price ?? 0), 0);
   const cost = price - current + children * CHILD_PRICE;
@@ -422,6 +424,11 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
   }
   apply(l, d);
   if (!d.evolve) {
+    hatch(state, id);
+    return undefined;
+  }
+  if (l.tier >= MAX_TIER) { // an animal walks onto land: the game is won (the client shows it); this one still hatches
+    l.evolved = true;
     hatch(state, id);
     return undefined;
   }
@@ -623,7 +630,6 @@ function mouthYield(kind: number, plant: boolean, meat: boolean, tier: number) {
 /** The plants a mastax grinds better than any sieve. */
 const BIG_PLANTS = new Set<number>([NutrientKind.spirulina, NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga]);
 /** An animal's own plants: the big ones (an animal leaves the floating bits — motes, algae, filaments — to the small). */
-const ANIMAL_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga, NutrientKind.wallAlga]);
 /**
  * Each animal mouthpart: what a packet touching it is worth, and the tiers of the cells it can swallow (by mass, see
  * swallows). Plankton: sieves take plant food and filter combs bacteria, a mastax grinds big plants better, mandibles
@@ -633,7 +639,9 @@ const ANIMAL_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinofla
 /** `out`, `reach`: where the mouth sits beyond the outline and how far it takes things in (cell radii; MOUTH_OUT, MOUTH_REACH). */
 interface Mouth { food: (kind: number) => number; swallows: readonly number[]; out?: number; reach?: number }
 const plant3 = (kind: number) => mouthYield(kind, true, false, 3);
-const graze4 = (kind: number) => (ANIMAL_PLANTS.has(kind) ? PLANT_MASS[kind]! : 0);
+const MAXILLA_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinoflagellate]);
+const RADULA_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.macroalga, NutrientKind.wallAlga]);
+const grazeOn = (plants: ReadonlySet<number>) => (kind: number) => (plants.has(kind) ? PLANT_MASS[kind]! : 0);
 export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> = {
   3: {
     filterComb: { food: plant3, swallows: [1] },
@@ -642,8 +650,9 @@ export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> =
     mandible: { food: (k) => mouthYield(k, false, true, 3), swallows: [1, 2] },
   },
   4: {
-    maxillae: { food: graze4, swallows: [] },
-    radula: { food: graze4, swallows: [] },
+    // Two grazers, two diets (user direction): maxillae nibble the drifting single cells, a radula rasps seaweed (and diatoms).
+    maxillae: { food: grazeOn(MAXILLA_PLANTS), swallows: [] },
+    radula: { food: grazeOn(RADULA_PLANTS), swallows: [] },
     claw: { food: () => 0, swallows: [3] },
     beak: { food: () => 0, swallows: [3] },
     // Tentacles reach far: a jellyfish's filter for the eukaryotes drifting in, a polyp's stinging crown for plankton too.
@@ -743,9 +752,16 @@ export function stepWorld(state: PoolState): Death[] {
   // ponytail: a crowded pool skips the spawn instead of searching for room; viruses still burst from the infected.
   for (const [kind, rate] of [[NutrientKind.phage, PHAGE_RATE], [NutrientKind.virus, VIRUS_RATE]] as const) {
     if (Math.random() >= rate * TICK_DT) continue;
-    const at = randomInPool();
+    const centre = randomInPool();
     const clear = PHAGE_CLEARANCE ** 2;
-    if ([...state.players.values()].every((p) => (p.x - at.x) ** 2 + (p.y - at.y) ** 2 > clear)) spawnNutrient(state, at.x, at.y, kind);
+    const n = VIRUS_SWARM.min + Math.floor(Math.random() * (VIRUS_SWARM.max - VIRUS_SWARM.min + 1));
+    for (let k = 0; k < n; k++) { // a swarm (user direction: grouped)
+      const a = Math.random() * 2 * Math.PI;
+      const r = VIRUS_SWARM.spread * Math.sqrt(Math.random());
+      const at = { x: centre.x + Math.cos(a) * r, y: centre.y + Math.sin(a) * r };
+      if (!insidePool(at.x, at.y)) continue;
+      if ([...state.players.values()].every((p) => (p.x - at.x) ** 2 + (p.y - at.y) ** 2 > clear)) spawnNutrient(state, at.x, at.y, kind);
+    }
   }
 
   // Drift food; it dissolves with age or against the rock.

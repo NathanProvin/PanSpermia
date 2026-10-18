@@ -1,5 +1,5 @@
 import {
-  CHILD_PRICE, CYST_TIME, evolveDnaOf, type Catalog, type Form, type Lineage, MAX_BEND, MAX_CHILDREN, MAX_PARTS, MAX_PLACED, MAX_TIER,
+  CHILD_PRICE, CYST_TIME, evolveDnaOf, type Catalog, type Form, type Lineage, MAX_BEND, MAX_CHILDREN, MAX_MOUTHS, MAX_PARTS, MAX_PLACED, MAX_TIER, MOUTH_PARTS,
   NAME_MAX, type Placement, TIER_NAMES, catalogFor, cleanName, deform, undeform, DEFAULT_RADII, DEFAULT_RADII_OF, FORM_LIMITS,
   MAX_SEGMENTS, MIN_SEGMENTS, MAX_ARM, DEFAULT_ARMS, RADIAL_ARMS, PATTERN_NAMES, PIGMENTS, PLAN_NAMES, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN, BEND_CENTRE, type Segment,
   animalRim, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
@@ -185,11 +185,11 @@ const PART_INFO: Readonly<Record<number, Readonly<Record<string, string>>>> = {
     legs: 'Walking legs: precise steering. Each copy walks faster.',
     tailFan: 'Flip away fast with a tail fan; wide turns.',
     claw: 'Predator: swallows plankton it touches, crushes rivals. Two claws crush harder.',
-    maxillae: 'Grazing mouthparts: eat diatoms, dinoflagellates and seaweed.',
+    maxillae: 'Grazing mouthparts: nibble diatoms and dinoflagellates.',
     exoskeleton: 'Chitin plates: bites do 45 % less. Slower.',
     foot: 'A muscular foot: glide steadily, held against the current.',
     siphon: 'Jet water through a siphon: fast, wide turns.',
-    radula: 'A rasping tongue: grazes diatoms, dinoflagellates and seaweed.',
+    radula: 'A rasping tongue: scrapes seaweed (drifting or on the rock) and diatoms.',
     beak: 'Predator: swallows plankton it touches, bites rivals.',
     shell: 'A shell: bites do 65 % less. Much slower.',
     eye: 'See further: your view widens.',
@@ -388,7 +388,10 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const cost = (gs: Group[]) => priceOf(cat, gs) - [...lineage!.parts].reduce((s, p) => s + cat.GENES[cat.NAMES[p.gene]!]!.price, 0)
     + children * CHILD_PRICE;
   const working = () => (drag?.at ? [...groups, drag.at] : groups);
-  const available = (gene: string) => (cat.GENES[gene]!.slot === 'coat' ? 1 : MAX_PLACED) - placed(groups, gene);
+  const mouths = () => MOUTH_PARTS[lineage!.tier] ?? [];
+  /** Copies of a part that may still go on: its own limit, and MAX_MOUTHS mouthparts in all. */
+  const available = (gene: string) => Math.min((cat.GENES[gene]!.slot === 'coat' ? 1 : MAX_PLACED) - placed(groups, gene),
+    mouths().includes(gene) ? MAX_MOUTHS - mouths().reduce((n, g) => n + placed(groups, g), 0) : Infinity);
 
   /** Re-place every part under the body's symmetry (a new plan or arm count); parts that no longer fit come off. */
   const resym = () => {
@@ -654,8 +657,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     gauge.classList.toggle('ready', ready);
     gauge.setAttribute('aria-label', `Lifetime DNA ${Math.floor(lineage!.lifetimeDna)} / ${need}`);
     evolveButton.disabled = submitted || left < 0 || !named || !ready;
-    const next = TIER_NAMES[lineage!.tier + 1]?.toLowerCase();
-    $<HTMLElement>('.evolution').hidden = lineage!.tier >= MAX_TIER || evolving;
+    const next = lineage!.tier >= MAX_TIER ? 'land' : TIER_NAMES[lineage!.tier + 1]?.toLowerCase(); // the last step: the game won
+    $<HTMLElement>('.evolution').hidden = lineage!.evolved || evolving;
     evolveButton.textContent = evolveArmed ? `Evolve to ${next}? Click again` : ready ? `Evolve to ${next}` : 'Evolve';
     // Keep the server's draft current (debounced), so the timer running out keeps these edits.
     clearTimeout(draftTimer);
@@ -693,6 +696,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     tip.innerHTML = `<strong></strong><p></p><div class="tip-row"><span class="tip-dna">${DNA_ICON}${g.price}<small>/copy</small></span>`
       + `<span class="tip-upkeep">${UPKEEP_ICON}−${g.upkeep}<small>/s</small></span>`
       + `<span class="tip-copies">${g.slot === 'coat' ? 'coat' : `stacks ×${g.maxCopies}`}</span>`
+      + (MOUTH_PARTS[lineage!.tier]?.includes(gene) ? `<span class="tip-copies">mouth · ${MAX_MOUTHS} max</span>` : '')
       + (button ? `<span class="click-badge">${button === 'left' ? 'L' : 'R'}</span>` : '') + '</div>';
     tip.querySelector('strong')!.textContent = g.label;
     tip.querySelector('p')!.textContent = PART_INFO[lineage!.tier]?.[gene] ?? '';

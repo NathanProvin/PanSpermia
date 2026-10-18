@@ -1,4 +1,4 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, MAX_MOUTHS, MOUTH_PARTS, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
 
 const genomeOf = (s: (typeof BOT_SPECIES)[number]) => catalogFor(s.tier).genomeOf(s.genes);
 import { expect, test } from 'vitest';
@@ -78,6 +78,7 @@ test('every species design is legal: copies within each part\'s limit', () => {
   for (const s of BOT_SPECIES) {
     const cat = catalogFor(s.tier);
     for (const g of new Set(s.genes)) expect(s.genes.filter((x) => x === g).length).toBeLessThanOrEqual(cat.GENES[g]!.maxCopies);
+    expect(s.genes.filter((g) => MOUTH_PARTS[s.tier]?.includes(g)).length, s.name).toBeLessThanOrEqual(MAX_MOUTHS);
   }
 });
 

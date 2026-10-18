@@ -152,10 +152,19 @@ varying vec2 vWorld;
 ${NOISE}
 ${FBM}
 void main() {
+  // The shore between two samples, interpolated by hand (float textures are read nearest: steps of ~7 units showed up
+  // close to, as a bacterium — user report), and its slope, to turn the radial gap into the distance across the rock:
+  // along a fault's near-radial wall the radial gap is many times the real one, which made the edge alias.
   float a = atan(vWorld.y, vWorld.x);
-  float shore = texture2D(uRim, vec2(fract(a / 6.2831853 + 1.0), 0.5)).r;
+  float t = fract(a / 6.2831853 + 1.0) * ${RIM_SAMPLES}.0;
+  float i = floor(t);
+  float s0 = texture2D(uRim, vec2((i + 0.5) / ${RIM_SAMPLES}.0, 0.5)).r;
+  float s1 = texture2D(uRim, vec2((i + 1.5) / ${RIM_SAMPLES}.0, 0.5)).r;
+  float shore = mix(s0, s1, t - i);
+  float r = length(vWorld);
+  float slope = (s1 - s0) * ${RIM_SAMPLES}.0 / 6.2831853 / max(r, 1.0); // d(shore) per unit of arc
   float jag = (valueNoise(vWorld / 60.0) - 0.5) * 24.0; // fine grain along the rock's edge
-  float d = length(vWorld) - shore + 10.0 + jag;
+  float d = (r - shore + 10.0 + jag) / sqrt(1.0 + slope * slope);
   float rock = smoothstep(-8.0, 8.0, d);
   float grain = fbm(vWorld / 160.0);
   vec3 stone = mix(vec3(0.07, 0.065, 0.055), vec3(0.17, 0.155, 0.12), grain); // sun-warmed grey-brown rock
