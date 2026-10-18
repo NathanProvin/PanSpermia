@@ -172,6 +172,22 @@ vec4 drawEggs(vec2 p, float t, vec2 centre, float big) {
   float jm = (1.0 - smoothstep(-aa, aa, jelly - er * 0.22)) * 0.18 * (1.0 - alpha); // the jelly binding the clutch
   return vec4(col + vec3(0.75, 0.72, 0.55) * jm, alpha + jm);
 }
+// The tun (cryptobiosis): the body dried and drawn in on itself, a waxy wrinkled barrel nothing can harm.
+vec4 drawTun(vec2 p, vec2 c, float len, vec2 ab, float big) {
+  vec2 dir = len > 1e-4 ? ab / len : vec2(1.0, 0.0);
+  vec2 q = vec2(dot(p - c, dir), dot(p - c, vec2(-dir.y, dir.x)));
+  vec2 hs = vec2(len * 0.3 + big * 0.85, big * 0.95);
+  vec2 en = q / hs;
+  float d = (length(en) - 1.0) * min(hs.x, hs.y);
+  float aa = length(fwidth(p)) * 1.2;
+  float inside = 1.0 - smoothstep(-aa, aa, d);
+  if (inside <= 0.0) return vec4(0.0);
+  float wrinkles = 0.5 + 0.5 * cos(en.x * 9.0 + 0.6 * sin(en.y * 3.0));
+  vec3 n = normalize(vec3(en * 0.85, sqrt(max(0.0, 1.0 - dot(en, en)))));
+  vec3 col = mix(vec3(0.6, 0.46, 0.25), uColor * 0.5, 0.25) * (0.45 + 0.55 * max(0.0, dot(n, lightDir()))) * (0.78 + 0.22 * wrinkles);
+  float rim = smoothstep(0.85, 1.0, length(en));
+  return vec4(col * (1.0 - 0.35 * rim) * inside * 0.95, inside * 0.95); // premultiplied
+}
 vec4 drawAnimal(vec2 p, float t) {
   vec2 head = uSeg[0].xy, tail = uSeg[0].xy;
   float big = 0.0;
@@ -212,6 +228,7 @@ vec4 drawAnimal(vec2 p, float t) {
     }
   }
   if (uCocoon > 0.5) return uBody < 0.5 ? drawEggs(p, t, (head + tail) * 0.5, big) : drawCocoon(p, t, head, tail, big, sd);
+  if (uSpore > 0.5) return drawTun(p, (head + tail) * 0.5, length(head - tail), head - tail, big);
   // Edge softness from the pixel size, not fwidth(sd): far links leave sd at 1e3, and that jump between
   // neighbouring pixels made fwidth huge (drew faint rings around bodies).
   float aa = length(fwidth(p)) * 1.2;
@@ -744,6 +761,108 @@ void main() {
       a = max(a, body * 0.8);
       col = max(col, mix(vec3(0.68, 0.74, 0.86), vec3(1.0), core) * body);
     }
+  } else if (k == ${KIND3 + TIER3.GENES.mastax.index}) { // a rotifer's mastax: two ciliated wheels turning, hammer jaws grinding between them
+    for (int side = -1; side <= 1; side += 2) {
+      vec2 c = vec2(0.25, float(side) * 0.42);
+      vec2 q = p - c;
+      float rr = length(q);
+      float ang = atan(q.y, q.x) + float(side) * t * 4.0;
+      float disc = (1.0 - smoothstep(0.26, 0.3, rr)) * (0.35 + 0.4 * smoothstep(0.15, 0.28, rr));
+      float cilia = (1.0 - smoothstep(0.28, 0.5, rr)) * smoothstep(0.28, 0.3, rr) * smoothstep(0.55, 0.95, cos(ang * 16.0));
+      a = max(a, max(disc, cilia * 0.8));
+    }
+    float bite = 0.12 + 0.1 * abs(sin(t * 5.0));
+    float jaws = min(segment(p, vec2(-0.55, bite + 0.02), vec2(0.0, bite * 0.4)), segment(p, vec2(-0.55, -bite - 0.02), vec2(0.0, -bite * 0.4)));
+    float hammer = 1.0 - smoothstep(0.05, 0.09, jaws);
+    a = max(a, hammer * 0.95);
+    col = mix(chitin() + 0.15, vec3(0.92, 0.88, 0.75), hammer * 0.4);
+  } else if (k == ${KIND3 + TIER3.GENES.stylet.index}) { // a tardigrade's stylet: a spear thrusting from a buccal tube, a muscular bulb behind
+    float thrust = 0.18 * smoothstep(0.6, 1.0, sin(t * 3.0));
+    float tube = (1.0 - smoothstep(0.045, 0.07, abs(p.y))) * step(-0.55, p.x) * step(p.x, 0.55);
+    float spear = 1.0 - smoothstep(0.0, 0.03, segment(p, vec2(-0.2, 0.0), vec2(0.75 + thrust, 0.0)) - 0.01 * (1.0 - smoothstep(0.4, 0.8 + thrust, p.x)));
+    vec2 b = p - vec2(-0.72, 0.0);
+    float bulb = 1.0 - smoothstep(0.2, 0.25, length(b * vec2(1.0, 1.25)));
+    float placoids = bulb * smoothstep(0.7, 0.95, cos(b.x * 40.0));
+    a = max(max(tube * 0.55, spear), bulb * 0.8);
+    col = mix(chitin() + 0.1, vec3(0.95, 0.92, 0.82), max(spear, placoids * 0.6));
+  } else if (k == ${KIND3 + TIER3.GENES.oars.index}) { // a nauplius's setose oar: a jointed limb fringed with bristles, a power stroke then a glide
+    float stroke = pow(max(0.0, sin(t * 8.17)), 2.0);
+    float sw = 0.6 - 1.0 * stroke;
+    vec2 base = vec2(-0.85, 0.0);
+    vec2 knee = base + 0.75 * vec2(cos(sw * 0.5), sin(sw * 0.5));
+    vec2 tip = knee + 0.65 * vec2(cos(sw), sin(sw));
+    float limb = min(segment(p, base, knee) - 0.07, segment(p, knee, tip) - 0.05);
+    float body = 1.0 - smoothstep(-0.02, 0.02, limb);
+    float setae = 0.0;
+    for (int i = 0; i < 7; i++) {
+      float f = 0.3 + float(i) / 7.0 * 0.7;
+      vec2 at = mix(knee, tip, f);
+      vec2 dir = normalize(tip - knee);
+      vec2 n = vec2(-dir.y, dir.x);
+      setae = max(setae, 1.0 - smoothstep(0.008, 0.022, segment(p, at, at + (n - dir * 0.6) * 0.45)));
+      setae = max(setae, 1.0 - smoothstep(0.008, 0.022, segment(p, at, at - (n + dir * 0.6) * 0.45)));
+    }
+    a = max(body * 0.9, setae * 0.6);
+    col = mix(chitin(), vec3(0.88, 0.85, 0.75), setae * (1.0 - body));
+  } else if (k == ${KIND3 + TIER3.GENES.muscles.index}) { // body-wall muscles: longitudinal fibres, a contraction wave running down them
+    for (int i = 0; i < 4; i++) {
+      float y0 = -0.55 + float(i) * 0.37;
+      float wave = 0.05 * sin(p.x * 5.0 - t * 6.0 + float(i));
+      float fibre = 1.0 - smoothstep(0.04, 0.08, abs(p.y - y0 - wave));
+      float squeeze = 0.6 + 0.4 * sin(p.x * 6.0 - t * 6.0 + float(i));
+      a = max(a, fibre * (1.0 - smoothstep(0.75, 0.95, abs(p.x))) * (0.45 + 0.3 * squeeze));
+    }
+    col = vec3(0.86, 0.45, 0.42);
+  } else if (k == ${KIND3 + TIER3.GENES.lobopods.index}) { // a tardigrade's lobopod: a stubby fleshy leg tipped with curved claws, stepping
+    float stride = 0.12 * sin(t * 4.0);
+    vec2 tip = vec2(0.45, stride);
+    float leg = segment(p, vec2(-0.85, 0.0), tip) - mix(0.32, 0.2, clamp((p.x + 0.85) / 1.3, 0.0, 1.0));
+    float body = 1.0 - smoothstep(-0.02, 0.02, leg);
+    float claws = 0.0;
+    for (int i = 0; i < 4; i++) {
+      float ang = -0.6 + float(i) * 0.4;
+      vec2 c0 = tip + 0.18 * vec2(cos(ang), sin(ang));
+      vec2 c1 = c0 + 0.22 * vec2(cos(ang + 0.9), sin(ang + 0.9));
+      claws = max(claws, 1.0 - smoothstep(0.015, 0.035, segment(p, c0, c1)));
+    }
+    float folds = body * smoothstep(0.75, 1.0, cos(p.x * 22.0)) * 0.3;
+    a = max(body * 0.9, claws * 0.95);
+    col = mix(mix(uColor * 0.6 + 0.12, vec3(0.85, 0.8, 0.7), 0.25) * (1.0 - folds), vec3(0.95, 0.92, 0.8), claws * (1.0 - body));
+  } else if (k == ${KIND3 + TIER3.GENES.nematocysts.index}) { // a battery of stinging capsules, each with its thread coiled inside
+    for (int i = 0; i < 5; i++) {
+      vec2 c = vec2(-0.35 + 0.28 * float(i - (i / 3) * 3), -0.3 + 0.55 * float(i / 3)) + 0.03 * vec2(sin(t + float(i)), cos(t * 1.3 + float(i)));
+      vec2 q = (p - c) * vec2(1.0, 1.5);
+      float rr = length(q);
+      float caps = 1.0 - smoothstep(0.17, 0.2, rr);
+      float coil = caps * smoothstep(0.6, 0.95, sin(atan(q.y, q.x) * 3.0 + rr * 60.0));
+      a = max(a, caps * (0.55 + 0.35 * coil));
+    }
+    col = vec3(0.78, 0.68, 0.98);
+  } else if (k == ${KIND3 + TIER3.GENES.spines.index}) { // a long serrated spine, tapering to a point
+    float s = (p.x + 0.95) / 1.9;
+    float w = 0.14 * (1.0 - s) + 0.03 * (1.0 - s) * step(0.5, fract(s * 9.0));
+    float spine = step(0.0, s) * step(s, 1.0) * (1.0 - smoothstep(w - 0.02, w + 0.02, abs(p.y)));
+    float ridge = spine * (1.0 - smoothstep(0.0, 0.03, abs(p.y)));
+    a = spine * 0.92;
+    col = mix(chitin() + 0.05, vec3(0.9, 0.86, 0.72), ridge * 0.6);
+  } else if (k == ${KIND3 + TIER3.GENES.tun.index}) { // trehalose glass: clear beads that will vitrify the body when it dries out
+    for (int i = 0; i < 7; i++) {
+      vec2 c = 0.5 * vec2(hash12(vec2(float(i), 3.1)) - 0.5, hash12(vec2(5.7, float(i))) - 0.5) * 2.0;
+      float rr = length(p - c);
+      float bead = 1.0 - smoothstep(0.14, 0.17, rr);
+      a = max(a, bead * (0.4 + 0.5 * smoothstep(0.06, 0.15, rr)) + exp(-dot(p - c - 0.05, p - c - 0.05) * 300.0) * 0.5);
+    }
+    col = vec3(0.95, 0.88, 0.62);
+  } else if (k == ${KIND3 + TIER3.GENES.oil.index}) { // golden lipid droplets with a glint, as in a copepod's oil sac
+    for (int i = 0; i < 4; i++) {
+      vec2 c = 0.45 * vec2(hash12(vec2(float(i), 1.7)) - 0.5, hash12(vec2(2.3, float(i))) - 0.5) * 2.0;
+      float rad = 0.16 + 0.12 * hash12(vec2(float(i), 9.1));
+      float rr = length(p - c);
+      float drop = 1.0 - smoothstep(rad - 0.03, rad, rr);
+      float glint = exp(-dot(p - c + rad * vec2(0.35, -0.35), p - c + rad * vec2(0.35, -0.35)) / (rad * rad * 0.04));
+      a = max(a, drop * 0.85);
+      col = max(col, (vec3(1.0, 0.68, 0.16) * (0.75 + 0.25 * smoothstep(rad, 0.0, rr)) + glint) * drop);
+    }
   } else if (k == ${GENES.endospore.index}) { // the dormant core waiting inside
     float rr = length(p * vec2(1.0, 1.4));
     a = (1.0 - smoothstep(0.6, 0.7, rr)) * (0.3 + 0.7 * smoothstep(0.45, 0.65, rr));
@@ -772,6 +891,15 @@ const PART_SHAPE: Record<number, { size: number; out: number }> = {
   [KIND3 + TIER3.GENES.filterComb.index]: { size: 0.45, out: 0.3 },
   [KIND3 + TIER3.GENES.mandible.index]: { size: 0.65, out: 0.35 },
   [KIND3 + TIER3.GENES.eye.index]: { size: 0.22, out: 0 },
+  [KIND3 + TIER3.GENES.mastax.index]: { size: 0.55, out: 0.25 },
+  [KIND3 + TIER3.GENES.stylet.index]: { size: 0.5, out: 0.4 },
+  [KIND3 + TIER3.GENES.oars.index]: { size: 0.8, out: 0.4 },
+  [KIND3 + TIER3.GENES.muscles.index]: { size: 0.85, out: 0 },
+  [KIND3 + TIER3.GENES.lobopods.index]: { size: 0.55, out: 0.3 },
+  [KIND3 + TIER3.GENES.nematocysts.index]: { size: 0.45, out: 0 },
+  [KIND3 + TIER3.GENES.spines.index]: { size: 0.9, out: 0.5 },
+  [KIND3 + TIER3.GENES.tun.index]: { size: 0.38, out: 0 },
+  [KIND3 + TIER3.GENES.oil.index]: { size: 0.4, out: 0 },
   [KIND4 + TIER4.GENES.legs.index]: { size: 0.75, out: 0.4 },
   [KIND4 + TIER4.GENES.tailFan.index]: { size: 0.7, out: 0.4 },
   [KIND4 + TIER4.GENES.claw.index]: { size: 1, out: 0.45 },
@@ -1058,7 +1186,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const restBody = isAnimal(look.tier) ? segments.map(([x, y]) => deform(form, x, y)) : [];
       if (isAnimal(look.tier)) {
         const rest = restBody.map((b) => toWorld(b.x, b.y));
-        stepSpine(spine, rest, radial, step, Math.hypot(m.vx, m.vy), feel.speed);
+        // Body-wall muscles: a stronger swimming wave down the body.
+        const wave = look.tier === 3 ? 1 + 1.2 * TIER3.copiesOf(look.genome, 'muscles') : 1;
+        stepSpine(spine, rest, radial, step, Math.hypot(m.vx, m.vy), feel.speed, wave);
         for (const [i, [, , r]] of segments.entries()) {
           const b = toBody(spine.x[i]!, spine.y[i]!);
           seg[i]!.set(b.x, b.y, r);

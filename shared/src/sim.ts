@@ -3,7 +3,8 @@
 import {
   DRIFT_PILI, FLAGELLUM_STACK, MASS_CAP, MIN_MASS, RADIUS_PER_SQRT_MASS, SPAWN_MASS, T2_DRIFT, T2_MASS_CAP,
   T2_MIN_MASS, T2_SPAWN_MASS, T2_SPEED_COEF, T2_SWIM_CILIA, T2_SWIM_CREEP, T2_SWIM_FLAGELLUM, T2_TURN_RATE, JET_BOOST,
-  JET_COOLDOWN, JET_TIME, MITO_SPEED, THECA_SWIM, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
+  JET_COOLDOWN, JET_TIME, MITO_SPEED, THECA_SWIM, TUN_TIME, TUN_COOLDOWN, T3_SWIM_OARS, OAR_STROKES, MUSCLE_SWIM,
+  T3_SWIM_LOBOPOD, LOBOPOD_DRIFT, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
   TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, WORLD_RADIUS, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
   PILI_TURN, TUMBLE_SPIN, EVOLVE_DNA_T3, FOOT_DRIFT, LEG_TURN, T4_DRIFT, T4_MASS_CAP, T4_MIN_MASS, T4_SPAWN_MASS, T4_SPEED_COEF,
@@ -103,7 +104,7 @@ export function stepCell(
   const throttle = Math.hypot(dirX, dirY);
   const want = Math.atan2(dirY, dirX);
   if (tier === 4) return stepArthropod(b, mass, genome4, throttle, want, actions, dt, time);
-  if (tier === 3) return stepAnimal(b, mass, genome3, throttle, want, dt, time);
+  if (tier === 3) return stepAnimal(b, mass, genome3, throttle, want, actions, dt, time);
   if (tier === 2) return stepEukaryote(b, mass, genome2, throttle, want, actions, dt, time);
   let swim = 0;
 
@@ -176,17 +177,35 @@ function stepEukaryote(
   move(b, mass, 2, swim * (b.dash > 0 ? 1 : throttle) * speedOf(mass, 2), T2_DRIFT, dt, time, INERTIA[2]!);
 }
 
-/** Animals: paddle legs steer quickly and precisely; a lone tail drives fast but turns wide. */
-function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number, want: number, dt: number, time: number) {
+/**
+ * Animals: paddle legs steer quickly and precisely; a lone tail drives fast but turns wide; setose oars row in jumps
+ * and glides; lobopods crawl steadily and hold on; body-wall muscles strengthen any swim. The tun (right click) curls
+ * up dormant and still. Simulated here so it is predicted.
+ */
+function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number, want: number, actions: number, dt: number, time: number) {
+  b.sporeCooldown = Math.max(0, b.sporeCooldown - dt);
+  if (b.spore > 0) b.spore = Math.max(0, b.spore - dt - 1e-9);
+  else if (actions & ACTION_SPORE && TIER3.hasGene(genome3, 'tun') && b.sporeCooldown === 0) {
+    b.spore = TUN_TIME;
+    b.sporeCooldown = TUN_COOLDOWN;
+  }
   const paddles = TIER3.copiesOf(genome3, 'paddle');
   const tails = TIER3.copiesOf(genome3, 'tail');
+  const oars = TIER3.copiesOf(genome3, 'oars');
+  const lobopods = TIER3.copiesOf(genome3, 'lobopods');
   let swim = 0;
-  if (throttle > 0) {
-    turnToward(b, want, tails && !paddles ? T3_TURN_RATE : PADDLE_TURN, dt);
+  if (throttle > 0 && b.spore === 0) {
+    turnToward(b, want, tails && !paddles && !oars && !lobopods ? T3_TURN_RATE : PADDLE_TURN, dt);
     swim = tails ? T3_SWIM_TAIL * (1 + FLAGELLUM_STACK * (stack(tails) - 1))
-      : paddles ? T3_SWIM_PADDLE * (1 + FLAGELLUM_STACK * (stack(paddles) - 1)) : T3_SWIM_CREEP;
+      : paddles ? T3_SWIM_PADDLE * (1 + FLAGELLUM_STACK * (stack(paddles) - 1))
+      : lobopods ? T3_SWIM_LOBOPOD * (1 + FLAGELLUM_STACK * (stack(lobopods) - 1)) : T3_SWIM_CREEP;
+    if (oars) { // a power stroke, then a glide
+      const stroke = Math.max(0, Math.sin(2 * Math.PI * OAR_STROKES * time)) ** 2;
+      swim = Math.max(swim, T3_SWIM_OARS * (1 + FLAGELLUM_STACK * (stack(oars) - 1)) * (0.45 + 1.1 * stroke));
+    }
+    swim *= 1 + MUSCLE_SWIM * stack(TIER3.copiesOf(genome3, 'muscles'));
   }
-  move(b, mass, 3, swim * throttle * speedOf(mass, 3), T3_DRIFT, dt, time, INERTIA[3]!);
+  move(b, mass, 3, swim * throttle * speedOf(mass, 3), T3_DRIFT * (lobopods ? LOBOPOD_DRIFT : 1), dt, time, INERTIA[3]!);
 }
 
 /**

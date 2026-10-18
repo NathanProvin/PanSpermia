@@ -1,7 +1,7 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
-  ADHESIN_DRAIN, ADHESIN_SHARE, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
+  ADHESIN_DRAIN, ADHESIN_SHARE, STYLET_DRAIN, MASTAX_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
@@ -146,6 +146,7 @@ function collide(state: PoolState) {
 const PARASITES: Readonly<Record<number, { gene: string; host: (h: Player, p: Player) => boolean; rate: number; share: number }>> = {
   1: { gene: 'adhesin', host: (h) => h.tier >= 2, rate: ADHESIN_DRAIN, share: ADHESIN_SHARE },
   2: { gene: 'peduncle', host: (h, p) => h.tier > 2 || (h.tier === 2 && h.mass > p.mass), rate: PEDUNCLE_DRAIN, share: PARASITE_SHARE },
+  3: { gene: 'stylet', host: (h, p) => h.tier > 3 || (h.tier === 3 && h.mass > p.mass), rate: STYLET_DRAIN, share: PARASITE_SHARE },
 };
 
 /** A mouth that bites (and swallows): a eukaryote's jaw, an animal's mandibles, an arthropod's claws or a mollusk's beak. */
@@ -194,8 +195,9 @@ function bite(state: PoolState, tick: number) {
     }
     const knock = BITE_KNOCK * Math.min(2, Math.sqrt(a.mass / v.mass));
     const recoil = BITE_RECOIL * Math.min(1, Math.sqrt(v.mass / a.mass));
-    v.vx += nx * knock;
-    v.vy += ny * knock;
+    const grip = v.tier === 3 && TIER3.hasGene(v.genome3, 'lobopods') ? LOBOPOD_GRIP : 1; // clawed legs hold on
+    v.vx += nx * knock * grip;
+    v.vy += ny * knock * grip;
     a.vx -= nx * recoil;
     a.vy -= ny * recoil;
     a.bites = (a.bites + 1) & 255;
@@ -456,7 +458,8 @@ export function metabolize(
   const floor = minMassOf(tier);
   // Mitochondria make metabolism cheaper; thylakoids / chloroplasts make mass from light.
   const burn = tier === 4 ? T4_METABOLISM_BASE + T4_METABOLISM_RATE * p.mass + TIER4.upkeepOf(p.genome4 ?? 0)
-    : tier === 3 ? T3_METABOLISM_BASE + T3_METABOLISM_RATE * p.mass + TIER3.upkeepOf(p.genome3 ?? 0)
+    : tier === 3 ? (T3_METABOLISM_BASE + T3_METABOLISM_RATE * p.mass) * (1 - OIL_METABOLISM * stack(TIER3.copiesOf(p.genome3 ?? 0, 'oil')))
+      + TIER3.upkeepOf(p.genome3 ?? 0)
     : tier === 2
       ? (T2_METABOLISM_BASE + T2_METABOLISM_RATE * p.mass) * (1 - MITO_METABOLISM * stack(TIER2.copiesOf(genome2, 'mitochondrion')))
         + TIER2.upkeepOf(genome2)
@@ -561,8 +564,13 @@ function mouthYield(kind: number, plant: boolean, meat: boolean, tier: number) {
   return 0;
 }
 /** What one packet is worth to an animal: filter combs sweep up plant food, mandibles take meat. */
-export const yield3Of = (kind: number, genome3: number) =>
-  mouthYield(kind, TIER3.hasGene(genome3, 'filterComb'), TIER3.hasGene(genome3, 'mandible'), 3);
+export const yield3Of = (kind: number, genome3: number) => {
+  const has = (g: string) => TIER3.hasGene(genome3, g as never);
+  const food = mouthYield(kind, has('filterComb') || has('mastax') || has('oars'), has('mandible'), 3);
+  return has('mastax') && BIG_PLANTS.has(kind) ? food * MASTAX_YIELD : food; // grinding jaws make more of a big plant
+};
+/** The plants a mastax grinds better than any sieve. */
+const BIG_PLANTS = new Set<number>([NutrientKind.spirulina, NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga]);
 /** Tier 4: grazing mouthparts or a radula take plant food, claws or a beak meat. */
 export const yield4Of = (kind: number, genome4: number) => mouthYield(kind, grazes4(genome4), hunts4(genome4), 4);
 /** What one packet is worth to a eukaryote or bigger, by its tier's mouths. */
@@ -575,6 +583,7 @@ export const mouthYieldOf = (kind: number, p: Player) =>
  * sweep up bacteria.
  */
 export function swallows(e: Player, v: Player) {
+  if (v.tier === 3 && TIER3.hasGene(v.genome3, 'spines') && e.mass < v.mass * SPINE_GAPE) return false; // too wide to get down
   const pallium = e.tier === 2 && TIER2.hasGene(e.genome2, 'pallium'); // wraps bigger prey than a jaw
   if (v.mass > e.mass * (pallium ? PALLIUM_RATIO : ENGULF_RATIO)) return false;
   if (e.tier === 2) return pallium || TIER2.hasGene(e.genome2, 'jaw');

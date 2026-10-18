@@ -22,6 +22,8 @@ export const TOXINS = [
   { gene: 'inkSac', tier: 4, radius: [700, 1700], life: 7, dps: 0, cooldown: 0, cost: 0, at: -0.3 }, // wider than the mollusk itself
   // Trichocysts: harpoon threads shot out in front — a small, brutal, short-lived burst (richer catalog).
   { gene: 'trichocysts', tier: 2, radius: [40, 95], life: 0.6, dps: 140, cooldown: 2.5, cost: 2, at: 1.1 },
+  // Nematocysts: stinging threads fired all round the head (a plankton's left click).
+  { gene: 'nematocysts', tier: 3, radius: [160, 420], life: 1.2, dps: 160, cooldown: 3, cost: 20, at: 0.7 },
 ] as const;
 /** The ink cloud's TOXINS index. */
 export const INK = TOXINS.findIndex((t) => t.gene === 'inkSac');

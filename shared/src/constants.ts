@@ -226,6 +226,18 @@ export const T3_SWIM_CREEP = 0.3;
 export const T3_SWIM_PADDLE = 0.85; // × speedOf; precise steering
 export const T3_SWIM_TAIL = 1.3; // × speedOf; fast, turns at T3_TURN_RATE
 export const T3_TURN_RATE = 1.6; // rad/s with a tail and no paddles
+// Richer catalog, plankton (provisional until the balance step).
+export const MASTAX_YIELD = 1.5; // × the big plants (spirulina, diatoms, dinoflagellates, macroalgae) a mastax grinds
+export const T3_SWIM_OARS = 1.25; // × speedOf at the top of a stroke; jump-and-glide averages ~1
+export const OAR_STROKES = 1.3; // strokes per second
+export const MUSCLE_SWIM = 0.25; // × swim per stack(muscles): the undulating body
+export const T3_SWIM_LOBOPOD = 0.7; // a steady crawl, precise steering
+export const LOBOPOD_DRIFT = 0.3; // × drift: the claws grip
+export const LOBOPOD_GRIP = 0.4; // × a bite's knock-back
+export const SPINE_GAPE = 6; // a spined animal can only be swallowed by an eater this many times its mass
+export const TUN_TIME = 4; // s dormant: invulnerable, still, no metabolism
+export const TUN_COOLDOWN = 20;
+export const OIL_METABOLISM = 0.15; // burn × (1 − this × stack(oil))
 export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bite (see BITE_*)
 /**
  * Swallowing reach. A eukaryote engulfs with its body (EUK_MOUTH radii around its centre); an animal with its

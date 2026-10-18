@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, NutrientKind, PACKET_DNA, PLASMID_DNA, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
+  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TIER4, TOXINS, TUN_COOLDOWN, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
   JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -443,6 +443,9 @@ try {
       if (self.tier === 1 && hasGene(self.genome, 'endospore')) {
         abilities.push({ id: 'spore', icon: '◎', label: 'Endospore', hint: 'R-click', ready: recharge(self.sporeCooldown, ENDOSPORE_COOLDOWN), active: self.spore > 0 });
       }
+      if (self.tier === 3 && TIER3.hasGene(self.genome3, 'tun')) {
+        abilities.push({ id: 'tun', icon: '⬮', label: 'Tun', hint: 'R-click', ready: recharge(self.sporeCooldown, TUN_COOLDOWN), active: self.spore > 0 });
+      }
       if (self.tier === 2 && TIER2.hasGene(self.genome2, 'jet')) {
         abilities.push({ id: 'jet', icon: '➤', label: 'Jet', hint: 'R-click', ready: recharge(self.dashCooldown, JET_COOLDOWN), active: self.dash > 0 });
       }
@@ -453,7 +456,7 @@ try {
         ? (self.evolving ? `Evolved — design your first ${TIER_NAMES[lineage.tier]!.toLowerCase()}` : 'Designing the next generation')
         : self.call > 0 ? 'Calling a mate…'
         : self.cocoon > 0 ? `${self.tier === 3 ? 'Eggs hatching' : 'Metamorphosis — emerging'} in ${Math.ceil(self.cocoon)} s`
-        : self.spore > 0 ? 'Dormant spore'
+        : self.spore > 0 ? (self.tier === 3 ? 'Tun: dried out and shielded' : 'Dormant spore')
         : self.infection > 0 ? 'Infected!' : '';
       const floor = minMassOf(self.tier);
       hud.update(editor.isOpen ? undefined : {

@@ -11,6 +11,25 @@ export const TIER3 = makeCatalog({
   mandible: { upkeep: 0.15, price: 30, maxCopies: 1, slot: 'membrane', at: 0, label: 'Mandibles' },
   eye: { upkeep: 0.03, price: 10, maxCopies: 3, slot: 'internal', at: [0.62, 0.22], label: 'Eye' },
   carapace: { upkeep: 0.2, price: 35, maxCopies: 1, slot: 'coat', at: 0, label: 'Carapace' },
+  // Richer catalog (user direction: ~15 parts a phase, from microscopic feeding, locomotion and defence). Appended.
+  // A rotifer's mastax: grinding jaws, the grazing mouth — plant food, big plants worth more.
+  mastax: { upkeep: 0.15, price: 30, maxCopies: 1, slot: 'membrane', at: 0, label: 'Mastax' },
+  // A tardigrade's stylets: a spear in a buccal tube and a pharyngeal pump — the parasitic mouth.
+  stylet: { upkeep: 0.15, price: 30, maxCopies: 2, slot: 'membrane', at: 0.25, label: 'Stylet' },
+  // A nauplius's setose limbs: sieve small plant food and row in jumps and glides.
+  oars: { upkeep: 0.15, price: 25, maxCopies: 3, slot: 'membrane', at: 1.3, label: 'Setose oars' },
+  // A nematode's body-wall muscles: a strong swimming wave down the body.
+  muscles: { upkeep: 0.2, price: 25, maxCopies: 2, slot: 'internal', at: [-0.05, 0], label: 'Body-wall muscles' },
+  // A tardigrade's stubby clawed legs: a steady crawl that holds its ground.
+  lobopods: { upkeep: 0.1, price: 20, maxCopies: 3, slot: 'membrane', at: 2.0, label: 'Lobopods' },
+  // Stinging capsules: a sting cloud around the head on left click.
+  nematocysts: { upkeep: 0.2, price: 35, maxCopies: 2, slot: 'internal', at: [0.35, 0.25], label: 'Nematocysts' },
+  // Long anti-predator spines: too wide for any mouth but a much bigger one.
+  spines: { upkeep: 0.05, price: 25, maxCopies: 3, slot: 'membrane', at: 2.6, label: 'Spines' },
+  // Cryptobiosis: on right click, an armoured, dried-out barrel that nothing can harm, for a few seconds.
+  tun: { upkeep: 0.1, price: 40, maxCopies: 1, slot: 'internal', at: [-0.3, -0.2], label: 'Tun' },
+  // Lipid stores: a lower burn.
+  oil: { upkeep: 0, price: 15, maxCopies: 3, slot: 'internal', at: [-0.2, 0.3], label: 'Oil droplets' },
 });
 export type Gene3 = (typeof TIER3.NAMES)[number];
 

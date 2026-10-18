@@ -133,7 +133,7 @@ export function segmentTurn(c: Chain, rest: readonly Point[], i: number, arm: nu
  * world u/s), undulating as it swims (`swim` 0..1), bend-limited per joint and overall. Radial: lobes on
  * springs around the centre (they lag and wobble). dt ≤ 0 or a dead chain snaps to rest.
  */
-export function stepSpine(c: Chain, rest: readonly Point[], radial: boolean, dt: number, speed = 0, swim = 0) {
+export function stepSpine(c: Chain, rest: readonly Point[], radial: boolean, dt: number, speed = 0, swim = 0, wave = 1) {
   const n = rest.length;
   const restDir = (i: number) => Math.atan2(rest[i + 1]!.y - rest[i]!.y, rest[i + 1]!.x - rest[i]!.x);
   if (!c.live || dt <= 0) {
@@ -163,7 +163,7 @@ export function stepSpine(c: Chain, rest: readonly Point[], radial: boolean, dt:
     return;
   }
   c.phase += dt * (WAVE_RATE[0]! + (WAVE_RATE[1]! - WAVE_RATE[0]!) * swim);
-  const amp = WAVE_AMP[0]! + (WAVE_AMP[1]! - WAVE_AMP[0]!) * swim;
+  const amp = (WAVE_AMP[0]! + (WAVE_AMP[1]! - WAVE_AMP[0]!) * swim) * wave; // × body-wall muscles
   for (let s = 0; s < steps; s++) {
     let curl = 0;
     for (let i = 0; i < n - 1; i++) {

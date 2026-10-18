@@ -27,6 +27,12 @@ void main() {
     float threads = smoothstep(0.82, 1.0, cos(a * 13.0 + floor(life * 3.0) * 1.7)) * (1.0 - smoothstep(0.2, 1.0, r)) * smoothstep(0.0, 0.15, r);
     float tips = exp(-pow((r - 0.2 - 0.7 * sqrt(life)) / 0.05, 2.0)) * smoothstep(0.6, 1.0, cos(a * 13.0 + floor(life * 3.0) * 1.7));
     color = vec3(0.85, 0.92, 1.0) * (threads * 0.55 + tips * 0.8) * fade;
+  } else if (kind > 4.5) {
+    // Nematocysts: violet stinging threads lashing out all round, coiled at their roots.
+    float a = atan(p.y, p.x);
+    float lash = smoothstep(0.75, 1.0, cos(a * 18.0 + sin(r * 12.0 - uTime * 8.0))) * (1.0 - smoothstep(0.3, 1.0, r));
+    float coil = exp(-pow((r - 0.25) / 0.08, 2.0)) * (0.5 + 0.5 * sin(a * 30.0 + uTime * 10.0));
+    color = vec3(0.7, 0.5, 1.0) * (lash * 0.6 + coil * 0.35) * fade;
   } else if (kind > 1.5) {
     float mist = 0.5 + 0.5 * valueNoise(p * 2.6 + vec2(-uTime * 0.4, uTime * 0.3));
     float bubbles = smoothstep(0.75, 0.95, valueNoise(p * 9.0 + uTime * 0.8));

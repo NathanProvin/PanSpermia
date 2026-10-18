@@ -1,13 +1,13 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
-  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf, yield2Of, yield3Of, yield4Of,
+  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf, yield2Of, yield3Of, yield4Of, swallows,
 } from './world.ts';
 
 /** A human species 'p' with its first individual, unshielded so tests can hurt it. */
@@ -1176,4 +1176,79 @@ test('a theca blunts bites; trichocysts fire a burst in front', () => {
   const [cloud] = [...state.clouds.values()];
   expect(TOXINS[cloud!.kind]!.gene).toBe('trichocysts');
   expect(cloud!.x0).toBeGreaterThan(e.x + radiusOf(300, 2)); // in front (heading 0)
+});
+
+// --- Richer catalog: tier 3 -----------------------------------------------------------------------
+/** A tier-3 body of `genome3` at the origin, facing +x, in a pool of its own (no lineage). */
+const plankton = (genome3: number, mass = 3000) => {
+  const state = new PoolState();
+  const a = spawnPlayer();
+  Object.assign(a, { tier: 3, genome: 0, genome3, mass, health: 1200, x: 0, y: 0, heading: 0, graceUntil: 0 });
+  state.players.set('a', a);
+  return { state, a };
+};
+
+test('a stylet drains a bigger animal; a mastax grinds big plants; oars sieve plant food', () => {
+  const { state, a } = plankton(TIER3.genomeOf(['stylet']), 1500);
+  const host = spawnPlayer();
+  Object.assign(host, { tier: 3, genome: 0, genome3: 0, mass: 5000, health: 1200, x: radiusOf(5000, 3) + radiusOf(1500, 3) + 1, y: 0, graceUntil: 0 });
+  state.players.set('host', host);
+  const [h0, a0] = [host.mass, a.mass];
+  run(state, 1);
+  expect(h0 - host.mass).toBeGreaterThan(STYLET_DRAIN * 0.8);
+  expect(a.mass).toBeGreaterThan(a0 + STYLET_DRAIN * PARASITE_SHARE * 0.5);
+  expect(yield3Of(NutrientKind.diatom, TIER3.genomeOf(['mastax']))).toBeCloseTo(DIATOM_MASS * MASTAX_YIELD, 6);
+  expect(yield3Of(NutrientKind.diatom, TIER3.genomeOf(['filterComb']))).toBe(DIATOM_MASS);
+  expect(yield3Of(NutrientKind.algae, TIER3.genomeOf(['oars']))).toBe(ALGAE_MASS);
+});
+
+test('spines keep a plankton out of all but much bigger mouths; lobopods hold on against bites', () => {
+  const hunter = spawnPlayer();
+  Object.assign(hunter, { tier: 4, genome: 0, genome4: TIER4.genomeOf(['claw']), mass: 6000 });
+  const prey = (genome3: number) => Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3, mass: 1200 });
+  expect(swallows(hunter, prey(0))).toBe(true);
+  expect(swallows(hunter, prey(TIER3.genomeOf(['spines'])))).toBe(false);
+  hunter.mass = 1200 * SPINE_GAPE;
+  expect(swallows(hunter, prey(TIER3.genomeOf(['spines'])))).toBe(true);
+  const knocked = (genome3: number) => {
+    const { state } = plankton(TIER3.genomeOf(['mandible']));
+    const v = spawnPlayer();
+    Object.assign(v, { tier: 3, genome: 0, genome3, mass: 3000, health: 1200, x: radiusOf(3000, 3) * 2, y: 0, vx: 0, vy: 0, graceUntil: 0 });
+    state.players.set('v', v);
+    stepWorld(state);
+    return v.vx;
+  };
+  expect(knocked(TIER3.genomeOf(['lobopods']))).toBeLessThan(knocked(0) * 0.7);
+});
+
+test('the tun: right click curls a plankton up dormant and untouchable, then it cools down', () => {
+  const { state, a } = plankton(TIER3.genomeOf(['tun']));
+  stepCell(a, a.mass, 0, 1, 0, ACTION_SPORE, TICK_DT, 0, 3, 0, a.genome3, 0);
+  expect([a.spore, a.sporeCooldown]).toEqual([TUN_TIME, TUN_COOLDOWN]);
+  const [x, mass] = [a.x, a.mass];
+  stepCell(a, a.mass, 0, 1, 0, 0, TICK_DT, 0, 3, 0, a.genome3, 0);
+  expect(Math.abs(a.x - x)).toBeLessThan(1); // still
+  a.health = 1;
+  stepWorld(state);
+  expect([a.health, a.mass]).toEqual([1, mass]); // dormant: no harm, no burn
+});
+
+test('oil droplets lower the burn; oars row in strokes; nematocysts sting around the head', () => {
+  const burn = (genome3: number) => {
+    const p = { mass: 3000, health: 1200, genome: 0, genome3, tier: 3 };
+    metabolize(p, 1);
+    return 3000 - p.mass;
+  };
+  expect(burn(TIER3.genomeOf(['oil']))).toBeLessThan(burn(0));
+  const speedAt = (time: number) => {
+    const { a } = plankton(TIER3.genomeOf(['oars']));
+    for (let i = 0; i < 20; i++) stepCell(a, a.mass, 0, 1, 0, 0, TICK_DT, time, 3, 0, a.genome3, 0);
+    return Math.hypot(a.vx, a.vy);
+  };
+  expect(speedAt(0.19)).toBeGreaterThan(speedAt(0.6)); // the stroke, then the glide
+  const { state, a } = plankton(TIER3.genomeOf(['nematocysts']));
+  secrete(state, 'a');
+  const [cloud] = [...state.clouds.values()];
+  expect(TOXINS[cloud!.kind]!.gene).toBe('nematocysts');
+  expect(cloud!.x0).toBeGreaterThan(a.x);
 });
