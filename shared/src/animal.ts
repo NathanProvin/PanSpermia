@@ -37,43 +37,67 @@ export const SEGMENT_MAX = 1;
 /** A head, a thorax, an abdomen. */
 export const DEFAULT_RADII: readonly number[] = [0.45, 0.75, 0.5];
 /** Each plan's starting body: a spine; a radial centre with lobes; a crayfish's head, thorax and tapering tail; a snail's head and body. */
-export const DEFAULT_RADII_OF: readonly (readonly number[])[] = [DEFAULT_RADII, [0.6, 0.4, 0.4, 0.4, 0.4], [0.42, 0.6, 0.55, 0.42, 0.3], [0.4, 0.9]];
+export const DEFAULT_RADII_OF: readonly (readonly number[])[] = [DEFAULT_RADII, [0.6, 0.4], [0.42, 0.6, 0.55, 0.42, 0.3], [0.4, 0.9]];
+/**
+ * A radial body: arms around a centre, each a little spine of up to MAX_ARM stations (the same width profile and bends
+ * for every arm: rotational symmetry). Its radii are [centre, arm station 1, …]; the arm count is Lineage.arms.
+ */
+export const RADIAL_ARMS = [3, 6] as const;
+export const DEFAULT_ARMS = 4;
+export const MAX_ARM = 3;
+/** The most stations a body has (the shader's arrays): a six-armed body with three stations an arm. */
+export const MAX_STATIONS = 1 + RADIAL_ARMS[1] * MAX_ARM;
 
 export type Segment = readonly [x: number, y: number, r: number];
 
-/**
- * Lay out a body (canonical body frame: x forward, in cell radii). Spine: radii[0] is the head, each next
- * segment overlaps the one before it toward the back. Radial: radii[0] is the centre, the others are lobes
- * evenly around it from the front. Then centred and scaled so the body spans about the cell's circle.
- */
 /** The most a spine may turn at one station when sculpted (rad): enough for a comma, or a spiral over 8 stations. */
 export const MAX_BEND = 0.9;
 
+/** A laid-out body: its stations, and how many stations each radial arm has (0: a spine). */
+export type Body = readonly Segment[] & { readonly arm?: number };
+/** Stations per radial arm (0: a spine). */
+export const armOf = (segments: Body) => segments.arm ?? 0;
+/** The station a link reaches back to: the one before it, or the centre for an arm's first station. */
+export const parentOf = (i: number, arm: number) => (arm > 0 && (i - 1) % arm === 0 ? 0 : i - 1);
+
 /**
- * `bends` (spine plans): the turn of the spine at each station, rad (index 0, the head, and the last station don't
- * turn anything) — a comma, an S, a spiral. Missing entries are straight.
+ * Lay out a body (canonical body frame: x forward, in cell radii), then scale it to span about the cell's circle.
+ * Spine: radii[0] is the head, each next station overlaps the one before it toward the back, the spine turning at
+ * each station by `bends` (rad; index 0, the head, and the last station turn nothing) — a comma, an S, a spiral; the
+ * bounding box is centred. Radial: radii[0] is the centre at the origin, and `arms` arms (from the front, evenly
+ * around) each lay out radii[1…] with the same bends — a pinwheel. `arms` 0 on a radial body is the older format
+ * (bots, old cards): every radius after the centre is a one-station lobe.
  */
-export function segmentsOf(plan: number, radii: readonly number[], bends: readonly number[] = []): Segment[] {
+export function segmentsOf(plan: number, radii: readonly number[], bends: readonly number[] = [], arms = 0): Body {
   let segs: [number, number, number][];
-  if (plan === 1) {
-    const [centre = 0.6, ...lobes] = radii;
-    segs = [[0, 0, centre], ...lobes.map((r, k): [number, number, number] => {
-      const a = (2 * Math.PI * k) / lobes.length;
-      const d = centre + r * 0.35;
-      return [Math.cos(a) * d, Math.sin(a) * d, r];
-    })];
-  } else {
-    // Back from the head, each link turning by the bend at the station it leaves from.
-    let [x, y, dir] = [0, 0, Math.PI];
-    segs = radii.map((r, i): [number, number, number] => {
+  let arm = 0;
+  // A chain of stations heading `dir` from the origin (its first one `first` out), each link turning by the bend at the
+  // station it leaves. `base`: the radii index of profile[0] (bends are indexed like radii); the head and the centre
+  // (index 0) turn nothing.
+  const chainOf = (profile: readonly number[], dir: number, first: number, base: number) => {
+    let [x, y] = [Math.cos(dir) * first, Math.sin(dir) * first];
+    return profile.map((r, i): [number, number, number] => {
       if (i > 0) {
-        if (i > 1) dir += bends[i - 1] ?? 0;
-        const d = 0.75 * (radii[i - 1]! + r);
+        if (base + i - 1 > 0) dir += bends[base + i - 1] ?? 0;
+        const d = 0.75 * (profile[i - 1]! + r);
         x += Math.cos(dir) * d;
         y += Math.sin(dir) * d;
       }
       return [x, y, r];
     });
+  };
+  if (plan === 1) {
+    const [centre = 0.6, ...profile] = radii;
+    const n = arms || profile.length;
+    const arm1 = arms ? profile : profile.slice(0, 1);
+    arm = arm1.length;
+    segs = [[0, 0, centre]];
+    for (let k = 0; k < n; k++) {
+      const one = arms ? arm1 : [profile[k] ?? profile[0]!];
+      segs.push(...chainOf(one, (2 * Math.PI * k) / n, centre + one[0]! * 0.35, 1));
+    }
+  } else {
+    segs = chainOf(radii, Math.PI, 0, 0);
     // Centre the body's bounding box on the cell (a straight body: as before).
     const lo = [Math.min(...segs.map(([sx, , r]) => sx - r)), Math.min(...segs.map(([, sy, r]) => sy - r))];
     const hi = [Math.max(...segs.map(([sx, , r]) => sx + r)), Math.max(...segs.map(([, sy, r]) => sy + r))];
@@ -84,7 +108,7 @@ export function segmentsOf(plan: number, radii: readonly number[], bends: readon
   }
   const extent = Math.max(...segs.map(([x, y, r]) => Math.max(Math.abs(x), Math.abs(y)) + r));
   const k = (plan === 1 ? 1.05 : 1.3) / extent;
-  return segs.map(([x, y, r]) => [x * k, y * k, r * k] as const);
+  return Object.assign(segs.map(([x, y, r]) => [x * k, y * k, r * k] as const), { arm });
 }
 
 /** The default animal body (bots, a newly evolved species). */
@@ -106,11 +130,11 @@ export const SEGMENT_BLEND = 0.08;
  * centre to each lobe (radial) — is a cone whose radius goes linearly from one station's to the next's, with round
  * caps, the links smoothly joined. Only a radial body's centre sits exactly at the origin (segmentsOf).
  */
-export function animalSdf(x: number, y: number, segments: readonly Segment[] = DEFAULT_SEGMENTS) {
-  const radial = segments[0]![0] === 0 && segments[0]![1] === 0;
+export function animalSdf(x: number, y: number, segments: Body = DEFAULT_SEGMENTS) {
+  const arm = armOf(segments);
   let d = Infinity;
   for (let i = 1; i < segments.length; i++) {
-    const [ax, ay, ar] = segments[radial ? 0 : i - 1]!;
+    const [ax, ay, ar] = segments[parentOf(i, arm)]!;
     const [bx, by, br] = segments[i]!;
     const abx = bx - ax;
     const aby = by - ay;
@@ -126,7 +150,7 @@ export function animalSdf(x: number, y: number, segments: readonly Segment[] = D
 }
 
 /** Distance from the body centre to the outline along a canonical direction: where membrane parts sit. */
-export function animalRim(angle: number, segments: readonly Segment[] = DEFAULT_SEGMENTS) {
+export function animalRim(angle: number, segments: Body = DEFAULT_SEGMENTS) {
   let lo = 0;
   let hi = 2;
   for (let i = 0; i < 20; i++) { // bisection: the centre is inside, 2 radii out is outside

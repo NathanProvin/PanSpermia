@@ -1,6 +1,6 @@
 import {
-  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Segment, speedOf, SIDEROPHORE_REACH, MOLLUSK, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
-  deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
+  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Body, speedOf, SIDEROPHORE_REACH, MOLLUSK, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
+  armOf, MAX_STATIONS, deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { NOISE } from './glsl.ts';
@@ -55,9 +55,10 @@ uniform float uCall;
 uniform float uTier;
 uniform vec3 uShape; // stretch x, stretch y, bend (shared/shapes.ts)
 uniform float uCentre;
-uniform vec3 uSeg[8]; // canonical frame, moved every frame by the soft rig (the spine bends)
+uniform vec3 uSeg[${MAX_STATIONS}]; // canonical frame, moved every frame by the soft rig (the spine bends)
 uniform int uSegN;
-uniform float uRadial; // radial plan: segment 0 is the centre, the others hang off it
+uniform float uRadial; // radial plan: segment 0 is the centre, arms of uArm stations hang off it
+uniform int uArm;
 uniform float uCarapace;
 uniform float uJiggle; // 0..1, impacts
 uniform float uSpeed; // 0..1 of its top speed
@@ -102,8 +103,11 @@ vec3 lightDir() {
 // Tier 4 (uBody): an arthropod is hard, crisply jointed chitin plates with dark sutures and a glossy sheen, and
 // walks on the legs placed in the editor (no generic legs); a mollusk is one soft, slick body with eye stalks,
 // gliding on a rippling foot skirt (foot), the biggest segment under a coiled shell (shell).
-vec2 segAxis(int i) { // a segment's forward direction: toward the one ahead (the head: away from the next)
-  if (uRadial > 0.5) return i == 0 ? vec2(1.0, 0.0) : normalize(uSeg[i].xy - uSeg[0].xy);
+int segParent(int i) { // the station a link reaches back to (shared parentOf): the one before, or an arm's centre
+  return uArm > 0 && (i - 1) % uArm == 0 ? 0 : i - 1;
+}
+vec2 segAxis(int i) { // a segment's forward direction: toward the one ahead (the head: away from the next); an arm: outward
+  if (uRadial > 0.5) return i == 0 ? vec2(1.0, 0.0) : normalize(uSeg[i].xy - uSeg[segParent(i)].xy);
   if (i == 0) return uSegN > 1 ? normalize(uSeg[0].xy - uSeg[1].xy) : vec2(1.0, 0.0);
   return normalize(uSeg[i - 1].xy - uSeg[i].xy);
 }
@@ -145,7 +149,7 @@ vec4 drawAnimal(vec2 p, float t) {
   float mollusk = step(1.5, uBody);
   float arthropod = step(0.5, uBody) * (1.0 - mollusk);
   float blend = mix(0.06, 0.28, mollusk); // smooth joints; one soft mollusk body
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < ${MAX_STATIONS}; i++) {
     if (i >= uSegN) break;
     vec3 s = uSeg[i];
     tail = s.xy;
@@ -153,7 +157,7 @@ vec4 drawAnimal(vec2 p, float t) {
     // The tube: a cone from the previous station (a radial body: from the centre) to this one, radius varying
     // linearly, round caps; links smoothly joined, so the body is one piece of clay however the spine bends.
     if (i > 0) {
-      vec3 a = uRadial > 0.5 ? uSeg[0] : uSeg[i - 1];
+      vec3 a = uSeg[segParent(i)];
       vec2 ab = s.xy - a.xy;
       float h = clamp(dot(p - a.xy, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
       vec2 c = a.xy + ab * h;
@@ -163,7 +167,7 @@ vec4 drawAnimal(vec2 p, float t) {
       if (uJiggle > 0.001) di += uJiggle * 0.03 * rr * sin(dot(p - c, vec2(7.0, 5.0)) / max(rr, 1e-3) + t * 15.0); // impacts only
       if (di < dNear) {
         dNear = di;
-        sNear = (uRadial > 0.5 ? 0.0 : float(i - 1)) + h;
+        sNear = float(uRadial > 0.5 ? (i - 1) % max(uArm, 1) : i - 1) + h; // stations from the head, or along the arm
         dcNear = dc;
         rNear = rr;
         latNear = dc > 1e-5 ? (p - c) / dc : vec2(-ab.y, ab.x) / max(length(ab), 1e-5);
@@ -178,8 +182,8 @@ vec4 drawAnimal(vec2 p, float t) {
     vec2 side = vec2(-ax.y, ax.x);
     for (int k = -1; k <= 1; k += 2) {
       float fk = float(k);
-      if (uRadial > 0.5) { // a tentacle waving out of each lobe's tip
-        if (i == 0) continue;
+      if (uRadial > 0.5) { // a tentacle waving out of each arm's tip
+        if (i == 0 || i % max(uArm, 1) != 0) continue;
         vec2 base = s.xy + ax * s.z * 0.9 + side * fk * s.z * 0.3;
         vec2 dir = turn(ax, fk * 0.25 + 0.3 * sin(t * 1.8 + float(i) * 1.7 + fk));
         vec2 mid = base + dir * s.z * 0.7;
@@ -827,8 +831,8 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uJiggle: { value: 0 }, uSpeed: { value: 0 }, uContact: { value: new THREE.Vector2() }, uHurt: { value: 0 },
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
-  uSeg: { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uPattern: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
+  uSeg: { value: Array.from({ length: MAX_STATIONS }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uArm: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uPattern: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -857,7 +861,7 @@ export interface Look {
   /** A shape preset id, or a sculpted Form. */
   shape?: number | Form;
   /** An animal's body (segmentsOf); the default body when absent. */
-  segments?: readonly Segment[];
+  segments?: Body;
   /** Its body plan (PLAN_NAMES): a tier-4 arthropod or mollusk. */
   plan?: number;
 }
@@ -878,7 +882,7 @@ interface PartView {
 }
 
 /** Index of the segment whose outline is nearest a canonical point. */
-const nearestSegment = (x: number, y: number, segments: readonly Segment[]) => {
+const nearestSegment = (x: number, y: number, segments: Body) => {
   let best = 0;
   for (const [i, [sx, sy, r]] of segments.entries()) {
     const [bx, by, br] = segments[best]!;
@@ -912,8 +916,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   const flex = spring();
   let spine = chain(0);
   let radial = false;
+  let arm = 0;
 
-  const rebuild = (placements: readonly Placement<string>[], tier: number, segments: readonly Segment[]) => {
+  const rebuild = (placements: readonly Placement<string>[], tier: number, segments: Body) => {
     for (const { mesh } of parts) {
       frame.remove(mesh);
       mesh.material.dispose();
@@ -958,15 +963,17 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const form = look.shape ?? 0;
       const segments = look.segments ?? DEFAULT_SEGMENTS;
       const formKey = typeof form === 'number' ? form : `${form.sx.toFixed(3)},${form.sy.toFixed(3)},${form.bend.toFixed(3)}`;
-      const key = `${look.tier}/${formKey}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
+      const key = `${look.tier}/${formKey}/${armOf(segments)}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
         partsKey = key;
         rebuild(look.parts, look.tier, segments);
         const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
         for (const [i, v] of seg.entries()) v.set(...(segments[i] ?? [0, 0, 0]));
         body.material.uniforms.uSegN!.value = segments.length;
-        radial = segments[0]![0] === 0 && segments[0]![1] === 0; // segmentsOf: only a radial centre sits exactly at the origin
+        arm = armOf(segments);
+        radial = arm > 0;
         body.material.uniforms.uRadial!.value = radial ? 1 : 0;
+        body.material.uniforms.uArm!.value = arm;
         body.material.uniforms.uCentre!.value = shapeUniform(form).centre;
         spine = chain(segments.length);
       }
@@ -1019,7 +1026,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         for (const [i, [, , r]] of segments.entries()) {
           const b = toBody(spine.x[i]!, spine.y[i]!);
           seg[i]!.set(b.x, b.y, r);
-          turns[i] = segmentTurn(spine, rest, i, radial);
+          turns[i] = segmentTurn(spine, rest, i, arm);
         }
       }
       const { pigment, pattern } = pigmentOf(look.hue);

@@ -1,7 +1,7 @@
 // Soft rig: client-side secondary motion, visual only (the server's circles and heading stay the truth).
 // Chains run in world units, so a whip or a body segment lags behind where the body went, drags through
 // the water and springs back; the caller reads the points back in the body frame the meshes draw in.
-import { wrapAngle } from '@panspermia/shared';
+import { parentOf, wrapAngle } from '@panspermia/shared';
 
 /** 1/s: how fast a chain point loses its own motion in water. */
 const WATER_DRAG = 12;
@@ -121,9 +121,9 @@ export function stepWhip(c: Chain, rx: number, ry: number, dir: number, link: nu
 type Point = { readonly x: number; readonly y: number };
 
 /** How far segment i has turned from its rest pose: the angle of its link to its parent, now vs at rest. */
-export function segmentTurn(c: Chain, rest: readonly Point[], i: number, radial: boolean) {
+export function segmentTurn(c: Chain, rest: readonly Point[], i: number, arm: number) {
   if (i === 0) return 0;
-  const p = radial ? 0 : i - 1;
+  const p = parentOf(i, arm);
   return wrapAngle(Math.atan2(c.y[p]! - c.y[i]!, c.x[p]! - c.x[i]!) - Math.atan2(rest[p]!.y - rest[i]!.y, rest[p]!.x - rest[i]!.x));
 }
 

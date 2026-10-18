@@ -1,7 +1,7 @@
 import {
   CHILD_PRICE, CYST_TIME, evolveDnaOf, type Catalog, type Form, type Lineage, MAX_BEND, MAX_CHILDREN, MAX_PARTS, MAX_PLACED, MAX_TIER,
   NAME_MAX, type Placement, TIER_NAMES, catalogFor, cleanName, deform, undeform, DEFAULT_RADII, DEFAULT_RADII_OF, FORM_LIMITS,
-  MAX_SEGMENTS, MIN_SEGMENTS, PATTERN_NAMES, PIGMENTS, PLAN_NAMES, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN, BEND_CENTRE, type Segment,
+  MAX_SEGMENTS, MIN_SEGMENTS, MAX_ARM, DEFAULT_ARMS, RADIAL_ARMS, PATTERN_NAMES, PIGMENTS, PLAN_NAMES, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN, BEND_CENTRE, type Segment,
   animalRim, fitsPlan, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -13,22 +13,24 @@ import { createCellView } from './scene/cells.ts';
 // Parts: a grid of icons rendered from the parts' own shaders; drag one onto the body (membrane parts snap to the rim,
 // internal ones float inside), or click it to place it at its usual spot; coats toggle. Drag a placed part to move it,
 // off the body (or right-click) to remove it (refunded), wheel to resize.
-// Symmetry: none (one copy), axial (a mirrored pair; on the axis, one), radial (n = 3–6 copies around the centre; at the
-// centre, one). A placement is all its copies or nothing: parts come in pairs or n-multiples, every copy paid for, the
-// effect stacking up to the part's maxCopies (MAX_PLACED copies at most).
-// Sculpting, like clay, with colour-coded handles: length (amber) — a cell's nose stretches it, an animal's tail adds or
-// removes stations; width (cyan) — a cell's side, an animal's side at each station (its neighbours follow a little);
-// bend (magenta) — a cell's nose pulled sideways makes a comma, an animal's spine turns at each station (an S, a spiral).
-// Tier 4's body plan follows its parts: the first arthropod-only or mollusk-only part sets it.
+// Symmetry follows the body (user direction: no symmetry buttons): cells and spine bodies are bilateral — off the axis a
+// part is a mirrored pair, on it one; a radial body repeats a part on each of its 3–6 arms (at the centre, one). A
+// placement is all its copies or nothing, every copy paid for, the effect stacking up to the part's maxCopies
+// (MAX_PLACED copies at most).
+// Sculpting, like clay, with colour-coded handles: length (amber) — a cell's nose stretches it, an animal's tail (a
+// radial body: its front arm's tip) adds or removes stations; width (cyan) — a cell's side, an animal's side at each
+// station (its neighbours follow a little); bend (magenta) — a cell's nose pulled sideways makes a comma, a spine or an
+// arm turns at each station (an S, a spiral, a pinwheel); the head stays put while you bend. A radial body's arm
+// count: the polygon buttons. Tier 4's body plan follows its parts: the first arthropod-only or mollusk-only part sets it.
 
-type Symmetry = 'none' | 'axial' | 'radial';
+type Symmetry = 'axial' | 'radial';
 /** One placement as the player made it: a master part plus how it repeats. */
 interface Group { gene: string; x: number; y: number; angle: number; scale: number; repeat: 'single' | 'axial' | 'radial'; n: number }
 export interface Design {
   parts: Placement<string>[]; hue: number; shape: number; children: number; name: string; evolve?: boolean;
   /** A cell's sculpted shape. */
   form?: Form;
-  plan?: number; radii?: number[]; bends?: number[];
+  plan?: number; radii?: number[]; bends?: number[]; arms?: number;
 }
 
 const VIEW_HALF = 2.4; // cell radii visible above and below the centre
@@ -44,7 +46,6 @@ const HANDLE_OUT = 1.1;
 const SEGMENT_STEP = 0.28;
 /** How much a resized station's neighbours follow it (exponent of the size ratio): clay, not Lego. */
 const FALLOFF = 0.4;
-const RADIAL_N = [3, 4, 5, 6] as const;
 
 /** Every copy a group stands for, in the body frame (x forward, y left). */
 function expand(g: Group): Omit<Placement<string>, 'group'>[] {
@@ -105,11 +106,11 @@ function placeAt(cat: Catalog, gene: string, bx: number, by: number, symmetry: S
     if (onAxis && symmetry === 'axial') y = 0;
     if (onAxis && symmetry === 'radial') x = y = 0;
   }
-  const copies = symmetry === 'none' || onAxis ? 1 : symmetry === 'axial' ? 2 : n;
+  const copies = onAxis ? 1 : symmetry === 'axial' ? 2 : n;
   if (copies > available) {
     return available < 1 ? 'No more of that part fits.' : `This symmetry needs ${copies} copies: only ${available} more fit.`;
   }
-  return { gene, x, y, angle, scale: 1, repeat: copies === 1 ? 'single' : symmetry === 'axial' ? 'axial' : 'radial', n: copies };
+  return { gene, x, y, angle, scale: 1, repeat: copies === 1 ? 'single' : symmetry, n: copies };
 }
 
 /** A pigment and pattern packed into the stored hue (pigmentOf unpacks it). */
@@ -126,11 +127,6 @@ const PLAN_ICONS = [
   svg('<circle cx="12" cy="5.5" r="2.8"/><circle cx="12" cy="11.5" r="3.6"/><circle cx="12" cy="18" r="2.8"/>'), // spine
   svg('<circle cx="12" cy="12" r="3.6"/><circle cx="12" cy="5" r="2.4"/><circle cx="18.5" cy="14" r="2.4"/><circle cx="5.5" cy="14" r="2.4"/><circle cx="12" cy="19.5" r="2.4"/>'), // radial
 ];
-const SYM_ICONS: Record<Symmetry, string> = {
-  none: svg('<circle cx="12" cy="12" r="3"/><path d="M5 19 19 5" class="line"/>'),
-  axial: svg('<path d="M12 3v18" class="line"/><path d="M9 8 5 12l4 4M15 8l4 4-4 4" class="line"/>'),
-  radial: svg('<circle cx="12" cy="12" r="2"/><path d="M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5" class="line"/>'),
-};
 /** A regular polygon icon: triangle, square, pentagon, hexagon. */
 const polygon = (n: number) => svg(`<polygon points="${Array.from({ length: n }, (_, k) => {
   const a = -Math.PI / 2 + (2 * Math.PI * k) / n;
@@ -140,7 +136,7 @@ const polygon = (n: number) => svg(`<polygon points="${Array.from({ length: n },
 /** Linear light → sRGB byte (icons are read back from a linear render target). */
 const toSrgb = (c: number) => Math.round(255 * Math.min(1, c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055));
 
-/** A station's forward direction along a laid-out spine (toward the head; the head: away from the next). */
+/** A station's forward direction along a spine or the front arm (toward the head or the centre; the head: away from the next). */
 function stationAxis(segs: readonly Segment[], i: number) {
   const [ax, ay] = i === 0 ? segs[0]! : segs[i - 1]!;
   const [bx, by] = i === 0 ? segs[1] ?? [segs[0]![0] - 1, segs[0]![1]] : segs[i]!;
@@ -179,11 +175,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         <p class="dna"><b></b> DNA <small></small></p>
         <div class="ed-row swatches" role="radiogroup" aria-label="Pigment"></div>
         <div class="ed-row patterns" role="radiogroup" aria-label="Pattern"></div>
-        <div class="ed-row syms" role="radiogroup" aria-label="Symmetry">${(['none', 'axial', 'radial'] as const).map((s) =>
-          `<button type="button" class="icon" role="radio" data-sym="${s}" title="Symmetry: ${s}" aria-label="Symmetry: ${s}">${SYM_ICONS[s]}</button>`).join('')}</div>
-        <div class="ed-row radial-n" role="radiogroup" aria-label="Copies around the centre">${RADIAL_N.map((n) =>
-          `<button type="button" class="icon" role="radio" data-n="${n}" title="${n} around the centre" aria-label="${n} around the centre">${polygon(n)}</button>`).join('')}</div>
         <div class="ed-row plans"></div>
+        <div class="ed-row radial-n" role="radiogroup" aria-label="Arms">${[3, 4, 5, 6].map((n) =>
+          `<button type="button" class="icon" role="radio" data-n="${n}" title="${n} arms" aria-label="${n} arms">${polygon(n)}</button>`).join('')}</div>
         <p class="stats"></p>
       </section>
       <section class="panel" aria-label="Reproduction">
@@ -229,8 +223,15 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   let groups: Group[] = [];
   let plan = 0;
   let radii: number[] = [...DEFAULT_RADII];
-  /** The spine's turn at each station (segmentsOf), as long as radii. */
+  /** The spine's (or every arm's) turn at each station (segmentsOf), as long as radii. */
   let bends: number[] = [];
+  /** A radial body's arm count (0: a spine). */
+  let arms = 0;
+  /**
+   * The view's centre in the shaped frame: bending recentres the body, so the view follows to keep the head where it
+   * was grabbed, then drifts back to the centre once released.
+   */
+  let pan = { x: 0, y: 0 };
   let pigment = 0;
   let pattern = 0;
   /** The stored hue, kept exactly until the player picks a pigment or pattern. */
@@ -240,15 +241,14 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   let resize: { i: number; cx: number; cy: number; d0: number; radii0: number[] } | undefined;
   /** A sculpting handle being dragged (the tail: the pointer's distance from the centre and the body when grabbed). */
   let sculpt: { h: 'nose' | 'side' | 'tail'; d0: number; radii0: number[]; bends0: number[] } | undefined;
-  /** A bend handle being dragged: the station it moves. */
-  let bending: number | undefined;
+  /** A bend handle being dragged: the station it moves, and the head and the view when grabbed. */
+  let bending: { i: number; head: Segment; pan: { x: number; y: number } } | undefined;
   const animal = () => isAnimal(lineage?.tier ?? 1);
-  const spine = () => animal() && plan !== 1;
-  const segments = () => segmentsOf(plan, radii, spine() ? bends : []);
+  const radialBody = () => animal() && plan === 1;
+  const segments = () => segmentsOf(plan, radii, bends, radialBody() ? arms : 0);
+  const symmetry = (): Symmetry => (radialBody() ? 'radial' : 'axial');
   const shownForm = (): Form | number => (animal() ? shape : form); // animals are sculpted by their stations
   let children = 0;
-  let symmetry: Symmetry = 'axial';
-  let radialN = 3;
   let submitted = false;
   /** A part being dragged: a new one from the palette, or a placed group lifted off the body. */
   let drag: { gene: string; group?: Group; at?: Group } | undefined;
@@ -275,12 +275,26 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     buildPalette();
   };
 
+  /** Re-place every part under the body's symmetry (a new plan or arm count); parts that no longer fit come off. */
+  const resym = () => {
+    const old = groups;
+    groups = [];
+    for (const g of old) {
+      const next = cat.GENES[g.gene]!.slot === 'coat' ? g : placeAt(cat, g.gene, g.x, g.y, symmetry(), arms, available(g.gene));
+      if (typeof next === 'string' || placementsOf([...groups, next]).length > MAX_PARTS) {
+        message = 'Some parts came off: too many copies for this body.';
+        continue;
+      }
+      groups.push({ ...next, scale: g.scale });
+    }
+  };
+
   /** The body's shaped frame (cell radii, x forward = up the screen) under a pointer. */
   const shaped = (e: { clientX: number; clientY: number }) => {
     const rect = renderer.domElement.getBoundingClientRect();
     const wx = ((e.clientX - rect.left) / rect.width * 2 - 1) * camera.right;
     const wy = -((e.clientY - rect.top) / rect.height * 2 - 1) * camera.top;
-    return { x: wy, y: -wx }; // rotate the screen by -FORWARD
+    return { x: wy + pan.x, y: -wx + pan.y }; // rotate the screen by -FORWARD
   };
   /** Canonical design coordinates under a pointer: the shaped frame with the body shape undone. */
   const toBody = (e: { clientX: number; clientY: number }) => {
@@ -291,7 +305,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   /** Screen pixel of a point in the shaped frame. */
   const toScreen = (x: number, y: number) => {
     const rect = renderer.domElement.getBoundingClientRect();
-    return { left: rect.left + (-y / camera.right + 1) / 2 * rect.width, top: rect.top + (1 - x / camera.top) / 2 * rect.height };
+    return { left: rect.left + (-(y - pan.y) / camera.right + 1) / 2 * rect.width, top: rect.top + (1 - (x - pan.x) / camera.top) / 2 * rect.height };
   };
   const pick = (bx: number, by: number) => {
     let best = -1;
@@ -326,8 +340,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         groups.splice(i, 1);
         followParts();
       } else commit({ gene, x: 0, y: 0, angle: 0, scale: 1, repeat: 'single', n: 1 });
-    } else if (slot === 'membrane') commit(placeAt(cat, gene, Math.cos(at as number), Math.sin(at as number), symmetry, radialN, available(gene)));
-    else commit(placeAt(cat, gene, ...(at as readonly [number, number]), symmetry, radialN, available(gene)));
+    } else if (slot === 'membrane') commit(placeAt(cat, gene, Math.cos(at as number), Math.sin(at as number), symmetry(), arms, available(gene)));
+    else commit(placeAt(cat, gene, ...(at as readonly [number, number]), symmetry(), arms, available(gene)));
     render();
   };
 
@@ -418,6 +432,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         plan = i;
         radii = [...DEFAULT_RADII_OF[i]!]; // each plan starts from its own body
         bends = radii.map(() => 0);
+        arms = i === 1 ? DEFAULT_ARMS : 0;
+        message = '';
+        resym();
         icons = new Map(); // drawn on the new body
         buildPalette();
         render();
@@ -446,11 +463,15 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     b.addEventListener('click', () => { pattern = i; hue = hueOf(pigment, pattern); render(); });
     return b;
   }));
-  for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) {
-    b.addEventListener('click', () => { symmetry = b.dataset.sym as Symmetry; render(); });
-  }
   for (const b of root.querySelectorAll<HTMLButtonElement>('[data-n]')) {
-    b.addEventListener('click', () => { radialN = Number(b.dataset.n); render(); });
+    b.addEventListener('click', () => {
+      arms = Number(b.dataset.n);
+      message = '';
+      resym();
+      icons = new Map(); // drawn on the new body
+      buildPalette();
+      render();
+    });
   }
 
   const render = () => {
@@ -478,9 +499,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.message').textContent = message;
     for (const [i, b] of [...swatches.children].entries()) b.setAttribute('aria-checked', String(i === pigment));
     for (const [i, b] of [...$('.patterns').children].entries()) b.setAttribute('aria-checked', String(i === pattern));
-    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sym]')) b.setAttribute('aria-checked', String(b.dataset.sym === symmetry));
-    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-n]')) b.setAttribute('aria-checked', String(Number(b.dataset.n) === radialN));
-    $<HTMLElement>('.radial-n').hidden = symmetry !== 'radial';
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-n]')) b.setAttribute('aria-checked', String(Number(b.dataset.n) === arms));
+    $<HTMLElement>('.radial-n').hidden = !radialBody();
     for (const b of root.querySelectorAll<HTMLButtonElement>('[data-plan]')) b.setAttribute('aria-pressed', String(Number(b.dataset.plan) === plan));
     const named = cleanName(name);
     if (!named && !message) $('.message').textContent = `Name: 2–${NAME_MAX} letters, spaces, hyphens or apostrophes.`;
@@ -543,7 +563,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       resize = { i, cx: x, cy: y, d0: Math.max(0.05, Math.hypot(bx - x, by - y)), radii0: [...radii] };
     });
   }
-  for (const [i, el] of benders.entries()) grab(el, () => { bending = i; });
+  for (const [i, el] of benders.entries()) grab(el, () => { bending = { i, head: segments()[0]!, pan: { ...pan } }; });
   const onDown = (e: PointerEvent) => {
     if (root.hidden) return;
     const { bx, by } = toBody(e);
@@ -563,7 +583,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const { bx, by } = toBody(e);
     if (Math.hypot(bx, by) > 1.6) return undefined;
     // A moved group keeps its own copies (they were already placed): only new ones must fit.
-    const g = placeAt(cat, d.gene, bx, by, symmetry, radialN, available(d.gene));
+    const g = placeAt(cat, d.gene, bx, by, symmetry(), arms, available(d.gene));
     if (typeof g === 'string') {
       message = g;
       return undefined;
@@ -581,25 +601,30 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       const lift = form.bend * (0 - BEND_CENTRE * form.sx * form.sx);
       form = { ...form, sy: clampTo((lift - p.y) / HANDLE_OUT, FORM_LIMITS.sy) };
     } else {
-      // Out from the centre adds stations (a tapering tail, carrying on its curl), back in removes them.
+      // Out from the centre adds stations (a tapering tail or arms, carrying on their curl), back in removes them.
       const steps = Math.round((Math.hypot(p.x, p.y) - s.d0) / SEGMENT_STEP);
-      const n = Math.min(MAX_SEGMENTS, Math.max(MIN_SEGMENTS, s.radii0.length + steps));
+      const n = Math.min(radialBody() ? 1 + MAX_ARM : MAX_SEGMENTS, Math.max(MIN_SEGMENTS, s.radii0.length + steps));
       radii = s.radii0.slice(0, n);
       bends = s.bends0.slice(0, n);
-      while (radii.length < n) radii.push(plan === 1 ? radii.at(-1)! : Math.max(SEGMENT_MIN, radii.at(-1)! * 0.85));
+      while (radii.length < n) radii.push(Math.max(SEGMENT_MIN, radii.at(-1)! * 0.85));
       while (bends.length < n) bends.push(bends.length > 1 ? bends.at(-1)! : 0);
     }
     render();
   };
-  /** Bending: turn the spine at the station before this one so that this one moves toward the pointer. */
-  const onBend = (e: PointerEvent, i: number) => {
+  /** Bending: turn the spine (or the front arm) at the station before this one so that this one moves toward the pointer. */
+  const onBend = (e: PointerEvent, b: NonNullable<typeof bending>) => {
+    const { i } = b;
     const segs = segments();
     const { bx, by } = toBody(e);
     const [px, py] = segs[i - 1]!;
-    // The link leaving station i - 1 points along π + the turns before it; its bend makes up the rest.
-    const before = Math.PI + bends.slice(1, i - 1).reduce((a, b) => a + b, 0);
+    // The link leaving station i - 1 points back (a spine) or out along the front arm, plus the turns before it; its
+    // bend makes up the rest.
+    const before = (radialBody() ? 0 : Math.PI) + bends.slice(1, i - 1).reduce((a, t) => a + t, 0);
     while (bends.length < radii.length) bends.push(0);
     bends[i - 1] = Math.max(-MAX_BEND, Math.min(MAX_BEND, wrapAngle(Math.atan2(by - py, bx - px) - before)));
+    // The body is recentred around its new shape: the view moves with it, so the head stays where it was on screen.
+    const [hx, hy] = segments()[0]!;
+    pan = { x: b.pan.x + hx - b.head[0], y: b.pan.y + hy - b.head[1] };
     render();
   };
   const onMove = (e: PointerEvent) => {
@@ -611,12 +636,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       const { bx, by } = toBody(e);
       const r0 = resize.radii0[resize.i]!;
       const r = Math.min(SEGMENT_MAX, Math.max(SEGMENT_MIN, r0 * Math.hypot(bx - resize.cx, by - resize.cy) / resize.d0));
-      if (plan === 1) radii = resize.i > 0 ? radii.map((v, k) => (k > 0 ? r : v)) : radii.map((v, k) => (k === 0 ? r : v)); // lobes stay symmetric
-      else {
-        // Clay: the neighbours follow a little.
-        radii = resize.radii0.map((v, k) => k === resize!.i ? r
-          : Math.abs(k - resize!.i) === 1 ? Math.min(SEGMENT_MAX, Math.max(SEGMENT_MIN, v * (r / r0) ** FALLOFF)) : v);
-      }
+      // Clay: the neighbours follow a little (a radial body: the same station on every arm).
+      radii = resize.radii0.map((v, k) => k === resize!.i ? r
+        : Math.abs(k - resize!.i) === 1 ? Math.min(SEGMENT_MAX, Math.max(SEGMENT_MIN, v * (r / r0) ** FALLOFF)) : v);
       render();
       return;
     }
@@ -664,7 +686,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   });
   const design = (): Design => ({
     parts: placementsOf(groups), hue, shape, children, name: cleanName(name) ?? '',
-    ...(animal() ? { plan, radii: [...radii], bends: spine() ? bends.slice(0, radii.length) : [] } : { form }),
+    ...(animal() ? { plan, radii: [...radii], bends: bends.slice(0, radii.length), arms } : { form }),
   });
   const send = (evolve = false) => {
     if (submitted || !lineage || lineage.dna - cost(groups) < 0 || !cleanName(name)) return;
@@ -707,7 +729,13 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       form = formOf(l);
       plan = l.plan;
       radii = l.radii.length ? [...l.radii] : [...(DEFAULT_RADII_OF[l.plan] ?? DEFAULT_RADII)];
+      arms = l.plan === 1 ? l.arms : 0;
+      if (l.plan === 1 && !arms) { // the older lobes format: one-station arms
+        arms = Math.min(RADIAL_ARMS[1], Math.max(RADIAL_ARMS[0], radii.length - 1));
+        radii = radii.slice(0, 2);
+      }
       bends = radii.map((_, i) => l.bends[i] ?? 0);
+      pan = { x: 0, y: 0 };
       resize = sculpt = bending = undefined;
       name = l.name;
       nameInput.value = name;
@@ -737,36 +765,36 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       camera.left = -half * aspect;
       camera.right = half * aspect;
       camera.updateProjectionMatrix();
+      if (!bending) pan = { x: pan.x * Math.exp(-3 * dt), y: pan.y * Math.exp(-3 * dt) }; // drift back once released
+      camera.position.set(-pan.y, pan.x, 0);
       const gs = working();
       const segs = segments();
       cell.update({ x: 0, y: 0, heading: FORWARD, tumble: 0, spore: 0, cyst: 0 }, 1,
         { tier: lineage!.tier, genome: genomeOf(cat, gs), parts: placementsOf(gs), hue, shape: shownForm(), segments: segs, plan }, time, dt);
-      // Sculpting handles: a cell's nose and side; an animal's tail, a width handle on each station's right side and a
-      // bend handle on the spine from the third station.
+      // Sculpting handles: a cell's nose and side; an animal's tail (a radial body: its front arm's tip), a width handle
+      // on each station's right side and a bend handle from the third station. A radial body's front arm holds stations
+      // 1… right after the centre, the same indices as its radii, as a spine's do.
       const f = shownForm();
       if (animal()) {
-        const last = segs.length - 1;
+        const last = radii.length - 1;
         const [x, y, r] = segs[last]!;
-        const back = plan === 1 ? { x: x / (Math.hypot(x, y) || 1), y: y / (Math.hypot(x, y) || 1) } : (() => {
-          const ax = stationAxis(segs, last);
-          return { x: -ax.x, y: -ax.y };
-        })();
+        const ax = stationAxis(segs, last);
         place(handles.nose, undefined);
         place(handles.side, undefined);
-        place(handles.tail, deform(f, x + back.x * r, y + back.y * r));
+        place(handles.tail, deform(f, x - ax.x * r, y - ax.y * r));
         for (const [i, el] of widths.entries()) {
-          const st = segs[i];
-          if (!st || (plan === 1 && i > 1)) {
+          const st = i < radii.length ? segs[i] : undefined;
+          if (!st) {
             place(el, undefined);
             continue;
           }
           const [sx, sy, sr] = st;
-          const ax = plan === 1 ? { x: sx / (Math.hypot(sx, sy) || 1), y: sy / (Math.hypot(sx, sy) || 1) } : stationAxis(segs, i);
-          place(el, deform(f, sx + ax.y * sr, sy - ax.x * sr)); // its right side
+          const a = stationAxis(segs, i);
+          place(el, deform(f, sx + a.y * sr, sy - a.x * sr)); // its right side
         }
         for (const [i, el] of benders.entries()) {
-          const st = segs[i];
-          place(el, st && spine() && i >= 2 ? deform(f, st[0], st[1]) : undefined);
+          const st = i >= 2 && i < radii.length ? segs[i] : undefined;
+          place(el, st && deform(f, st[0], st[1]));
         }
       } else {
         place(handles.nose, deform(form, HANDLE_OUT, 0));

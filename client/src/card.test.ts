@@ -18,6 +18,9 @@ test('a card survives the link round trip (UTF-8 names included)', () => {
   expect(decodeCard(encodeCard(sculpted))).toEqual(sculpted);
   const curled: CardData = { ...card, tier: 3, parts: [], bends: [0, 0.6, -0.3] };
   expect(decodeCard(encodeCard(curled))).toEqual(curled);
+  const star: CardData = { ...card, tier: 3, parts: [], plan: 1, radii: [0.6, 0.4, 0.3], bends: [0, 0.5], arms: 5 };
+  expect(decodeCard(encodeCard(star))).toEqual(star);
+  expect(decodeCard(encodeCard({ ...star, arms: 9 }))).toBeUndefined();
   const accented = { ...card, name: 'Ébauche lucida' };
   expect(decodeCard(encodeCard(accented))!.name).toBe('Ébauche lucida');
 });

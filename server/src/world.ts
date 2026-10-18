@@ -8,7 +8,7 @@ import {
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, fitsPlan, SEGMENT_MIN,
-  cleanForm, MAX_BEND, MAX_PLACED, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
+  cleanForm, MAX_ARM, RADIAL_ARMS, MAX_BEND, MAX_PLACED, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
@@ -301,7 +301,7 @@ interface Design {
   /** A sculpted shape (Form), or undefined: keep the current one. */
   form?: { sx: number; sy: number; bend: number };
   /** Animals only: body plan and segment sizes (undefined for other tiers). */
-  body?: { plan: number; radii: number[]; bends: number[] };
+  body?: { plan: number; radii: number[]; bends: number[]; arms: number };
 }
 /** The latest valid draft per lineage, applied if the cyst times out (server-only, never synced). */
 const drafts = new WeakMap<Lineage, Design>();
@@ -313,7 +313,7 @@ const drafts = new WeakMap<Lineage, Design>();
 function parseDesign(l: Lineage, design: unknown): Design | string {
   if (typeof design !== 'object' || design === null) return 'bad design';
   const { parts, hue, children, name: rawName, evolve = false, shape = 0, form: rawForm, plan = l.plan,
-    radii = l.radii.length ? [...l.radii] : DEFAULT_RADII_OF[l.plan], bends = [...l.bends] } = design as Record<string, unknown>; // omitted: the current body
+    radii = l.radii.length ? [...l.radii] : DEFAULT_RADII_OF[l.plan], bends = [...l.bends], arms = l.arms } = design as Record<string, unknown>; // omitted: the current body
   if (typeof shape !== 'number' || !Number.isInteger(shape) || !SHAPES[shape]) return 'bad shape';
   const form = rawForm === undefined ? undefined : cleanForm(rawForm);
   if (rawForm !== undefined && !form) return 'bad form';
@@ -334,7 +334,10 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
       || !radii.every((r) => typeof r === 'number' && r >= SEGMENT_MIN && r <= SEGMENT_MAX)) return 'bad segments';
     if (!Array.isArray(bends) || bends.length > (radii as number[]).length
       || !bends.every((b) => typeof b === 'number' && Math.abs(b) <= MAX_BEND)) return 'bad bends';
-    body = { plan, radii: radii as number[], bends: bends as number[] };
+    // A radial body: 3–6 arms, each up to MAX_ARM stations (radii = [centre, arm stations…]).
+    if (plan === 1 && (typeof arms !== 'number' || !Number.isInteger(arms) || arms < RADIAL_ARMS[0] || arms > RADIAL_ARMS[1]
+      || (radii as number[]).length > 1 + MAX_ARM)) return 'bad arms';
+    body = { plan, radii: radii as number[], bends: bends as number[], arms: plan === 1 ? (arms as number) : 0 };
   }
   const cat = catalogFor(l.tier);
   let genome = 0;
@@ -411,6 +414,7 @@ function evolve(l: Lineage) {
     l.radii.clear();
     l.radii.push(...DEFAULT_RADII_OF[l.plan]!);
     l.bends.clear();
+    l.arms = 0;
   }
 }
 
@@ -430,6 +434,7 @@ function apply(l: Lineage, d: Design) {
     l.radii.push(...d.body.radii);
     l.bends.clear();
     l.bends.push(...d.body.bends);
+    l.arms = d.body.arms;
   }
 }
 
