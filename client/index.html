@@ -101,13 +101,22 @@
       /* The editor: same tokens as the HUD. Two glass panels, a parts grid of icons, swatches, handles on the body. */
       #editor { position: fixed; inset: 0; pointer-events: none; font: var(--font); color: var(--ink); }
       #editor[hidden], #editor [hidden] { display: none !important; }
-      #editor .panel { position: absolute; top: 52px; max-height: calc(100% - 100px); overflow: auto; pointer-events: auto;
-        padding: 12px; box-sizing: border-box; background: var(--glass-strong); border: 1px solid var(--line);
-        border-radius: var(--radius); backdrop-filter: var(--blur); scrollbar-color: var(--line) transparent; }
+      #editor .panel { position: absolute; top: 52px; pointer-events: auto; padding: 12px; box-sizing: border-box;
+        background: var(--glass-strong); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: var(--blur); }
       #palette { left: 12px; width: 232px; }
-      #editor .ed-side { position: absolute; top: 52px; right: 12px; width: 232px; max-height: calc(100% - 100px); overflow: auto;
-        display: grid; gap: 8px; align-content: start; pointer-events: auto; scrollbar-color: var(--line) transparent; }
-      #editor .ed-side .panel { position: static; max-height: none; display: grid; gap: 8px; }
+      /* No scrollbars: the columns have no max-height; the editor zooms each one down to fit the window (queueFit). */
+      #editor .ed-side { position: absolute; top: 60px; right: 12px; width: 232px; display: grid; gap: 8px; align-content: start; pointer-events: auto; }
+      #editor .ed-side .panel { position: static; display: grid; gap: 8px; }
+      /* The DNA budget, top right: a helix, what is left, and what this design costs (red) or refunds (green). */
+      #editor .ed-dna { position: absolute; top: 8px; right: 12px; display: flex; align-items: center; gap: 8px; padding: 5px 14px 5px 10px;
+        border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line); backdrop-filter: var(--blur); pointer-events: auto; }
+      #editor .ed-dna svg { width: 14px; height: 26px; fill: none; stroke-linecap: round; }
+      #editor .ed-dna .strand { stroke: var(--dna); stroke-width: 1.8; }
+      #editor .ed-dna .pair { stroke: #cfe8a6; stroke-width: 1.1; opacity: 0.8; }
+      #editor .ed-dna b { font-size: 20px; color: var(--dna); font-variant-numeric: tabular-nums; }
+      #editor .ed-dna.short b { color: var(--danger); }
+      #editor .dna-spend { font-weight: 700; font-size: 15px; color: var(--danger); font-variant-numeric: tabular-nums; }
+      #editor .dna-spend.refund { color: var(--dna); }
       #editor .ed-side h2 { margin: 0; }
       #editor .kids-note { color: var(--ink-soft); font-size: 11px; }
       #editor h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink-soft); letter-spacing: 0.04em; text-transform: uppercase; }
@@ -149,9 +158,6 @@
       #editor .name { font: 600 15px/1.2 system-ui, sans-serif; color: var(--ink); background: rgb(255 255 255 / 0.06);
         border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%; box-sizing: border-box; }
       #editor p { margin: 0; }
-      #editor .dna { color: var(--ink-soft); }
-      #editor .dna b { font-size: 20px; color: var(--dna); }
-      #editor .dna.short b { color: var(--danger); }
       #editor .ed-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       #editor .swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid rgb(0 0 0 / 0.25); }
       #editor .swatch[aria-checked='true'] { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); background: var(--c); }
@@ -167,15 +173,17 @@
       #editor .primary { font-size: 15px; font-weight: 600; padding: 10px; background: rgb(159 231 208 / 0.22); border-color: var(--accent); }
       #editor .evolution { display: grid; gap: 6px; }
       #editor .evolve:not(:disabled) { background: rgb(255 214 120 / 0.22); border-color: var(--evolve); color: #ffe6a8; }
-      /* The countdown: a ring that empties and a hand that ticks once a second. */
+      /* The countdown: the seconds inside a ring that empties. */
       #editor .ed-clock { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
         padding: 4px 14px 4px 5px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line);
         backdrop-filter: var(--blur); white-space: nowrap; }
-      #editor .ed-clock svg { width: 40px; height: 40px; }
+      #editor .ed-clock .dial { position: relative; width: 40px; height: 40px; }
+      #editor .ed-clock svg { width: 40px; height: 40px; display: block; }
+      #editor .ed-clock .dial .secs { position: absolute; inset: 0; display: grid; place-items: center; font-size: 15px; }
       #editor .ed-clock .track { fill: rgb(255 255 255 / 0.06); stroke: var(--line); stroke-width: 3; }
       #editor .ed-clock .left { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 100; transform: rotate(-90deg);
         transform-origin: 20px 20px; transition: stroke-dashoffset 0.25s linear; }
-      #editor .ed-clock .secs { display: block; font-size: 18px; font-variant-numeric: tabular-nums; line-height: 1; }
+      #editor .ed-clock .secs { font-variant-numeric: tabular-nums; line-height: 1; }
       #editor .ed-clock .what { color: var(--ink-soft); font-size: 11px; }
       #editor .ed-clock.late .left { stroke: var(--danger); }
       #editor .ed-clock.late .secs { color: var(--danger); }

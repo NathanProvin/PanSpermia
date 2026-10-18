@@ -133,6 +133,11 @@ const ACTIVE: Readonly<Record<string, 'left' | 'right'>> = {
 };
 const MOUSE_ICON = '<svg viewBox="0 0 20 28" aria-hidden="true"><rect x="1" y="1" width="18" height="26" rx="9"/><path class="btn left" d="M10 1.5A8.5 8.5 0 0 0 1.5 10V12H10Z"/><path class="btn right" d="M10 1.5A8.5 8.5 0 0 1 18.5 10V12H10Z"/><path d="M1 12h18M10 1v11" class="line"/></svg>';
 
+/** The DNA box's icon: a short double helix. */
+const DNA_ICON = '<svg viewBox="0 0 16 28" aria-hidden="true"><path d="M3 2c0 6 10 6 10 12S3 20 3 26M13 2c0 6-10 6-10 12s10 6 10 12" class="strand"/><path d="M5 5h6M5 11h6M5 17h6M5 23h6" class="pair"/></svg>';
+/** Space kept under the side columns for the handle legend (px). */
+const LEGEND_ROOM = 40;
+
 const svg = (body: string) => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
 const PATTERN_ICONS = [
   svg('<circle cx="12" cy="12" r="8"/>'),
@@ -181,9 +186,10 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   root.innerHTML = `
     <div class="ed-clock" role="timer">
-      <svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="16"/><circle class="left" cx="20" cy="20" r="16" pathLength="100"/></svg>
-      <div><b class="secs"></b><small class="what"></small></div>
+      <div class="dial"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="16"/><circle class="left" cx="20" cy="20" r="16" pathLength="100"/></svg><b class="secs"></b></div>
+      <small class="what"></small>
     </div>
+    <div class="ed-dna" title="DNA to spend on this design">${DNA_ICON}<b class="dna-left"></b><span class="dna-spend"></span></div>
     <section class="panel" id="palette" aria-label="Parts">
       <h2>Parts</h2>
       <div class="clicks" aria-label="Active parts and their mouse buttons">${MOUSE_ICON}
@@ -197,7 +203,6 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       <section class="panel" aria-label="Body and colour">
         <h2>Body</h2>
         <input type="text" class="name" aria-label="Species name" maxlength="${NAME_MAX}" autocomplete="off" spellcheck="false">
-        <p class="dna"><b></b> DNA <small></small></p>
         <div class="ed-row swatches" role="radiogroup" aria-label="Pigment"></div>
         <div class="ed-row patterns" role="radiogroup" aria-label="Pattern"></div>
         <div class="ed-row plans"></div>
@@ -226,8 +231,25 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle h-width small" data-w="${i}" title="Width: drag in or out"></div>`).join('')}
     ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle h-bend small" data-b="${i}" title="Bend: drag sideways to turn the body here"></div>`).join('')}
     <img class="drag-ghost" alt="" hidden>
-    <p class="ed-help"><span class="key h-length"></span> length <span class="key h-width"></span> width <span class="key h-bend"></span> bend · drag parts onto the body</p>`;
+    <p class="ed-help"><span class="key h-length"></span> length <span class="key h-width"></span> width <span class="key h-bend"></span> bend</p>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
+  // No scrollbars (user direction): each side column is scaled down (CSS zoom, which also scales its offset from the top)
+  // until all of it fits above the legend. Measured once a frame at most, after the DOM changes of a render.
+  let fitQueued = false;
+  const queueFit = () => {
+    if (fitQueued) return;
+    fitQueued = true;
+    requestAnimationFrame(() => {
+      fitQueued = false;
+      if (root.hidden) return;
+      for (const el of [$<HTMLElement>('#palette'), $<HTMLElement>('.ed-side')]) {
+        el.style.zoom = '1';
+        const need = el.offsetTop + el.offsetHeight + LEGEND_ROOM;
+        el.style.zoom = String(Math.min(1, innerHeight / need));
+      }
+    });
+  };
+  addEventListener('resize', queueFit);
   const palette = $<HTMLElement>('.part-groups');
   const nameInput = $<HTMLInputElement>('.name');
   const evolveButton = $<HTMLButtonElement>('.evolve');
@@ -517,9 +539,12 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       $('.clicks').classList.toggle(`has-${button}`, names.length > 0);
     }
     const spend = cost(gs);
-    $('.dna b').textContent = String(Math.floor(left));
-    $('.dna small').textContent = spend ? `${spend >= 0 ? 'spending' : 'refunding'} ${Math.abs(Math.round(spend))}` : '';
-    $('.dna').classList.toggle('short', left < 0);
+    $('.dna-left').textContent = String(Math.floor(left));
+    const spent = Math.round(spend);
+    $('.dna-spend').textContent = spent > 0 ? `−${spent}` : spent < 0 ? `+${-spent}` : '';
+    $('.dna-spend').classList.toggle('refund', spent < 0);
+    $('.ed-dna').classList.toggle('short', left < 0);
+    queueFit();
     const icon = CHILD_ICON[lineage!.tier] ?? CHILD_ICON[1];
     $('.eggs').innerHTML = Array.from({ length: lineage!.children + children },
       (_, k) => `<svg viewBox="0 0 16 16" class="${k >= lineage!.children ? 'new' : ''}" aria-hidden="true">${icon}</svg>`).join('');

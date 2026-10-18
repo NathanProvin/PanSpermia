@@ -14,7 +14,7 @@ import {
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, INK, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
-  PLASMID_RATE, TRANSFORM_CHANCE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
+  PLASMID_RATE, TRANSFORM_CHANCE, PLASMID_UNLOCK_CHANCE, CYANO_MASS, CYANO_RATE, HYPHA_MASS, HYPHA_RATE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
@@ -527,6 +527,8 @@ export function yieldOf(kind: number, genome: number) {
   if (kind === NutrientKind.debris) return DEBRIS_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes'));
   if (kind === NutrientKind.chunk) return CHUNK_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes')); // decomposers
   if (kind === NutrientKind.dissolved) return NUTRIENT_MASS * boost(TRANSPORTER_YIELD, copiesOf(genome, 'transporters'));
+  if (kind === NutrientKind.cyano) return CYANO_MASS;
+  if (kind === NutrientKind.hypha) return HYPHA_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes')); // decomposers
   return 0;
 }
 
@@ -537,6 +539,8 @@ export const reachOf = (mass: number, genome: number) =>
 function mouthYield(kind: number, plant: boolean, meat: boolean) {
   if (plant && kind === NutrientKind.algae) return ALGAE_MASS;
   if (plant && kind === NutrientKind.dissolved) return NUTRIENT_MASS;
+  if (plant && kind === NutrientKind.cyano) return CYANO_MASS;
+  if ((plant || meat) && kind === NutrientKind.hypha) return HYPHA_MASS; // any mouth
   if (meat && kind === NutrientKind.chunk) return CHUNK_MASS;
   if (meat && kind === NutrientKind.debris) return DEBRIS_MASS;
   return 0;
@@ -603,6 +607,12 @@ export function stepWorld(state: PoolState): Death[] {
   if (Math.random() < BACKGROUND_RATE * TICK_DT) {
     const at = randomInDisc(WORLD_RADIUS);
     spawnNutrient(state, at.x, at.y, NutrientKind.dissolved);
+  }
+  for (const [kind, rate] of [[NutrientKind.cyano, CYANO_RATE], [NutrientKind.hypha, HYPHA_RATE]] as const) {
+    if (Math.random() < rate * TICK_DT) {
+      const at = randomInDisc(WORLD_RADIUS);
+      spawnNutrient(state, at.x, at.y, kind);
+    }
   }
   if (Math.random() < PLASMID_RATE * TICK_DT) {
     const at = randomInDisc(WORLD_RADIUS);
@@ -672,7 +682,13 @@ export function stepWorld(state: PoolState): Death[] {
             l.library |= cat.GENES[cat.NAMES[Math.floor(Math.random() * cat.NAMES.length)]!]!.bit;
           }
         } else if (n.kind === NutrientKind.plasmid || n.kind === NutrientKind.fragment) {
-          earn(state, id, n.kind === NutrientKind.plasmid ? PLASMID_DNA : PACKET_DNA); // DNA for every phase; parts only for bacteria
+          earn(state, id, n.kind === NutrientKind.plasmid ? PLASMID_DNA : PACKET_DNA); // DNA for every phase
+          // A eukaryote's plasmid may carry one of its own undiscovered parts (bacteria get the plasmid's gene).
+          if (l?.tier === 2 && p.tier === 2 && n.kind === NutrientKind.plasmid && Math.random() < PLASMID_UNLOCK_CHANCE) {
+            const hidden = TIER2.NAMES.filter((g) => !(l.library & TIER2.GENES[g].bit));
+            const gene = hidden[Math.floor(Math.random() * hidden.length)];
+            if (gene) l.library |= TIER2.GENES[gene].bit;
+          }
         } else {
           // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) drift past.
           const food = mouthYieldOf(n.kind, p);
@@ -695,7 +711,8 @@ export function stepWorld(state: PoolState): Death[] {
         if (dna) earn(state, id, n.kind === NutrientKind.plasmid ? PLASMID_DNA : PACKET_DNA);
         // Gene transfer unlocks the part for the species' editor. Plasmids always take; fragments
         // only sometimes recombine (transformation).
-        if (l?.tier === 1 && dna && (n.kind === NutrientKind.plasmid || Math.random() < TRANSFORM_CHANCE)) l.library |= n.gene;
+        const take = n.kind === NutrientKind.plasmid ? PLASMID_UNLOCK_CHANCE : TRANSFORM_CHANCE;
+        if (l?.tier === 1 && dna && Math.random() < take) l.library |= n.gene;
       }
       eaten.add(n);
       state.nutrients.delete(nid);

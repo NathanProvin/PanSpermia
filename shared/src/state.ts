@@ -61,7 +61,9 @@ export const Player = schema({
 export type Player = SchemaType<typeof Player>;
 
 /** Everything that drifts passively: food, DNA (fragments, plasmids) and phages. */
-export const NutrientKind = { dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4, algae: 5, chunk: 6, shard: 7, virus: 8 } as const;
+export const NutrientKind = {
+  dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4, algae: 5, chunk: 6, shard: 7, virus: 8, cyano: 9, hypha: 10,
+} as const;
 
 /**
  * A packet drifting on the current. Only its spawn point and tick are synced: clients rebuild

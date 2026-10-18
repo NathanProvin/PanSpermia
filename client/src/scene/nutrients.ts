@@ -1,13 +1,13 @@
 import { NUTRIENT_CAP, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, TICK_RATE, currentAt, drift } from '@panspermia/shared';
 import { createSprites } from './sprites.ts';
 
-// Drifting packets in the focal plane, in one colour code: food is white (dissolved motes, algae cells,
-// ragged debris, big meat chunks of a dead eukaryote), DNA is mossy green like the HUD's helix (fragments as short
-// double helices, plasmids as supercoiled rings of double-stranded DNA, meteor shards as glinting crystals) and grows
-// with the camera's height so a big animal still sees it, dangers are red
-// (phages: heads on a tail with splayed fibres; giant viruses: furred capsids). Seeps are white glows just
-// below the plane where plumes of food rise. Kept below the bloom threshold: they read, they don't glare.
-// Kind rides in the integer part of aSeed (9 = seep), the per-sprite random seed in the fraction.
+// Drifting packets in the focal plane, in one colour code: food is white or plant-coloured (dissolved motes, ragged
+// debris, big meat chunks of a dead eukaryote; algae leafy green, cyanobacteria filaments teal, fungal hyphae cream),
+// dangers are red (phages: heads on a tail with splayed fibres; giant viruses: furred capsids). DNA is mossy green like
+// the HUD's helix (fragments, plasmids, meteor shards), in its own layer drawn as matter (DNA_FRAGMENT), growing with
+// the camera's height so a big animal still sees it. Seeps are warm glows just below the plane where plumes of food
+// rise. Kept below the bloom threshold: they read, they don't glare.
+// Kind rides in the integer part of aSeed (15 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
 uniform float uTime;
 uniform float uFocus;
@@ -35,27 +35,6 @@ void main() {
     float chunk = 1.0 - smoothstep(edge - 0.08, edge, sqrt(r2));
     float glow = exp(-r2 * 6.0) * 0.3;
     color = vec3(1.0, 0.95, 0.86) * (chunk * 0.85 + glow * 0.6) * (0.9 + 0.1 * pulse); // food: white
-  } else if (kind < 2.5) {
-    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.3);
-    float phase = q.x * 7.0 + uTime * 1.5;
-    float span = 1.0 - smoothstep(0.6, 0.75, abs(q.x));
-    float strands = exp(-pow((q.y - 0.2 * sin(phase)) / 0.06, 2.0)) + exp(-pow((q.y + 0.2 * sin(phase)) / 0.06, 2.0));
-    float rungs = step(abs(q.y), 0.2 * abs(sin(phase))) * smoothstep(0.7, 0.95, cos(q.x * 40.0));
-    color = vec3(0.52, 0.8, 0.26) * (strands * 0.8 + rungs * 0.4 + exp(-r2 * 4.0) * 0.1) * span;
-  } else if (kind < 3.5) {
-    // A plasmid: a supercoiled ring of double-stranded DNA — two strands winding round each other with base pairs
-    // between, one gene glowing along an arc — in a soft halo, slowly turning.
-    float r = sqrt(r2);
-    float a = atan(p.y, p.x) + uTime * 0.35 + seed * 6.2831;
-    float ringR = 0.5 + 0.04 * sin(a * 2.0 + uTime * 0.8);
-    float tw = sin(a * 9.0 + uTime * 1.2);
-    float s1 = exp(-pow((r - ringR - 0.08 * tw) / 0.045, 2.0));
-    float s2 = exp(-pow((r - ringR + 0.08 * tw) / 0.045, 2.0));
-    float pairs = (1.0 - smoothstep(0.0, 0.08 * abs(tw) + 0.01, abs(r - ringR))) * smoothstep(0.6, 0.95, cos(a * 36.0));
-    float gene = smoothstep(0.6, 0.95, sin(a + seed * 20.0)) * (s1 + s2);
-    float halo = exp(-pow((r - ringR) / 0.24, 2.0)) * 0.2 + exp(-r2 * 3.0) * 0.07;
-    color = vec3(0.52, 0.8, 0.26) * (s1 + s2) * 0.9 + vec3(0.82, 0.96, 0.56) * (pairs * 0.45 + gene * 0.6)
-      + vec3(0.45, 0.72, 0.2) * halo * pulse;
   } else if (kind < 4.5) {
     vec2 q = rotate(p, seed * 6.2831 + 0.4 * sin(uTime * 0.7 + seed * 9.0));
     vec2 h = q - vec2(0.0, 0.32);
@@ -71,21 +50,13 @@ void main() {
     float cell = 1.0 - smoothstep(0.62, 0.7, body);
     float rim = cell * smoothstep(0.45, 0.68, body);
     float plastids = smoothstep(0.55, 0.85, sin(q.x * 9.0 + seed * 20.0) * sin(q.y * 8.0 - seed * 11.0)) * cell;
-    color = vec3(0.9, 0.95, 0.88) * (cell * 0.3 + rim * 0.6) + vec3(1.0) * plastids * 0.4; // food: white
+    color = vec3(0.5, 0.86, 0.3) * (cell * 0.35 + rim * 0.6) + vec3(0.75, 1.0, 0.5) * plastids * 0.4; // algae: leafy green
   } else if (kind < 6.5) {
     float a = atan(p.y, p.x);
     float edge = 0.55 + 0.1 * sin(a * 4.0 + seed * 40.0) + 0.07 * sin(a * 9.0 - seed * 17.0);
     float chunk = 1.0 - smoothstep(edge - 0.06, edge, sqrt(r2));
     float inner = smoothstep(edge - 0.25, edge - 0.05, sqrt(r2));
     color = vec3(0.9, 0.86, 0.78) * chunk * (0.5 + 0.9 * inner) + vec3(1.0) * exp(-r2 * 5.0) * 0.12; // food: white
-  } else if (kind < 7.5) {
-    // A meteor shard: a faceted, glinting crystal shard (Spore's meteor bits) — the rare tier-2 prize.
-    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.5);
-    float facet = max(abs(q.x) * 0.9 + abs(q.y) * 0.45, abs(q.y) * 1.2);
-    float shard = 1.0 - smoothstep(0.42, 0.48, facet);
-    float glint = pow(max(0.0, sin(uTime * 3.0 + seed * 20.0)), 8.0);
-    color = mix(vec3(0.45, 0.76, 0.2), vec3(0.82, 0.96, 0.56), smoothstep(-0.4, 0.4, q.x)) * shard * (0.7 + 0.5 * glint)
-      + vec3(1.0, 0.9, 0.7) * exp(-r2 * 6.0) * 0.18 * pulse;
   } else if (kind < 8.5) {
     // A giant virus: a big icosahedral capsid furred with fibres (like mimivirus), slowly turning.
     vec2 q = rotate(p, seed * 6.2831 + uTime * 0.2);
@@ -95,20 +66,100 @@ void main() {
     float a = atan(q.y, q.x);
     float fur = (1.0 - capsid) * (1.0 - smoothstep(0.46, 0.66, hex)) * smoothstep(0.5, 0.9, sin(a * 40.0 + seed * 9.0));
     color = vec3(1.0, 0.32, 0.26) * (shell * 0.9 + capsid * 0.2 + fur * 0.5) + vec3(0.9, 0.2, 0.15) * exp(-r2 * 3.0) * 0.12; // danger: red
+  } else if (kind < 9.5) {
+    // Cyanobacteria: a trichome — a gently curving chain of blue-green cells with one larger, paler heterocyst.
+    vec2 q = rotate(p, seed * 6.2831 + 0.15 * sin(uTime * 0.5 + seed * 7.0));
+    float off = q.y - 0.12 * sin(q.x * 3.0 + seed * 11.0 + uTime * 0.6);
+    float idx = floor(q.x * 6.0 + 0.5);
+    float local = (q.x * 6.0 - idx) / 6.0;
+    float hetero = step(abs(idx - floor(seed * 7.0 - 3.0)), 0.5);
+    float cr = mix(0.072, 0.095, hetero);
+    float d = length(vec2(local * 1.15, off)) - cr;
+    float cell = (1.0 - smoothstep(-0.012, 0.012, d)) * (1.0 - step(0.9, abs(q.x)));
+    float rim = cell * smoothstep(-0.04, 0.0, d);
+    color = mix(vec3(0.16, 0.6, 0.52), vec3(0.7, 0.86, 0.45), hetero) * (cell * 0.55 + rim * 0.5); // teal: cyanobacteria
+  } else if (kind < 10.5) {
+    // Fungal hyphae: a thin pale thread of mycelium, branching, with septa and slightly swollen tips.
+    vec2 q = rotate(p, seed * 6.2831);
+    float j = seed * 0.2;
+    vec2 a0 = vec2(-0.85, 0.05 + j), a1 = vec2(-0.3, -0.06), a2 = vec2(0.25, 0.07 - j), a3 = vec2(0.85, -0.03);
+    vec2 b1 = vec2(-0.05, 0.6), b2 = vec2(0.5, -0.55), b3 = vec2(0.2, 0.82);
+    float d = min(min(segment(q, a0, a1), segment(q, a1, a2)), segment(q, a2, a3));
+    d = min(d, min(segment(q, a1, b1), segment(q, a2, b2)));
+    d = min(d, segment(q, mix(a1, b1, 0.6), b3));
+    float thread = exp(-pow(d / 0.022, 2.0));
+    float tips = 0.0;
+    for (int k = 0; k < 4; k++) {
+      vec2 tip = k == 0 ? a0 : k == 1 ? a3 : k == 2 ? b2 : b3;
+      tips += exp(-dot(q - tip, q - tip) / 0.003);
+    }
+    float septa = thread * smoothstep(0.8, 0.98, sin((q.x + q.y) * 40.0));
+    color = vec3(0.95, 0.9, 0.76) * (thread * 0.7 + tips * 0.6 + septa * 0.3); // cream: mycelium
   } else {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.8, 0.74, 0.58) * exp(-r2 * 3.5) * 0.1 * breathe; // a food source: a soft warm glow
   }
   // Seen from high up (big bodies), a plume's ~60 packets pile up additively into a white bloom: dim them with height.
-  // DNA, sparse and the prize, dims less.
-  float dna = step(1.5, kind) * step(kind, 3.5) + step(6.5, kind) * step(kind, 7.5);
-  color *= mix(1.0, mix(0.35, 0.8, dna), smoothstep(700.0, 3000.0, uFocus));
+  color *= mix(1.0, 0.35, smoothstep(700.0, 3000.0, uFocus));
   gl_FragColor = vec4(color, 1.0);
 }
 `;
+// DNA (fragments, plasmids, meteor shards) is drawn as matter, not light (user: really mossy green — added light only
+// ever reads pale on the bright sand): saturated mossy strands with a lit edge and a soft green halo, on any background.
+const DNA_FRAGMENT = /* glsl */ `
+uniform float uTime;
+varying vec2 vUv;
+varying float vSeed;
+vec2 rotate(vec2 p, float a) { return vec2(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y); }
+void main() {
+  float kind = floor(vSeed);
+  float seed = fract(vSeed);
+  vec2 p = vUv * 2.0 - 1.0;
+  float r2 = dot(p, p);
+  float r = sqrt(r2);
+  vec3 moss = vec3(0.17, 0.36, 0.035);
+  vec3 lit = vec3(0.42, 0.66, 0.12);
+  float body = 0.0;
+  float light = 0.0;
+  float halo = 0.0;
+  if (kind < 2.5) { // a fragment: a short double helix
+    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.3);
+    float phase = q.x * 7.0 + uTime * 1.5;
+    float span = 1.0 - smoothstep(0.6, 0.75, abs(q.x));
+    float s1 = exp(-pow((q.y - 0.2 * sin(phase)) / 0.07, 2.0));
+    float s2 = exp(-pow((q.y + 0.2 * sin(phase)) / 0.07, 2.0));
+    float rungs = step(abs(q.y), 0.2 * abs(sin(phase))) * smoothstep(0.7, 0.95, cos(q.x * 40.0));
+    body = max(max(s1, s2), rungs * 0.7) * span;
+    light = s1 * span * 0.6;
+    halo = exp(-r2 * 3.0) * 0.25;
+  } else if (kind < 3.5) { // a plasmid: a supercoiled ring of double-stranded DNA, slowly turning, one gene lit
+    float a = atan(p.y, p.x) + uTime * 0.35 + seed * 6.2831;
+    float ringR = 0.5 + 0.04 * sin(a * 2.0 + uTime * 0.8);
+    float tw = sin(a * 9.0 + uTime * 1.2);
+    float s1 = exp(-pow((r - ringR - 0.08 * tw) / 0.05, 2.0));
+    float s2 = exp(-pow((r - ringR + 0.08 * tw) / 0.05, 2.0));
+    float pairs = (1.0 - smoothstep(0.0, 0.08 * abs(tw) + 0.01, abs(r - ringR))) * smoothstep(0.6, 0.95, cos(a * 36.0));
+    float gene = smoothstep(0.6, 0.95, sin(a + seed * 20.0));
+    body = max(max(s1, s2), pairs * 0.8);
+    light = max(s1, s2) * (0.25 + 0.75 * gene) * smoothstep(0.2, -0.6, p.x + p.y); // the lit upper-left, the gene
+    halo = exp(-pow((r - ringR) / 0.24, 2.0)) * 0.3;
+  } else { // a meteor shard: a faceted crystal, glinting
+    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.5);
+    float facet = max(abs(q.x) * 0.9 + abs(q.y) * 0.45, abs(q.y) * 1.2);
+    body = 1.0 - smoothstep(0.42, 0.48, facet);
+    light = body * (smoothstep(-0.1, 0.4, q.x) * 0.6 + pow(max(0.0, sin(uTime * 3.0 + seed * 20.0)), 8.0));
+    halo = exp(-r2 * 4.0) * 0.3;
+  }
+  float a = clamp(body * 0.95 + halo * (1.0 - body), 0.0, 1.0);
+  vec3 col = mix(moss, lit, clamp(light, 0.0, 1.0)) * body + vec3(0.3, 0.55, 0.1) * halo * (1.0 - body);
+  gl_FragColor = vec4(col, a); // premultiplied
+}
+`;
+const DNA_CAP = 2048;
 const SIZE: Record<number, number> = {
   [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 22, [NutrientKind.plasmid]: 40,
   [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42, [NutrientKind.shard]: 36, [NutrientKind.virus]: 44,
+  [NutrientKind.cyano]: 70, [NutrientKind.hypha]: 80,
 };
 const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
@@ -131,13 +182,14 @@ const MAX_CURRENT = 65;
 
 export function createNutrients() {
   const sprites = createSprites(NUTRIENT_CAP + SEEP_COUNT, FRAGMENT, 5);
+  const dnaSprites = createSprites(DNA_CAP, DNA_FRAGMENT, 6, true);
   const packets = new Map<string, Packet>();
   const flow = { x: 0, y: 0 };
 
   return {
     /** Dev: the mirrored packets (console inspection). */
     packets,
-    objects: [sprites.mesh],
+    objects: [sprites.mesh, dnaSprites.mesh],
     /** Mirror a synced packet; its path is rebuilt locally by `drift`, never synced. */
     add(id: string, n: Nutrient) {
       packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, kind: n.kind, seed: (Number(id) * 0.618034) % 1, fx: 0, fy: 0, flowTick: -1 });
@@ -163,6 +215,7 @@ export function createNutrients() {
       const halfW = view.halfW + VIEW_MARGIN;
       const halfH = view.halfH + VIEW_MARGIN;
       let i = 0;
+      let n = 0; // DNA packets, in their own layer
       for (const p of packets.values()) {
         const out = Math.max(Math.abs(p.x - view.x) - halfW, Math.abs(p.y - view.y) - halfH); // > 0: off the drawn area
         const period = out > 0 ? (out / MAX_CURRENT) * TICK_RATE * (0.5 + 0.5 * p.seed) : NEAR_TICKS * (1 + p.seed);
@@ -174,11 +227,22 @@ export function createNutrients() {
           p.flowTick = p.tick;
         }
         if (out > 0 || i >= NUTRIENT_CAP) continue;
+        if (isDna(p.kind)) {
+          if (n >= DNA_CAP) continue;
+          const ahead = (tick - p.tick) * TICK_DT + glide;
+          dnaSprites.offsets[n * 3] = p.x + p.fx * ahead;
+          dnaSprites.offsets[n * 3 + 1] = p.y + p.fy * ahead;
+          dnaSprites.offsets[n * 3 + 2] = 0;
+          dnaSprites.sizes[n] = (SIZE[p.kind] ?? 16) * dnaGrow;
+          dnaSprites.seeds[n] = p.kind + p.seed;
+          n++;
+          continue;
+        }
         const ahead = (tick - p.tick) * TICK_DT + glide; // glide on its flow since its last drift step
         sprites.offsets[i * 3] = p.x + p.fx * ahead;
         sprites.offsets[i * 3 + 1] = p.y + p.fy * ahead;
         sprites.offsets[i * 3 + 2] = 0;
-        sprites.sizes[i] = (SIZE[p.kind] ?? 16) * (isDna(p.kind) ? dnaGrow : 1);
+        sprites.sizes[i] = SIZE[p.kind] ?? 16;
         sprites.seeds[i] = p.kind + p.seed;
         i++;
       }
@@ -188,11 +252,13 @@ export function createNutrients() {
         sprites.offsets[i * 3 + 1] = seep.y;
         sprites.offsets[i * 3 + 2] = SEEP_DEPTH;
         sprites.sizes[i] = SEEP_SIZE;
-        sprites.seeds[i] = 9 + (s++ * 0.37) % 1;
+        sprites.seeds[i] = 15 + (s++ * 0.37) % 1; // a seep (above every packet kind)
         i++;
       }
       sprites.commit(i);
       sprites.setFrame(time, focus);
+      dnaSprites.commit(n);
+      dnaSprites.setFrame(time, focus);
     },
   };
 }

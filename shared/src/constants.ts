@@ -55,7 +55,7 @@ export const SEEP_COUNT = 131;
 export const SEEP_RATE = 1.1; // packets/s per seep
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = 113; // packets/s scattered over the whole pool
+export const BACKGROUND_RATE = 70; // packets/s scattered over the whole pool (113 before cyanobacteria and hyphae)
 export const NUTRIENT_LIFETIME = 60; // s
 export const NUTRIENT_CAP = 37500; // packets alive at most
 export const NUTRIENT_MASS = 1; // dissolved packet
@@ -67,16 +67,18 @@ export const SIDEROPHORE_REACH = 1.6; // × absorption radius
 export const EXOENZYME_YIELD = 2; // × debris yield
 
 // Horizontal gene transfer. A dead cell spills one DNA fragment per gene it expressed; absorbing one
-// may add that gene (transformation: "eat a creature, get its part"). Rare plasmids drift in carrying
-// a random gene and always take.
+// may add that gene (transformation: "eat a creature, get its part"). Plasmids drift in carrying a random gene and
+// take sometimes (user: rarer than before, when every plasmid unlocked its part); a eukaryote's plasmid may unlock one
+// of its own undiscovered parts.
 export const TRANSFORM_CHANCE = 0.5;
+export const PLASMID_UNLOCK_CHANCE = 0.3;
 /**
  * Packets/s scattered over the whole pool. Plasmids are the species' main DNA (food pays none: user direction), so they
  * are 5× as common as before; every phase collects them. Provisional until the balance step measures income: a body
  * sweeps water ∝ its reach × speed, which grows with the phase about as fast as the evolve thresholds, so one flat DNA
  * value per plasmid keeps each phase near a few generations per evolution.
  */
-export const PLASMID_RATE = 5 / 0.815;
+export const PLASMID_RATE = 3.5 / 0.815; // user: 30 % fewer than the 5× step
 
 // Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
 // lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
@@ -130,9 +132,19 @@ export const T2_TURN_RATE = 2.2; // rad/s with a flagellum and no cilia
 // Diets. Algae are tier-2 plant food (bacteria can't take them in); a dead eukaryote falls apart
 // into meat chunks; a jaw engulfs any cell at most ENGULF_RATIO of the eater's mass.
 export const ALGAE_MASS = 6;
-export const ALGAE_RATE = 35.3; // per s over the whole pool, plus SEEP_ALGAE at each seep
+export const ALGAE_RATE = 28; // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
 export const SEEP_ALGAE = 0.25; // per s per seep
 export const CHUNK_MASS = 10;
+/**
+ * More food for the first phases (user direction): cyanobacteria filaments (chains of photosynthetic cells: bacteria
+ * absorb them, a filter mouth takes them as plant food) and fungal hyphae (mycelium threads: bacteria digest them,
+ * better with exoenzymes; any eukaryote mouth takes them). Their mass/s (36 + 21) is taken back from dissolved motes
+ * and algae, so the pool's food stays about where the balance had it (+5 % for bacteria, +3 % for eukaryotes).
+ */
+export const CYANO_MASS = 4;
+export const CYANO_RATE = 9; // per s over the whole pool
+export const HYPHA_MASS = 3;
+export const HYPHA_RATE = 7;
 export const ENGULF_RATIO = 0.5;
 export const ENGULF_SHARE = 0.8; // of the victim's mass, to the eater
 

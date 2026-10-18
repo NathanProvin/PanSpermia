@@ -1,13 +1,13 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
-  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf,
+  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf, yield2Of,
 } from './world.ts';
 
 /** A human species 'p' with its first individual, unshielded so tests can hurt it. */
@@ -271,16 +271,21 @@ test('dead cells spill one DNA fragment per expressed gene', () => {
   expect(ofKind(state, NutrientKind.phage).filter((n) => Math.hypot(n.x0, n.y0) < 50)).toEqual([]);
 });
 
-test('DNA is not food; plasmids always unlock their part, fragments sometimes do; both pay DNA', () => {
+test('DNA is not food; plasmids and fragments sometimes unlock their part; both pay DNA', () => {
   expect(yieldOf(NutrientKind.fragment, 0)).toBe(0);
   expect(yieldOf(NutrientKind.plasmid, 0)).toBe(0);
 
   const { state, player, lineage } = species();
   foodAt(state, player.x, player.y, NutrientKind.plasmid, GENES.capsule.bit);
   stepWorld(state);
+  expect(lineage.dna).toBe(PLASMID_DNA);
+  // 60 plasmids at PLASMID_UNLOCK_CHANCE 0.3: missing the gene every time is a 1e-9 fluke.
+  for (let i = 0; i < 60 && !(lineage.library & GENES.capsule.bit); i++) {
+    foodAt(state, player.x, player.y, NutrientKind.plasmid, GENES.capsule.bit);
+    stepWorld(state);
+  }
   expect(lineage.library & GENES.capsule.bit).toBeTruthy();
   expect(player.genome).toBe(STARTER_GENOME); // unlocked for the editor, not expressed
-  expect(lineage.dna).toBe(PLASMID_DNA);
 
   // 40 fragments at TRANSFORM_CHANCE 0.5: missing the gene every time is a 1e-12 fluke.
   for (let i = 0; i < 40 && !(lineage.library & GENES.t6ss.bit); i++) {
@@ -1075,6 +1080,25 @@ test('cells are solid: overlapping cells push apart (the lighter moves more) and
   s2.players.set('p', prey);
   stepWorld(s2);
   expect(prey.engulfedBy).toBe('e');
+});
+
+test("a eukaryote's plasmid may unlock one of its own undiscovered parts", () => {
+  const { state, player, lineage } = species();
+  lineage.tier = 2;
+  lineage.library = TIER2.GENES.cilia.bit;
+  Object.assign(player, { tier: 2, genome: 0, genome2: 0, mass: 300 });
+  for (let i = 0; i < 60 && lineage.library === TIER2.GENES.cilia.bit; i++) {
+    foodAt(state, player.x, player.y, NutrientKind.plasmid, 0);
+    stepWorld(state);
+  }
+  expect(lineage.library).not.toBe(TIER2.GENES.cilia.bit);
+});
+
+test('cyanobacteria filaments and hyphae feed bacteria and eukaryote mouths', () => {
+  expect([yieldOf(NutrientKind.cyano, 0), yieldOf(NutrientKind.hypha, 0)]).toEqual([CYANO_MASS, HYPHA_MASS]);
+  expect(yieldOf(NutrientKind.hypha, GENES.exoenzymes.bit)).toBeGreaterThan(HYPHA_MASS); // decomposers
+  expect([yield2Of(NutrientKind.cyano, TIER2.GENES.filter.bit), yield2Of(NutrientKind.cyano, TIER2.GENES.jaw.bit)]).toEqual([CYANO_MASS, 0]);
+  expect(yield2Of(NutrientKind.hypha, TIER2.GENES.jaw.bit)).toBe(HYPHA_MASS);
 });
 
 test('DNA comes from plasmids in every phase, never from food', () => {
