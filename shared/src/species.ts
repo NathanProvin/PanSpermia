@@ -6,7 +6,11 @@
  * coward: feeds, flees anything foreign, sporulates when hurt. swarm: feeds in a pack, attacks intruders.
  */
 /** parasite: seeks a eukaryote and clings to it (adhesins drain the host's energy). */
-export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm' | 'parasite';
+/**
+ * drifter: drifts with the current, pulsing now and then (a jellyfish). anchored: fixed to the shore, tentacles to the
+ * water (a coral polyp). wall: crawls along the shore, grazing what grows there (a snail).
+ */
+export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm' | 'parasite' | 'drifter' | 'anchored' | 'wall';
 
 /**
  * tier: 1 bacterium, 2 eukaryote, 3 animal. genes: the design, names in that tier's catalog; a gene listed twice
@@ -16,6 +20,8 @@ export type Archetype = 'grazer' | 'hunter' | 'coward' | 'swarm' | 'parasite';
 export interface Species {
   name: string; tier: number; archetype: Archetype; genes: readonly string[]; shape: number;
   plan?: number; radii?: readonly number[];
+  /** A rare visitor (user: each seen once every 2–3 games): never in the pool's standing population, it drops by now and then (bots.ts). */
+  rare?: boolean;
 }
 
 export const BOT_SPECIES: readonly Species[] = [
@@ -43,7 +49,25 @@ export const BOT_SPECIES: readonly Species[] = [
   { name: 'Didinia ferox', tier: 2, archetype: 'hunter', genes: ['jaw', 'spike', 'spike', 'flagellum', 'cilia', 'mitochondrion'], shape: 0 },
   { name: 'Fulgur timidus', tier: 2, archetype: 'coward', genes: ['filter', 'cilia', 'cilia', 'jet', 'electric', 'eye'], shape: 1 },
   // P9d — animals: a water flea sieving the water, a long rotifer hunting with mandibles, a radial predator.
-  { name: 'Daphnia errans', tier: 3, archetype: 'grazer', genes: ['paddle', 'paddle', 'filterComb', 'filterComb', 'eye', 'carapace'], shape: 0, plan: 0, radii: [0.5, 0.85, 0.45] },
+  // A water flea on its setose oars (reworked with the richer catalog): jumps and glides, sieves, armoured.
+  { name: 'Daphnia errans', tier: 3, archetype: 'grazer', genes: ['oars', 'oars', 'filterComb', 'carapace', 'eye', 'oil'], shape: 0, plan: 0, radii: [0.5, 0.85, 0.45] },
   { name: 'Rotifera rapax', tier: 3, archetype: 'hunter', genes: ['mandible', 'filterComb', 'tail', 'eye'], shape: 1, plan: 0, radii: [0.55, 0.6, 0.5, 0.4, 0.3] },
   { name: 'Hydrina stellata', tier: 3, archetype: 'hunter', genes: ['mandible', 'paddle', 'paddle', 'paddle'], shape: 0, plan: 1, radii: [0.6, 0.4, 0.4, 0.4, 0.4, 0.4] },
+  // Rare visitors (user direction). Plankton: a thrashing predatory nematode, a mosquito larva sieving the water, a
+  // dragonfly nymph's grasping jaws on clawed legs.
+  { name: 'Nematoda praedator', tier: 3, archetype: 'hunter', genes: ['muscles', 'muscles', 'mandible', 'stylet'], shape: 0, plan: 0,
+    radii: [0.35, 0.4, 0.42, 0.42, 0.4, 0.36, 0.3, 0.24], rare: true },
+  { name: 'Culex larva', tier: 3, archetype: 'grazer', genes: ['filterComb', 'filterComb', 'muscles', 'oil', 'tail'], shape: 0, plan: 0,
+    radii: [0.6, 0.55, 0.45, 0.4, 0.35, 0.3, 0.25], rare: true },
+  { name: 'Odonata nympha', tier: 3, archetype: 'hunter', genes: ['mandible', 'mandible', 'lobopods', 'lobopods', 'eye', 'eye'], shape: 0, plan: 0,
+    radii: [0.5, 0.7, 0.62, 0.5, 0.38, 0.28], rare: true },
+  // Animals: a drifting jellyfish trailing its filtering tentacles, a coral polyp fixed to the rock, a small fish, a snail
+  // grazing the seaweed on the shore.
+  { name: 'Aurelia vagans', tier: 4, archetype: 'drifter', genes: ['filterTentacles', 'filterTentacles', 'filterTentacles', 'siphon'], shape: 0, plan: 1,
+    radii: [0.85, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4], rare: true },
+  { name: 'Coralla fixa', tier: 4, archetype: 'anchored', genes: ['polypTentacles', 'polypTentacles', 'polypTentacles'], shape: 0, plan: 0,
+    radii: [0.6, 0.75, 0.6], rare: true },
+  { name: 'Piscis parvus', tier: 4, archetype: 'hunter', genes: ['eye', 'eye', 'beak', 'fins', 'fins', 'gills', 'tailFan'], shape: 0, plan: 0,
+    radii: [0.55, 0.78, 0.65, 0.45, 0.28], rare: true },
+  { name: 'Limax muralis', tier: 4, archetype: 'wall', genes: ['foot', 'radula', 'shell', 'eye'], shape: 0, plan: 0, radii: [0.4, 0.9], rare: true },
 ];

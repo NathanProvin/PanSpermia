@@ -55,13 +55,13 @@ export const HEALTH_REGEN = 5;
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
 export const SEEP_COUNT = Math.round(131 * AREA);
-export const SEEP_RATE = 1.1; // packets/s per seep
+export const SEEP_RATE = 0.55; // packets/s per seep (1.1 of 1-mass motes before the pool grew: same food, half the packets)
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = (113) * AREA; // packets/s scattered over the whole pool
+export const BACKGROUND_RATE = (113 / 2) * AREA; // packets/s scattered over the whole pool (motes now 2 mass: same food, half the packets)
 export const NUTRIENT_LIFETIME = 60; // s
 export const NUTRIENT_CAP = Math.round(37500 * AREA); // packets alive at most
-export const NUTRIENT_MASS = 1; // dissolved packet
+export const NUTRIENT_MASS = 2; // dissolved packet (1 before the 9750 pool: twice the mass, half as many — the server drifts every packet)
 export const DEBRIS_MASS = 2; // debris packet
 export const DEBRIS_SHARE = 0.5; // share of a dead cell's mass released as debris
 // Feeding genes.
@@ -165,7 +165,9 @@ export const DINOFLAGELLATE_RATE = (1.25) * AREA;
 export const MACROALGA_MASS = 300;
 export const MACROALGA_RATE = (0.5) * AREA;
 /** The phase that can first take each plant in (kind → tier); plants not listed are eaten from tier 2 (algae, filaments). */
-export const PLANT_TIER: Readonly<Record<number, number>> = { 11: 2, 12: 3, 13: 3, 14: 4 };
+export const PLANT_TIER: Readonly<Record<number, number>> = { 11: 2, 12: 3, 13: 3, 14: 4, 15: 4 };
+/** Seaweed attached along the shore (a macroalga's worth, never drifting), per s over the whole shore. */
+export const WALL_ALGA_RATE = 0.35 * AREA;
 export const ENGULF_RATIO = 0.5;
 export const ENGULF_SHARE = 0.8; // of the victim's mass, to the eater
 

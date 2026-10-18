@@ -3,6 +3,8 @@
 // or drains away. Shared: P2 visuals drift plankton with it, P3 gameplay drifts nutrients and cells.
 
 import { TICK_DT } from './constants.ts';
+/** NutrientKind.wallAlga (state.ts), which doesn't drift (kept here: state.ts imports the schema library). */
+const WALL_ALGA = 15;
 
 // [kx, ky, ω, phase, amplitude]: wavelength 2π/|k| ≈ 1.2–2.6k units, peak speed ≈ amplitude·|k|.
 const MODES = [
@@ -34,14 +36,18 @@ const flow = { x: 0, y: 0 };
  * Passive particles step every DRIFT_TICKS ticks: the current varies slowly, and this halves the cost of
  * thousands of drifting packets (the server's biggest per-tick cost once the pool grew, P8e).
  */
-export const DRIFT_TICKS = 2;
+export const DRIFT_TICKS = 4; // 2 before the 9750 pool: 2.25× the packets
 /**
  * Carry a passive particle (nutrient, debris) on the current in fixed steps of DRIFT_TICKS ticks, from
  * `p.tick` up to `untilTick` (it may stop up to DRIFT_TICKS − 1 ticks short). Integer ticks make the path
  * identical wherever it is computed: the server, and every client reconstructing it from the spawn point
  * alone (so positions never need syncing).
  */
-export function drift(p: { x: number; y: number; tick: number }, untilTick: number) {
+export function drift(p: { x: number; y: number; tick: number; kind?: number }, untilTick: number) {
+  if (p.kind === WALL_ALGA) { // held fast to the rock
+    p.tick = Math.max(p.tick, untilTick - (untilTick - p.tick) % DRIFT_TICKS);
+    return;
+  }
   for (; p.tick + DRIFT_TICKS <= untilTick; p.tick += DRIFT_TICKS) {
     currentAt(p.x, p.y, p.tick * TICK_DT, flow);
     p.x += flow.x * TICK_DT * DRIFT_TICKS;

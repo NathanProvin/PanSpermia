@@ -8,12 +8,12 @@ export const TIER3 = makeCatalog({
   paddle: { upkeep: 0.15, price: 20, maxCopies: 3, slot: 'membrane', at: 1.6, label: 'Paddle legs' },
   tail: { upkeep: 0.25, price: 30, maxCopies: 2, slot: 'membrane', at: Math.PI, label: 'Tail' },
   filterComb: { upkeep: 0.1, price: 25, maxCopies: 2, slot: 'membrane', at: 0.5, label: 'Filter combs' },
-  mandible: { upkeep: 0.15, price: 30, maxCopies: 1, slot: 'membrane', at: 0, label: 'Mandibles' },
+  mandible: { upkeep: 0.15, price: 30, maxCopies: 3, slot: 'membrane', at: 0, label: 'Mandibles' },
   eye: { upkeep: 0.03, price: 10, maxCopies: 3, slot: 'internal', at: [0.62, 0.22], label: 'Eye' },
   carapace: { upkeep: 0.2, price: 35, maxCopies: 1, slot: 'coat', at: 0, label: 'Carapace' },
   // Richer catalog (user direction: ~15 parts a phase, from microscopic feeding, locomotion and defence). Appended.
   // A rotifer's mastax: grinding jaws, the grazing mouth — plant food, big plants worth more.
-  mastax: { upkeep: 0.15, price: 30, maxCopies: 1, slot: 'membrane', at: 0, label: 'Mastax' },
+  mastax: { upkeep: 0.15, price: 30, maxCopies: 3, slot: 'membrane', at: 0, label: 'Mastax' },
   // A tardigrade's stylets: a spear in a buccal tube and a pharyngeal pump — the parasitic mouth.
   stylet: { upkeep: 0.15, price: 30, maxCopies: 2, slot: 'membrane', at: 0.25, label: 'Stylet' },
   // A nauplius's setose limbs: sieve small plant food and row in jumps and glides.

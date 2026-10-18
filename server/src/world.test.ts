@@ -41,7 +41,7 @@ test('server packet positions equal a client rebuild from spawn point and tick',
   const state = new PoolState();
   initPool(state);
   for (const n of state.nutrients.values()) {
-    const rebuilt = { x: n.x0, y: n.y0, tick: n.tick0 };
+    const rebuilt = { x: n.x0, y: n.y0, tick: n.tick0, kind: n.kind }; // (wall seaweed holds fast)
     drift(rebuilt, state.tick);
     expect(rebuilt.x).toBe(n.x);
     expect(rebuilt.y).toBe(n.y);

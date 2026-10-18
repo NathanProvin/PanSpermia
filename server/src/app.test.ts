@@ -169,7 +169,7 @@ test('clients rebuild every food packet exactly from its synced spawn point', as
     const truth = authority.nutrients.get(id);
     if (!truth) continue; // eaten or dissolved since the last patch
     expect([n.x0, n.y0, n.tick0, n.kind]).toEqual([truth.x0, truth.y0, truth.tick0, truth.kind]);
-    const rebuilt = { x: n.x0, y: n.y0, tick: n.tick0 };
+    const rebuilt = { x: n.x0, y: n.y0, tick: n.tick0, kind: n.kind }; // (wall seaweed holds fast)
     drift(rebuilt, truth.tick);
     expect(rebuilt.x).toBe(truth.x);
     expect(rebuilt.y).toBe(truth.y);

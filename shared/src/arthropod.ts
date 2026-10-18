@@ -44,8 +44,10 @@ export const STARTER_GENOME4 = TIER4.genomeOf(['legs', 'legs', 'maxillae', 'eye'
 export const STARTER_LIBRARY4 = bitsOf(TIER4.GENES.legs.bit, TIER4.GENES.tailFan.bit, TIER4.GENES.claw.bit,
   TIER4.GENES.maxillae.bit, TIER4.GENES.eye.bit, TIER4.GENES.foot.bit, TIER4.GENES.radula.bit, TIER4.GENES.beak.bit);
 
-/** A tier-4 body looks soft and slick (a mollusk) when it glides on a foot or wears a shell; otherwise plated chitin. */
-export const softBody4 = (genome4: number) => TIER4.hasGene(genome4, 'foot') || TIER4.hasGene(genome4, 'shell');
+/** A tier-4 body looks soft and slick (a mollusk, a jellyfish, a polyp, a fish) with a foot, a shell, tentacles, fins or gills; otherwise plated chitin. */
+export const softBody4 = (genome4: number) => TIER4.hasGene(genome4, 'foot') || TIER4.hasGene(genome4, 'shell')
+  || TIER4.hasGene(genome4, 'filterTentacles') || TIER4.hasGene(genome4, 'polypTentacles') // cnidarians: soft, no plates
+  || TIER4.hasGene(genome4, 'fins') || TIER4.hasGene(genome4, 'gills'); // a fish: smooth skin
 
 /** Mouthparts that sweep up plant food (and bacteria, as specks), and those that take meat, bite and swallow. */
 export const grazes4 = (genome4: number) => TIER4.hasGene(genome4, 'maxillae') || TIER4.hasGene(genome4, 'radula');

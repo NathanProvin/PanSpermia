@@ -64,6 +64,8 @@ export type Player = SchemaType<typeof Player>;
 export const NutrientKind = {
   dissolved: 0, debris: 1, fragment: 2, plasmid: 3, phage: 4, algae: 5, chunk: 6, shard: 7, virus: 8, cyano: 9, hypha: 10,
   spirulina: 11, diatom: 12, dinoflagellate: 13, macroalga: 14,
+  /** Seaweed holding fast to the shore: a macroalga that never drifts (user: attach some algae to the walls). */
+  wallAlga: 15,
 } as const;
 
 /**

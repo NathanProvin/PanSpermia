@@ -1,8 +1,8 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, catalogFor, ownGenome } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
 
 const genomeOf = (s: (typeof BOT_SPECIES)[number]) => catalogFor(s.tier).genomeOf(s.genes);
 import { expect, test } from 'vitest';
-import { type Bots, addBot, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
+import { type Bots, addBot, divideBots, fillBots, rebirth, stepBots, stepVisitors } from './bots.ts';
 import { spawnNutrient, spawnPlayer, stepWorld } from './world.ts';
 
 const species = (name: string) => BOT_SPECIES.findIndex((s) => s.name === name);
@@ -28,7 +28,7 @@ test('bots top up and trim to the target, every species represented', () => {
   const state = new PoolState();
   const bots: Bots = new Map();
   fillBots(state, bots, 40); // more than one full spawn cycle
-  expect(new Set([...bots.values()].map((b) => b.species)).size).toBe(BOT_SPECIES.length);
+  expect(new Set([...bots.values()].map((b) => b.species)).size).toBe(BOT_SPECIES.filter((s) => !s.rare).length); // rare species only visit
   for (const [id, b] of bots) {
     const p = state.players.get(id)!;
     expect(p.tier).toBe(BOT_SPECIES[b.species]!.tier);
@@ -112,4 +112,25 @@ test('overlapping a cell a bot does not fear never poisons its steering with NaN
   stepBots(state, bots);
   expect(Number.isFinite(brain.dirX) && Number.isFinite(brain.dirY)).toBe(true);
   expect(Number.isFinite(bot.x)).toBe(true);
+});
+
+test('rare species visit on their own schedule, a polyp fixed to the shore, and leave again', () => {
+  const state = new PoolState();
+  const bots: Bots = new Map();
+  stepVisitors(state, bots); // schedules the first visits
+  expect(bots.size).toBe(0);
+  state.tick += 10 * 3600 * TICK_RATE; // ten hours on: every rare species is due
+  stepVisitors(state, bots);
+  const visitors = [...bots.values()];
+  expect(visitors.length).toBe(BOT_SPECIES.filter((s) => s.rare).length);
+  expect(visitors.every((b) => BOT_SPECIES[b.species]!.rare && b.leaveAt !== undefined)).toBe(true);
+  const [polypId, polyp] = [...bots].find(([, b]) => BOT_SPECIES[b.species]!.archetype === 'anchored')!;
+  const p = state.players.get(polypId)!;
+  expect(Math.hypot(p.x, p.y)).toBeGreaterThan(rimAt(Math.atan2(p.y, p.x)) - radiusOf(p.mass, p.tier) * 1.5); // on the shore
+  expect(polyp.anchor).toBeDefined();
+  fillBots(state, bots, 2); // visitors don't count toward the standing population
+  expect([...bots.values()].filter((b) => b.leaveAt === undefined).length).toBe(2);
+  state.tick = Math.max(...visitors.map((b) => b.leaveAt!));
+  stepVisitors(state, bots);
+  expect([...bots.values()].filter((b) => b.leaveAt !== undefined && b.leaveAt <= state.tick).length).toBe(0);
 });

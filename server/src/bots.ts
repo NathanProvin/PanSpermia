@@ -4,7 +4,7 @@
 // Bots exist at every tier: a species says which, and its genes are names in that tier's catalog.
 import {
   ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, INK, NutrientKind, type Nutrient, type Player, type PoolState,
-  type Species, TICK_DT, TIER2, TIER3, rimAt, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
+  type Species, TICK_DT, TICK_RATE, TIER2, TIER3, rimAt, keepInPool, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
   radiusOf, sanitizeInput, stepCell,
   hasBit, withBit,
 } from '@panspermia/shared';
@@ -23,6 +23,10 @@ export interface Brain {
   fedUntil: number;
   /** Energy at its last think (a jump means it just ate). */
   lastMass: number;
+  /** A rare visitor leaves the pool at this tick (and isn't reborn if it dies). */
+  leaveAt?: number;
+  /** Fixed to the shore here (a coral polyp). */
+  anchor?: { x: number; y: number };
 }
 export type Bots = Map<string, Brain>;
 
@@ -45,8 +49,14 @@ const DIGEST_TICKS_T3 = 30 * 20;
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */
-const SPAWN_WEIGHT = { grazer: 3, coward: 2, swarm: 2, hunter: 1, parasite: 2 } as const;
-const SPAWN_CYCLE = BOT_SPECIES.flatMap((s, i) => Array<number>(s.tier >= 2 ? 1 : SPAWN_WEIGHT[s.archetype]).fill(i));
+const SPAWN_WEIGHT = { grazer: 3, coward: 2, swarm: 2, hunter: 1, parasite: 2, drifter: 1, anchored: 1, wall: 1 } as const;
+/**
+ * Rare visitors (user: each new species seen once every 2–3 games): every rare species drops by on its own random
+ * schedule — exponential gaps averaging VISIT_EVERY — stays VISIT_TIME and leaves. Provisional; a game is ~20 min.
+ */
+const VISIT_EVERY = 25 * 60; // s
+const VISIT_TIME = 5 * 60; // s
+const SPAWN_CYCLE = BOT_SPECIES.flatMap((s, i) => (s.rare ? [] : Array<number>(s.tier >= 2 ? 1 : SPAWN_WEIGHT[s.archetype]).fill(i)));
 
 /** Carries a weapon of its tier (what grazers keep away from). */
 const armed = (o: Player) => o.tier === 4 ? hunts4(o.genome4) : o.tier === 3 ? TIER3.hasGene(o.genome3, 'mandible') : o.tier === 2
@@ -69,18 +79,75 @@ let nextBotId = 0;
 /** Spawn a bot, species from the weighted cycle unless given. Ids contain no '~' and never collide with session ids. */
 export function addBot(state: PoolState, bots: Bots, species = SPAWN_CYCLE[nextBotId % SPAWN_CYCLE.length]!) {
   const id = `bot${nextBotId++}`;
-  bots.set(id, brain(species, state.tick));
-  state.players.set(id, incarnate(state.tick, BOT_SPECIES[species]!));
+  const b = brain(species, state.tick);
+  bots.set(id, b);
+  const p = incarnate(state.tick, BOT_SPECIES[species]!);
+  const { archetype } = BOT_SPECIES[species]!;
+  if (archetype === 'anchored' || archetype === 'wall') { // on the shore, facing the water
+    const a = Math.random() * 2 * Math.PI;
+    const r = radiusOf(p.mass, p.tier);
+    const d = rimAt(a) - r * 1.02;
+    Object.assign(p, { x: Math.cos(a) * d, y: Math.sin(a) * d, heading: a + (archetype === 'anchored' ? Math.PI : Math.PI / 2) });
+    keepInPool(p, r);
+    if (archetype === 'anchored') b.anchor = { x: p.x, y: p.y };
+  }
+  state.players.set(id, p);
   return id;
 }
 
 /** Add or remove bots until there are exactly `target`. */
 export function fillBots(state: PoolState, bots: Bots, target: number) {
-  while (bots.size < target) addBot(state, bots);
-  for (const id of bots.keys()) {
-    if (bots.size <= target) break;
+  const residents = () => [...bots].filter(([, b]) => b.leaveAt === undefined); // visitors come and go on their own
+  for (let n = residents().length; n < target; n++) addBot(state, bots);
+  let extra = residents().length - target;
+  for (const [id] of residents()) {
+    if (extra-- <= 0) break;
     bots.delete(id);
     state.players.delete(id);
+  }
+}
+
+/** Dev: every rare species drops by now, near (x, y) — the shore dwellers on the shore nearest it. */
+export function callVisitors(state: PoolState, bots: Bots, x: number, y: number) {
+  for (const [i, sp] of BOT_SPECIES.entries()) {
+    if (!sp.rare) continue;
+    const id = addBot(state, bots, i);
+    const b = bots.get(id)!;
+    b.leaveAt = state.tick + VISIT_TIME * TICK_RATE;
+    const p = state.players.get(id)!;
+    const r = radiusOf(p.mass, p.tier);
+    if (sp.archetype === 'anchored' || sp.archetype === 'wall') {
+      const a = Math.atan2(y, x) + (Math.random() - 0.5) * 0.3;
+      const d = rimAt(a) - r * 1.02;
+      Object.assign(p, { x: Math.cos(a) * d, y: Math.sin(a) * d, heading: a + (sp.archetype === 'anchored' ? Math.PI : Math.PI / 2) });
+      keepInPool(p, r);
+      if (b.anchor) b.anchor = { x: p.x, y: p.y };
+    } else {
+      const a = Math.random() * 2 * Math.PI;
+      Object.assign(p, { x: x + Math.cos(a) * (r * 3 + 1500), y: y + Math.sin(a) * (r * 3 + 1500) });
+      keepInPool(p, r);
+    }
+  }
+}
+
+/** When each rare species next visits, per pool. */
+const visits = new WeakMap<PoolState, Map<number, number>>();
+const gap = (mean: number) => -Math.log(1 - Math.random()) * mean * TICK_RATE;
+/** Rare visitors arrive on their schedules and leave when their stay is over. Call once a tick. */
+export function stepVisitors(state: PoolState, bots: Bots) {
+  let due = visits.get(state);
+  if (!due) visits.set(state, (due = new Map(BOT_SPECIES.flatMap((s, i) => (s.rare ? [[i, state.tick + gap(VISIT_EVERY)] as [number, number]] : [])))));
+  for (const [species, at] of due) {
+    if (state.tick < at) continue;
+    const id = addBot(state, bots, species);
+    bots.get(id)!.leaveAt = state.tick + VISIT_TIME * TICK_RATE;
+    due.set(species, state.tick + VISIT_TIME * TICK_RATE + gap(VISIT_EVERY));
+  }
+  for (const [id, b] of bots) {
+    if (b.leaveAt !== undefined && state.tick >= b.leaveAt) {
+      bots.delete(id);
+      state.players.delete(id);
+    }
   }
 }
 
@@ -89,6 +156,11 @@ export function rebirth(state: PoolState, bots: Bots, deaths: Death[]) {
   for (const { id } of deaths) {
     const b = bots.get(id);
     if (!b) continue;
+    if (b.leaveAt !== undefined) { // a visitor that died is gone
+      bots.delete(id);
+      state.players.delete(id);
+      continue;
+    }
     bots.set(id, brain(b.species, state.tick));
     state.players.set(id, incarnate(state.tick, BOT_SPECIES[b.species]!));
   }
@@ -113,6 +185,25 @@ export function divideBots(state: PoolState, bots: Bots) {
 /** Decide where to swim and what to fire, from what the bot can see. */
 function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Player, b: Brain) {
   const { archetype } = BOT_SPECIES[b.species]!;
+  if (archetype === 'anchored') { // a polyp waits: its crown catches what brushes against it
+    Object.assign(b, { dirX: 0, dirY: 0, actions: 0 });
+    return;
+  }
+  if (archetype === 'drifter') { // a jellyfish drifts, pulsing gently now and then
+    if (Math.random() < 0.02) b.wander += (Math.random() - 0.5) * 1.5;
+    const pulse = Math.sin(state.tick * TICK_DT * 1.3) > 0.4 ? 0.5 : 0.1;
+    Object.assign(b, { dirX: Math.cos(b.wander) * pulse, dirY: Math.sin(b.wander) * pulse, actions: 0 });
+    return;
+  }
+  if (archetype === 'wall') { // a snail creeps along the shore, a little way in, grazing what grows there
+    const a = Math.atan2(p.y, p.x) + 0.04 * (b.wander > Math.PI ? 1 : -1);
+    const d = rimAt(a) - radiusOf(p.mass, p.tier) * 1.1;
+    const tx = Math.cos(a) * d - p.x;
+    const ty = Math.sin(a) * d - p.y;
+    const len = Math.hypot(tx, ty) || 1;
+    Object.assign(b, { dirX: (tx / len) * 0.6, dirY: (ty / len) * 0.6, actions: 0 });
+    return;
+  }
   const t2 = p.tier >= 2; // eukaryotes and animals: eat by mouth, swallow prey, no bacterial toxins
   const sight = SIGHT[p.tier]!;
   const scale = SCALE[p.tier]!;
@@ -280,6 +371,7 @@ export function stepBots(state: PoolState, bots: Bots) {
     }
     const cooldown = p.dashCooldown;
     stepCell(p, p.mass, p.genome, b.dirX, b.dirY, b.actions, TICK_DT, time, p.tier, p.genome2, p.genome3, p.genome4);
+    if (b.anchor) Object.assign(p, { x: b.anchor.x, y: b.anchor.y, vx: 0, vy: 0 }); // fixed to the rock
     if (p.tier === 4 && p.dashCooldown > cooldown) squirtInk(state, id);
     if (b.actions & ACTION_TOXIN) secrete(state, id);
   }

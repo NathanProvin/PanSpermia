@@ -20,7 +20,7 @@ import {
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
   GENOME_FIELD, grazes4, hunts4, isAnimal, spawnMassOf,
-  FAULT_SPAWN, keepInPool, insidePool, randomInPool, randomInFault, MOUTH_OUT, MOUTH_REACH, BOT_SPECIES, DEFAULT_SEGMENTS, animalRim, segmentsOf, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
+  FAULT_SPAWN, WALL_ALGA_RATE, RIM_MIN, rimAt, keepInPool, insidePool, randomInPool, randomInFault, MOUTH_OUT, MOUTH_REACH, BOT_SPECIES, DEFAULT_SEGMENTS, animalRim, segmentsOf, EUK_MOUTH, SPAWN_GRACE, STARVE_DPS, Seep, TICK_DT, ownGenome, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift, hasGene, radiusOf, upkeepOf,
   hasBit, withBit,
 } from '@panspermia/shared';
 import { buildGrid, grids, near } from './grid.ts';
@@ -191,6 +191,8 @@ function mouthFood(mouths: MouthPoint[], tier: number, n: { x: number; y: number
   }
   return best;
 }
+
+const RIM_MIN_2 = RIM_MIN * RIM_MIN;
 
 /** Parasitic mouths by tier: the gene, what it may drain (a bigger host, or any of a bigger tier), how fast, what it keeps. */
 const PARASITES: Readonly<Record<number, { gene: string; host: (h: Player, p: Player) => boolean; rate: number; share: number }>> = {
@@ -603,7 +605,7 @@ export const reachOf = (mass: number, genome: number) =>
 const PLANT_MASS: Readonly<Record<number, number>> = {
   [NutrientKind.algae]: ALGAE_MASS, [NutrientKind.cyano]: CYANO_MASS, [NutrientKind.hypha]: HYPHA_MASS,
   [NutrientKind.spirulina]: SPIRULINA_MASS, [NutrientKind.diatom]: DIATOM_MASS,
-  [NutrientKind.dinoflagellate]: DINOFLAGELLATE_MASS, [NutrientKind.macroalga]: MACROALGA_MASS,
+  [NutrientKind.dinoflagellate]: DINOFLAGELLATE_MASS, [NutrientKind.macroalga]: MACROALGA_MASS, [NutrientKind.wallAlga]: MACROALGA_MASS,
 };
 /** Plant packets: too big for a bacterium (algae and everything grazed like them). */
 const isPlant = (kind: number) => kind in PLANT_MASS;
@@ -621,7 +623,7 @@ function mouthYield(kind: number, plant: boolean, meat: boolean, tier: number) {
 /** The plants a mastax grinds better than any sieve. */
 const BIG_PLANTS = new Set<number>([NutrientKind.spirulina, NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga]);
 /** An animal's own plants: the big ones (an animal leaves the floating bits — motes, algae, filaments — to the small). */
-const ANIMAL_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga]);
+const ANIMAL_PLANTS = new Set<number>([NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga, NutrientKind.wallAlga]);
 /**
  * Each animal mouthpart: what a packet touching it is worth, and the tiers of the cells it can swallow (by mass, see
  * swallows). Plankton: sieves take plant food and filter combs bacteria, a mastax grinds big plants better, mandibles
@@ -724,6 +726,11 @@ export function stepWorld(state: PoolState): Death[] {
       spawnNutrient(state, at.x, at.y, kind);
     }
   }
+  if (Math.random() < WALL_ALGA_RATE * TICK_DT) { // seaweed taking hold on the rock, its holdfast at the shore
+    const a = Math.random() * 2 * Math.PI;
+    const d = rimAt(a) - 120;
+    spawnNutrient(state, Math.cos(a) * d, Math.sin(a) * d, NutrientKind.wallAlga);
+  }
   if (Math.random() < PLASMID_RATE * TICK_DT) {
     const at = randomInPool();
     spawnPlasmid(state, at.x, at.y);
@@ -747,7 +754,8 @@ export function stepWorld(state: PoolState): Death[] {
   const liveIds: string[] = [];
   for (const [id, n] of state.nutrients) {
     drift(n, tick);
-    if (tick - n.tick0 > NUTRIENT_LIFETIME * TICK_RATE || !insidePool(n.x, n.y)) expired.push(id);
+    // Against the rock: only a packet past the shore's nearest point needs the (costlier) shore lookup.
+    if (tick - n.tick0 > NUTRIENT_LIFETIME * TICK_RATE || (n.x * n.x + n.y * n.y > RIM_MIN_2 && !insidePool(n.x, n.y))) expired.push(id);
     else {
       live.push(n);
       liveIds.push(id);

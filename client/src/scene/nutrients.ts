@@ -309,12 +309,13 @@ const FLORA_CAP = 1024;
 /** Plant sprites (world units): each a little bigger than the phase that grazes it can swallow at a gulp. */
 const FLORA_SIZE: Record<number, number> = {
   [NutrientKind.spirulina]: 150, [NutrientKind.diatom]: 260, [NutrientKind.dinoflagellate]: 300, [NutrientKind.macroalga]: 1300,
+  [NutrientKind.wallAlga]: 1300,
 };
 /** A plant grows in over its first seconds and shrinks away over its last (it lives NUTRIENT_LIFETIME). */
 const GROW = 4;
 const DNA_CAP = 2048;
 const SIZE: Record<number, number> = {
-  [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 22, [NutrientKind.plasmid]: 40,
+  [NutrientKind.dissolved]: 19, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 22, [NutrientKind.plasmid]: 40,
   [NutrientKind.phage]: 26, [NutrientKind.algae]: 34, [NutrientKind.chunk]: 42, [NutrientKind.shard]: 36, [NutrientKind.virus]: 44,
   [NutrientKind.cyano]: 70, [NutrientKind.hypha]: 80,
 };
@@ -350,7 +351,9 @@ export function createNutrients() {
     objects: [flora.mesh, sprites.mesh, dnaSprites.mesh],
     /** Mirror a synced packet; its path is rebuilt locally by `drift`, never synced. */
     add(id: string, n: Nutrient) {
-      packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, born: n.tick0, kind: n.kind, seed: (Number(id) * 0.618034) % 1, fx: 0, fy: 0, flowTick: -1 });
+      // Wall seaweed's seed is its heading: its holdfast (the sprite's −x end) against the rock, its fronds into the water.
+      const seed = n.kind === NutrientKind.wallAlga ? (((Math.PI - Math.atan2(n.y0, n.x0)) / (2 * Math.PI)) % 1 + 1) % 1 : (Number(id) * 0.618034) % 1;
+      packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, born: n.tick0, kind: n.kind, seed, fx: 0, fy: 0, flowTick: -1 });
     },
     /** Forget a packet; returns where it was last drawn (a cell eating it gets a gulp there). */
     remove(id: string) {

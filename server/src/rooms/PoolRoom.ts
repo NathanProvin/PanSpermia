@@ -4,7 +4,7 @@ import {
   stepCell,
   hasBit, withBit,
 } from '@panspermia/shared';
-import { type Bots, divideBots, fillBots, rebirth, stepBots } from '../bots.ts';
+import { type Bots, callVisitors, divideBots, fillBots, rebirth, stepBots, stepVisitors } from '../bots.ts';
 import {
   PHAGE_KILLER, VIRUS_KILLER, foundSpecies, initPool, secrete, squirtInk, spawnNutrient, spawnPlasmid, spawnShard, stepWorld, submitDesign,
 } from '../world.ts';
@@ -54,6 +54,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         this.idleTicks.set(id, idle);
         if (idle > IDLE_GRACE_TICKS) stepCell(p, p.mass, p.genome, 0, 0, 0, ctx.dt, time, p.tier, p.genome2, p.genome3, p.genome4);
       }
+      stepVisitors(this.state, this.bots);
       stepBots(this.state, this.bots);
       const deaths = stepWorld(this.state);
       rebirth(this.state, this.bots, deaths);
@@ -109,6 +110,11 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
           l.dna += 100;
           l.lifetimeDna += 100; // counts as earned, so Evolve can be tested too
         }
+      });
+      // Every rare visitor drops by near the player (to look at them without waiting for their visits).
+      this.onMessage('dev:visitors', (client) => {
+        const p = this.state.players.get(client.sessionId);
+        if (p) callVisitors(this.state, this.bots, p.x, p.y);
       });
       // Unlock every part of the species' tier for the editor (to look at the whole catalog).
       this.onMessage('dev:unlock', (client) => {
