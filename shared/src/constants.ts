@@ -55,7 +55,7 @@ export const SEEP_COUNT = 131;
 export const SEEP_RATE = 1.1; // packets/s per seep
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = 70; // packets/s scattered over the whole pool (113 before cyanobacteria and hyphae)
+export const BACKGROUND_RATE = 113; // packets/s scattered over the whole pool
 export const NUTRIENT_LIFETIME = 60; // s
 export const NUTRIENT_CAP = 37500; // packets alive at most
 export const NUTRIENT_MASS = 1; // dissolved packet
@@ -136,10 +136,9 @@ export const ALGAE_RATE = 28; // per s over the whole pool, plus SEEP_ALGAE at e
 export const SEEP_ALGAE = 0.25; // per s per seep
 export const CHUNK_MASS = 10;
 /**
- * More food for the first phases (user direction): cyanobacteria filaments (chains of photosynthetic cells: bacteria
- * absorb them, a filter mouth takes them as plant food) and fungal hyphae (mycelium threads: bacteria digest them,
- * better with exoenzymes; any eukaryote mouth takes them). Their mass/s (36 + 21) is taken back from dissolved motes
- * and algae, so the pool's food stays about where the balance had it (+5 % for bacteria, +3 % for eukaryotes).
+ * More plant food (user direction): cyanobacteria filaments and fungal hyphae, eaten like algae — by plant mouths
+ * (a filter mouth, filter combs, grazing mouthparts or a radula), never by bacteria. Their mass/s (36 + 21) is taken back
+ * from algae (35.3 → 28/s, −44), so plant eaters get ~3 % more food than the balance had and bacteria the same.
  */
 export const CYANO_MASS = 4;
 export const CYANO_RATE = 9; // per s over the whole pool

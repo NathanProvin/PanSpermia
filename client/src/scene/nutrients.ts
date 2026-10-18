@@ -2,10 +2,10 @@ import { NUTRIENT_CAP, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, TICK_RA
 import { createSprites } from './sprites.ts';
 
 // Drifting packets in the focal plane, in one colour code: food is white or plant-coloured (dissolved motes, ragged
-// debris, big meat chunks of a dead eukaryote; algae leafy green, cyanobacteria filaments teal, fungal hyphae cream),
+// debris, big meat chunks of a dead eukaryote; algae leafy green, cyanobacteria filaments green, fungal hyphae yellow),
 // dangers are red (phages: heads on a tail with splayed fibres; giant viruses: furred capsids). DNA is mossy green like
 // the HUD's helix (fragments, plasmids, meteor shards), in its own layer drawn as matter (DNA_FRAGMENT), growing with
-// the camera's height so a big animal still sees it. Seeps are warm glows just below the plane where plumes of food
+// the camera's height a little (smaller and fainter again from the animal phases' heights). Seeps are warm glows just below the plane where plumes of food
 // rise. Kept below the bloom threshold: they read, they don't glare.
 // Kind rides in the integer part of aSeed (15 = seep), the per-sprite random seed in the fraction.
 const FRAGMENT = /* glsl */ `
@@ -13,6 +13,7 @@ uniform float uTime;
 uniform float uFocus;
 varying vec2 vUv;
 varying float vSeed;
+float h(float seed, float n) { return fract(sin(seed * 91.7 + n * 13.13) * 43758.5453); } // per-packet random numbers
 float segment(vec2 p, vec2 a, vec2 b) {
   vec2 ab = b - a;
   return length(p - a - ab * clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0));
@@ -67,34 +68,44 @@ void main() {
     float fur = (1.0 - capsid) * (1.0 - smoothstep(0.46, 0.66, hex)) * smoothstep(0.5, 0.9, sin(a * 40.0 + seed * 9.0));
     color = vec3(1.0, 0.32, 0.26) * (shell * 0.9 + capsid * 0.2 + fur * 0.5) + vec3(0.9, 0.2, 0.15) * exp(-r2 * 3.0) * 0.12; // danger: red
   } else if (kind < 9.5) {
-    // Cyanobacteria: a trichome — a gently curving chain of blue-green cells with one larger, paler heterocyst.
+    // Cyanobacteria: a trichome — a chain of green cells with one larger, paler heterocyst. Each one its own length,
+    // curl and waviness (from its seed).
+    float len = 0.35 + 0.55 * h(seed, 1.0);
     vec2 q = rotate(p, seed * 6.2831 + 0.15 * sin(uTime * 0.5 + seed * 7.0));
-    float off = q.y - 0.12 * sin(q.x * 3.0 + seed * 11.0 + uTime * 0.6);
+    float off = q.y - (0.04 + 0.16 * h(seed, 2.0)) * sin(q.x * (2.0 + 4.0 * h(seed, 3.0)) + seed * 11.0 + uTime * 0.6)
+      - 0.25 * (h(seed, 4.0) - 0.5) * q.x * q.x; // a gentle arc
     float idx = floor(q.x * 6.0 + 0.5);
     float local = (q.x * 6.0 - idx) / 6.0;
-    float hetero = step(abs(idx - floor(seed * 7.0 - 3.0)), 0.5);
+    float hetero = step(abs(idx - floor((h(seed, 5.0) - 0.5) * len * 10.0)), 0.5);
     float cr = mix(0.072, 0.095, hetero);
     float d = length(vec2(local * 1.15, off)) - cr;
-    float cell = (1.0 - smoothstep(-0.012, 0.012, d)) * (1.0 - step(0.9, abs(q.x)));
+    float cell = (1.0 - smoothstep(-0.012, 0.012, d)) * (1.0 - step(len, abs(q.x)));
     float rim = cell * smoothstep(-0.04, 0.0, d);
-    color = mix(vec3(0.16, 0.6, 0.52), vec3(0.7, 0.86, 0.45), hetero) * (cell * 0.55 + rim * 0.5); // teal: cyanobacteria
+    color = mix(vec3(0.18, 0.78, 0.26), vec3(0.75, 0.9, 0.4), hetero) * (cell * 0.6 + rim * 0.5); // green: cyanobacteria
   } else if (kind < 10.5) {
-    // Fungal hyphae: a thin pale thread of mycelium, branching, with septa and slightly swollen tips.
+    // Fungal hyphae: a thin yellow thread of mycelium with septa and swollen tips, branching once to three times —
+    // each one its own length, kinks and branches (from its seed).
     vec2 q = rotate(p, seed * 6.2831);
-    float j = seed * 0.2;
-    vec2 a0 = vec2(-0.85, 0.05 + j), a1 = vec2(-0.3, -0.06), a2 = vec2(0.25, 0.07 - j), a3 = vec2(0.85, -0.03);
-    vec2 b1 = vec2(-0.05, 0.6), b2 = vec2(0.5, -0.55), b3 = vec2(0.2, 0.82);
+    float len = 0.5 + 0.38 * h(seed, 1.0);
+    vec2 a0 = vec2(-len, 0.25 * (h(seed, 2.0) - 0.5));
+    vec2 a1 = vec2(-0.35 + 0.3 * h(seed, 3.0), 0.3 * (h(seed, 4.0) - 0.5));
+    vec2 a2 = vec2(0.15 + 0.3 * h(seed, 5.0), 0.3 * (h(seed, 6.0) - 0.5));
+    vec2 a3 = vec2(len, 0.25 * (h(seed, 7.0) - 0.5));
+    float s1 = h(seed, 8.0) < 0.5 ? 1.0 : -1.0;
+    vec2 b1 = a1 + vec2(0.2 + 0.3 * h(seed, 9.0), s1 * (0.35 + 0.3 * h(seed, 10.0)));
+    vec2 b2 = a2 + vec2(0.15 + 0.3 * h(seed, 11.0), -s1 * (0.3 + 0.3 * h(seed, 12.0)));
+    vec2 b3 = mix(a1, b1, 0.55) + vec2(-0.2 + 0.4 * h(seed, 13.0), s1 * 0.3);
+    float two = step(0.35, h(seed, 14.0));
+    float three = step(0.6, h(seed, 15.0));
     float d = min(min(segment(q, a0, a1), segment(q, a1, a2)), segment(q, a2, a3));
-    d = min(d, min(segment(q, a1, b1), segment(q, a2, b2)));
-    d = min(d, segment(q, mix(a1, b1, 0.6), b3));
+    d = min(d, segment(q, a1, b1));
+    d = min(d, mix(1e3, segment(q, a2, b2), two));
+    d = min(d, mix(1e3, segment(q, mix(a1, b1, 0.55), b3), three));
     float thread = exp(-pow(d / 0.022, 2.0));
-    float tips = 0.0;
-    for (int k = 0; k < 4; k++) {
-      vec2 tip = k == 0 ? a0 : k == 1 ? a3 : k == 2 ? b2 : b3;
-      tips += exp(-dot(q - tip, q - tip) / 0.003);
-    }
+    float tips = exp(-dot(q - a0, q - a0) / 0.003) + exp(-dot(q - a3, q - a3) / 0.003) + exp(-dot(q - b1, q - b1) / 0.003)
+      + two * exp(-dot(q - b2, q - b2) / 0.003) + three * exp(-dot(q - b3, q - b3) / 0.003);
     float septa = thread * smoothstep(0.8, 0.98, sin((q.x + q.y) * 40.0));
-    color = vec3(0.95, 0.9, 0.76) * (thread * 0.7 + tips * 0.6 + septa * 0.3); // cream: mycelium
+    color = vec3(1.0, 0.86, 0.28) * (thread * 0.75 + tips * 0.6 + septa * 0.3); // yellow: mycelium
   } else {
     float breathe = 0.75 + 0.25 * sin(uTime * 0.6 + seed * 6.0);
     color = vec3(0.8, 0.74, 0.58) * exp(-r2 * 3.5) * 0.1 * breathe; // a food source: a soft warm glow
@@ -110,6 +121,7 @@ const DNA_FRAGMENT = /* glsl */ `
 uniform float uTime;
 varying vec2 vUv;
 varying float vSeed;
+uniform float uFade;
 vec2 rotate(vec2 p, float a) { return vec2(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y); }
 void main() {
   float kind = floor(vSeed);
@@ -152,7 +164,7 @@ void main() {
   }
   float a = clamp(body * 0.95 + halo * (1.0 - body), 0.0, 1.0);
   vec3 col = mix(moss, lit, clamp(light, 0.0, 1.0)) * body + vec3(0.3, 0.55, 0.1) * halo * (1.0 - body);
-  gl_FragColor = vec4(col, a); // premultiplied
+  gl_FragColor = vec4(col, a) * uFade; // premultiplied; fainter from an animal's height
 }
 `;
 const DNA_CAP = 2048;
@@ -210,8 +222,11 @@ export function createNutrients() {
       view: { x: number; y: number; halfW: number; halfH: number },
     ) {
       const glide = Math.min(sinceTick, TICK_DT * 1.5);
-      // DNA grows with the camera's height (up to 5×) so it still reads from a big animal's view; food doesn't.
-      const dnaGrow = Math.min(5, Math.max(1, focus / 800));
+      // DNA grows a little with the camera's height so a eukaryote still sees it; from the animal phases' heights it
+      // stays small and fades to half (user: less visible there).
+      const dnaGrow = Math.min(1.6, Math.max(1, focus / 800));
+      const high = Math.min(1, Math.max(0, (focus - 1600) / 1400));
+      dnaSprites.mesh.material.uniforms.uFade!.value = 1 - 0.5 * high * high * (3 - 2 * high);
       const halfW = view.halfW + VIEW_MARGIN;
       const halfH = view.halfH + VIEW_MARGIN;
       let i = 0;

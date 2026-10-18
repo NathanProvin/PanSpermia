@@ -79,6 +79,9 @@ export function setMolecule(svg: Element, pct: number) {
   svg.setAttribute('aria-valuenow', String(Math.round(pct)));
 }
 
+/** Four corners pointing out (in fullscreen, the button turns them inward through CSS). */
+const FULLSCREEN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+
 export function createHud(root: HTMLElement) {
   root.innerHTML = `
     <div class="hud-panel" hidden>
@@ -89,13 +92,16 @@ export function createHud(root: HTMLElement) {
       <div class="hud-row" title="DNA to spend in the editor; the helix fills toward evolving">
         <span class="hud-label">DNA <b class="dna-num"></b></span>${molecule('dna', 'Evolution')}
       </div>
-      <div class="children" aria-label="Children in reserve"></div>
+      <div class="hud-row" title="Lives: children in reserve; dying spends one, and with none left the species dies out">
+        <span class="hud-label">Lives</span><div class="children" aria-label="Children in reserve"></div>
+      </div>
     </div>
     <div class="hud-bottom"><div class="hud-status" role="status"></div><div class="hud-abilities"></div></div>
     <div class="hud-toasts" aria-live="polite"></div>
     <div class="hud-message"></div>
     <div class="hud-vignette"></div>
-    <div class="hud-perf"></div>`;
+    <div class="hud-perf"></div>
+    <button type="button" class="fullscreen" title="Fullscreen" aria-label="Fullscreen" aria-pressed="false">${FULLSCREEN_ICON}</button>`;
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   const panel = $('.hud-panel');
   const energy = root.querySelector('.molecule.energy')!;
@@ -110,6 +116,18 @@ export function createHud(root: HTMLElement) {
     write();
   };
   const chips = new Map<string, HTMLElement>();
+  const fullscreen = $<HTMLButtonElement>('.fullscreen');
+  fullscreen.addEventListener('pointerdown', (e) => e.stopPropagation()); // not a click in the pond (a toxin, a spore)
+  fullscreen.addEventListener('click', () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const on = !!document.fullscreenElement;
+    fullscreen.setAttribute('aria-pressed', String(on));
+    fullscreen.title = on ? 'Exit fullscreen' : 'Fullscreen';
+    fullscreen.classList.toggle('on', on);
+  });
   const unlocks: { label: string; icon?: string }[] = [];
   const showUnlock = () => {
     const u = unlocks[0];
@@ -119,7 +137,7 @@ export function createHud(root: HTMLElement) {
     card.setAttribute('role', 'status');
     card.innerHTML = `<div class="unlock-icon"><i class="ring"></i>${Array.from({ length: 10 }, (_, k) =>
       `<i class="spark" style="--a:${k * 36}deg"></i>`).join('')}${u.icon ? `<img src="${u.icon}" alt="">` : '<b>?</b>'}</div>
-      <div class="unlock-text"><small>New part discovered</small><strong></strong><small>Place it in your next generation</small></div>`;
+      <div class="unlock-text"><small>New part discovered</small><strong></strong></div>`;
     card.querySelector('strong')!.textContent = u.label;
     root.append(card);
     setTimeout(() => {

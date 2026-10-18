@@ -1094,11 +1094,16 @@ test("a eukaryote's plasmid may unlock one of its own undiscovered parts", () =>
   expect(lineage.library).not.toBe(TIER2.GENES.cilia.bit);
 });
 
-test('cyanobacteria filaments and hyphae feed bacteria and eukaryote mouths', () => {
-  expect([yieldOf(NutrientKind.cyano, 0), yieldOf(NutrientKind.hypha, 0)]).toEqual([CYANO_MASS, HYPHA_MASS]);
-  expect(yieldOf(NutrientKind.hypha, GENES.exoenzymes.bit)).toBeGreaterThan(HYPHA_MASS); // decomposers
-  expect([yield2Of(NutrientKind.cyano, TIER2.GENES.filter.bit), yield2Of(NutrientKind.cyano, TIER2.GENES.jaw.bit)]).toEqual([CYANO_MASS, 0]);
-  expect(yield2Of(NutrientKind.hypha, TIER2.GENES.jaw.bit)).toBe(HYPHA_MASS);
+test('cyanobacteria filaments and hyphae are eaten like algae: plant mouths only, never by bacteria', () => {
+  expect([yieldOf(NutrientKind.cyano, ~0), yieldOf(NutrientKind.hypha, ~0)]).toEqual([0, 0]);
+  for (const kind of [NutrientKind.cyano, NutrientKind.hypha]) {
+    expect([yield2Of(kind, TIER2.GENES.filter.bit), yield2Of(kind, TIER2.GENES.jaw.bit)]).toEqual([kind === NutrientKind.cyano ? CYANO_MASS : HYPHA_MASS, 0]);
+  }
+  // A bacterium leaves them drifting, like algae.
+  const { state, player } = species();
+  const id = foodAt(state, player.x, player.y, NutrientKind.cyano);
+  stepWorld(state);
+  expect(state.nutrients.has(id)).toBe(true);
 });
 
 test('DNA comes from plasmids in every phase, never from food', () => {

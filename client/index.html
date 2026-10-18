@@ -68,7 +68,7 @@
       .molecule.dna.ready .lit { filter: drop-shadow(0 0 3px var(--dna)); animation: dna-ready 1.6s ease-in-out infinite alternate; }
       @keyframes dna-ready { to { filter: drop-shadow(0 0 6px var(--dna)) brightness(1.25); } }
       .children { display: flex; flex-wrap: wrap; gap: 3px; min-height: 14px; align-items: center; }
-      .children svg { width: 14px; height: 14px; fill: rgb(238 247 242 / 0.22); stroke: var(--ink); stroke-width: 1.2; }
+      .children svg { width: 20px; height: 20px; fill: rgb(238 247 242 / 0.22); stroke: var(--ink); stroke-width: 1.2; }
       .children svg .in { fill: none; stroke-width: 1; opacity: 0.8; }
       .children small { color: var(--danger); font-size: 11px; }
       .hud-bottom { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: grid; justify-items: center; gap: 8px; }
@@ -118,7 +118,8 @@
       #editor .dna-spend { font-weight: 700; font-size: 15px; color: var(--danger); font-variant-numeric: tabular-nums; }
       #editor .dna-spend.refund { color: var(--dna); }
       #editor .ed-side h2 { margin: 0; }
-      #editor .kids-note { color: var(--ink-soft); font-size: 11px; }
+      #editor .kids-note { color: var(--ink-soft); font-size: 12px; }
+      #editor .kids-note b { color: var(--ink); } #editor .kids-note b.cost { color: var(--danger); }
       #editor h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink-soft); letter-spacing: 0.04em; text-transform: uppercase; }
       #editor .parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
       #editor .part-group + .part-group { margin-top: 8px; }
@@ -167,7 +168,15 @@
       #editor .eggs svg { width: 15px; height: 15px; fill: rgb(238 247 242 / 0.15); stroke: var(--ink-soft); stroke-width: 1.1; }
       #editor .eggs svg.new { fill: rgb(240 199 94 / 0.45); stroke: var(--energy); }
       #editor .eggs svg .in { fill: none; }
-      #editor .stats { color: var(--ink-soft); font-size: 11px; }
+      #editor .stats { display: flex; gap: 14px; color: var(--ink-soft); font-size: 12px; }
+      #editor .stat { display: inline-flex; align-items: center; gap: 4px; }
+      #editor .stat b { color: var(--ink); font-variant-numeric: tabular-nums; }
+      #editor .stat svg { width: 16px; height: 16px; fill: rgb(238 247 242 / 0.25); stroke: var(--ink-soft); stroke-width: 1.1; }
+      #editor .stat svg .empty { fill: none; stroke-dasharray: 2 1.5; }
+      #editor .stat.full b { color: var(--danger); }
+      #editor .stat.upkeep svg { fill: rgb(240 149 58 / 0.25); stroke: var(--energy); }
+      #editor .stat.upkeep svg .o { fill: #ffd2a1; stroke: none; }
+      #editor .stat.upkeep b { color: var(--energy); }
       #editor .message { color: var(--danger); font-size: 12px; }
       #editor .message:empty { display: none; }
       #editor .primary { font-size: 15px; font-weight: 600; padding: 10px; background: rgb(159 231 208 / 0.22); border-color: var(--accent); }
@@ -205,11 +214,28 @@
       #labels div { position: absolute; left: 0; top: 0; font: 12px system-ui, sans-serif; color: rgb(220 245 240 / 0.8);
         white-space: nowrap; text-shadow: 0 1px 3px #000; will-change: transform; }
       #labels .self { color: #fff; font-weight: 600; }
-      #leaders { position: fixed; top: 12px; right: 12px; margin: 0; padding: 8px 12px 8px 28px; min-width: 140px;
+      /* Phase colours (labels.ts): who to hunt, who to flee — bacteria blue, eukaryotes yellow, plankton orange, animals red. */
+      :root { --t1: #8fd3ff; --t2: #f5e27a; --t3: #ffa45c; --t4: #ff6f6f; }
+      #labels .tier-1 { color: var(--t1); } #labels .tier-2 { color: var(--t2); }
+      #labels .tier-3 { color: var(--t3); } #labels .tier-4 { color: var(--t4); }
+      #leaders { position: fixed; top: 12px; right: 58px; margin: 0; padding: 8px 12px 8px 28px; min-width: 140px;
         font: var(--font); font-size: 12px; color: var(--ink-soft); background: var(--glass); border: 1px solid var(--line);
         border-radius: var(--radius); backdrop-filter: var(--blur); pointer-events: none; }
       #leaders li { white-space: nowrap; }
       #leaders .self { color: #fff; font-weight: 600; }
+      #leaders i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: var(--ink-soft); }
+      #leaders .tier-1 i { background: var(--t1); } #leaders .tier-2 i { background: var(--t2); }
+      #leaders .tier-3 i { background: var(--t3); } #leaders .tier-4 i { background: var(--t4); }
+      #leaders .gold span, #leaders .silver span, #leaders .bronze span { font-weight: 700; }
+      #leaders .gold span { color: #ffd34d; } #leaders .silver span { color: #dfe6ec; } #leaders .bronze span { color: #e0955a; }
+      /* Fullscreen, beside the ranking. */
+      .fullscreen { position: fixed; top: 12px; right: 12px; width: 38px; height: 38px; padding: 0; display: grid; place-items: center;
+        border-radius: var(--radius); background: var(--glass); border: 1px solid var(--line); backdrop-filter: var(--blur);
+        color: var(--ink); cursor: pointer; pointer-events: auto; }
+      .fullscreen:hover { background: var(--glass-strong); }
+      .fullscreen:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+      .fullscreen svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; transition: transform 0.2s; }
+      .fullscreen.on svg { transform: scale(-1); }
       #stageup { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none;
         font: 600 34px system-ui, sans-serif; color: #ffe6a8; text-shadow: 0 2px 12px rgb(0 0 0 / 0.7); opacity: 0; transition: opacity 1.5s; }
       #stageup small { display: block; font-size: 17px; font-weight: 400; color: var(--ink); margin-top: 8px; }

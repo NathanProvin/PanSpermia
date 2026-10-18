@@ -133,6 +133,9 @@ const ACTIVE: Readonly<Record<string, 'left' | 'right'>> = {
 };
 const MOUSE_ICON = '<svg viewBox="0 0 20 28" aria-hidden="true"><rect x="1" y="1" width="18" height="26" rx="9"/><path class="btn left" d="M10 1.5A8.5 8.5 0 0 0 1.5 10V12H10Z"/><path class="btn right" d="M10 1.5A8.5 8.5 0 0 1 18.5 10V12H10Z"/><path d="M1 12h18M10 1v11" class="line"/></svg>';
 
+/** The design's stats: parts (a little grid of parts) and upkeep (an orange glucose ring, the energy they burn). */
+const PARTS_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.5" class="empty"/></svg>';
+const UPKEEP_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 12.8 5.2v5.6L8 13.5 3.2 10.8V5.2Z"/><circle cx="11.8" cy="4.6" r="1.3" class="o"/></svg>';
 /** The DNA box's icon: a short double helix. */
 const DNA_ICON = '<svg viewBox="0 0 16 28" aria-hidden="true"><path d="M3 2c0 6 10 6 10 12S3 20 3 26M13 2c0 6-10 6-10 12s10 6 10 12" class="strand"/><path d="M5 5h6M5 11h6M5 17h6M5 23h6" class="pair"/></svg>';
 /** Space kept under the side columns for the handle legend (px). */
@@ -217,7 +220,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
           <span class="eggs"></span>
           <button type="button" class="icon more" aria-label="One child more (${CHILD_PRICE} DNA)">+</button>
         </div>
-        <p class="kids-note">${CHILD_PRICE} DNA per child: each is a life in reserve.</p>
+        <p class="kids-note" title="${CHILD_PRICE} DNA per child: each is a life in reserve"></p>
       </section>
       <section class="panel" aria-label="Next generation">
         <p class="message" role="status"></p>
@@ -549,7 +552,11 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.eggs').innerHTML = Array.from({ length: lineage!.children + children },
       (_, k) => `<svg viewBox="0 0 16 16" class="${k >= lineage!.children ? 'new' : ''}" aria-hidden="true">${icon}</svg>`).join('');
     $('.kids').setAttribute('aria-label', `${lineage!.children} children in reserve, ${children} more`);
-    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(2)} energy/s`;
+    // Parts used and the energy they burn, as two icon chips.
+    const used = placementsOf(gs).length;
+    $('.stats').innerHTML = `<span class="stat${used >= MAX_PARTS ? ' full' : ''}" title="Parts placed, of ${MAX_PARTS}">${PARTS_ICON}<b>${used}</b>/${MAX_PARTS}</span>`
+      + `<span class="stat upkeep" title="Upkeep: energy the parts burn each second">${UPKEEP_ICON}<b>−${cat.upkeepOf(genome).toFixed(2)}</b>/s</span>`;
+    $('.kids-note').innerHTML = `Children: <b class="${children ? 'cost' : ''}">−${children * CHILD_PRICE}</b> DNA`;
     $('.message').textContent = message;
     for (const [i, b] of [...swatches.children].entries()) b.setAttribute('aria-checked', String(i === pigment));
     for (const [i, b] of [...$('.patterns').children].entries()) b.setAttribute('aria-checked', String(i === pattern));
