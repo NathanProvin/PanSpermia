@@ -2,7 +2,7 @@ import {
   CHILD_PRICE, CYST_TIME, evolveDnaOf, type Catalog, type Form, type Lineage, MAX_BEND, MAX_CHILDREN, MAX_PARTS, MAX_PLACED, MAX_TIER,
   NAME_MAX, type Placement, TIER_NAMES, catalogFor, cleanName, deform, undeform, DEFAULT_RADII, DEFAULT_RADII_OF, FORM_LIMITS,
   MAX_SEGMENTS, MIN_SEGMENTS, MAX_ARM, DEFAULT_ARMS, RADIAL_ARMS, PATTERN_NAMES, PIGMENTS, PLAN_NAMES, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN, BEND_CENTRE, type Segment,
-  animalRim, fitsPlan, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
+  animalRim, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { CHILD_ICON } from './hud.ts';
@@ -21,7 +21,7 @@ import { createCellView } from './scene/cells.ts';
 // radial body: its front arm's tip) adds or removes stations; width (cyan) — a cell's side, an animal's side at each
 // station (its neighbours follow a little); bend (magenta) — a cell's nose pulled sideways makes a comma, a spine or an
 // arm turns at each station (an S, a spiral, a pinwheel); the head stays put while you bend. A radial body's arm
-// count: the polygon buttons. Tier 4's body plan follows its parts: the first arthropod-only or mollusk-only part sets it.
+// count: the polygon buttons. Tiers 3 and 4 offer the same plans: a spine or a radial body.
 
 type Symmetry = 'axial' | 'radial';
 /** One placement as the player made it: a master part plus how it repeats. */
@@ -147,6 +147,11 @@ function stationAxis(segs: readonly Segment[], i: number) {
 export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0e2340); // navy: the body and its handles stand out (user choice)
+  // The backdrop (user direction): the pond as it was when the editor opened, extremely blurred and sunk into dark navy —
+  // texture without competing with the body. A tiny canvas, blurred, then stretched over the view by the GPU.
+  const backdrop = document.createElement('canvas');
+  const backdropTexture = new THREE.CanvasTexture(backdrop);
+  backdropTexture.colorSpace = THREE.SRGBColorSpace;
   const camera = new THREE.OrthographicCamera(-1, 1, VIEW_HALF, -VIEW_HALF, -10, 10);
   const cell = createCellView(scene, 0.42);
   // Part icons: each part rendered on its own small piece of body into a render target, read back into an image.
@@ -160,7 +165,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   root.innerHTML = `
     <div class="ed-clock" role="timer">
-      <svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="16"/><circle class="left" cx="20" cy="20" r="16" pathLength="100"/><line class="hand" x1="20" y1="20" x2="20" y2="7"/><circle class="pin" cx="20" cy="20" r="1.8"/></svg>
+      <svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="16"/><circle class="left" cx="20" cy="20" r="16" pathLength="100"/></svg>
       <div><b class="secs"></b><small class="what"></small></div>
     </div>
     <section class="panel" id="palette" aria-label="Parts">
@@ -201,7 +206,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle h-width small" data-w="${i}" title="Width: drag in or out"></div>`).join('')}
     ${Array.from({ length: MAX_SEGMENTS }, (_, i) => `<div class="handle h-bend small" data-b="${i}" title="Bend: drag sideways to turn the body here"></div>`).join('')}
     <img class="drag-ghost" alt="" hidden>
-    <p class="ed-help"><span class="key h-length"></span> length <span class="key h-width"></span> width <span class="key h-bend"></span> bend · drag parts onto the body · drag a part away to remove it · wheel to resize</p>`;
+    <p class="ed-help"><span class="key h-length"></span> length <span class="key h-width"></span> width <span class="key h-bend"></span> bend · drag parts onto the body</p>`;
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
   const palette = $<HTMLElement>('.parts');
   const nameInput = $<HTMLInputElement>('.name');
@@ -262,19 +267,6 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const working = () => (drag?.at ? [...groups, drag.at] : groups);
   const available = (gene: string) => (cat.GENES[gene]!.slot === 'coat' ? 1 : MAX_PLACED) - placed(groups, gene);
 
-  // Tier 4's plan follows its parts: an arthropod-only or mollusk-only part sets it, and hides the other plan's parts.
-  const onlyPlan = (gene: string) => {
-    const fits = (PLANS_OF[lineage!.tier] ?? []).filter((q) => fitsPlan(q, cat.GENES[gene]!.bit));
-    return fits.length === 1 ? fits[0] : undefined;
-  };
-  const lockedPlan = () => (lineage!.tier === 4 ? groups.map((g) => onlyPlan(g.gene)).find((q) => q !== undefined) : undefined);
-  const followParts = () => {
-    if (lineage!.tier !== 4) return;
-    const q = lockedPlan();
-    if (q !== undefined && q !== plan) plan = q;
-    buildPalette();
-  };
-
   /** Re-place every part under the body's symmetry (a new plan or arm count); parts that no longer fit come off. */
   const resym = () => {
     const old = groups;
@@ -330,16 +322,13 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     if (cost(next) > lineage!.dna) return void (message = 'Not enough DNA.');
     groups = next;
     message = '';
-    followParts();
   };
   const placeDefault = (gene: string) => {
     const { slot, at } = cat.GENES[gene]!;
     if (slot === 'coat') {
       const i = groups.findIndex((g) => g.gene === gene);
-      if (i >= 0) {
-        groups.splice(i, 1);
-        followParts();
-      } else commit({ gene, x: 0, y: 0, angle: 0, scale: 1, repeat: 'single', n: 1 });
+      if (i >= 0) groups.splice(i, 1);
+      else commit({ gene, x: 0, y: 0, angle: 0, scale: 1, repeat: 'single', n: 1 });
     } else if (slot === 'membrane') commit(placeAt(cat, gene, Math.cos(at as number), Math.sin(at as number), symmetry(), arms, available(gene)));
     else commit(placeAt(cat, gene, ...(at as readonly [number, number]), symmetry(), arms, available(gene)));
     render();
@@ -393,10 +382,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     return iconCanvas.toDataURL();
   };
 
-  /** Part tiles, rebuilt on opening and when tier 4's plan locks or unlocks (the other plan's parts aren't shown). */
+  /** Part tiles, rebuilt on opening and when the body changes (icons are drawn on it). */
   const buildPalette = () => {
-    const locked = lineage!.tier === 4 && lockedPlan() !== undefined;
-    palette.replaceChildren(...cat.NAMES.filter((gene) => !locked || fitsPlan(plan, cat.GENES[gene]!.bit)).map((gene) => {
+    palette.replaceChildren(...cat.NAMES.map((gene) => {
       const tile = document.createElement('button');
       tile.type = 'button';
       tile.className = 'part';
@@ -418,9 +406,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       return tile;
     }));
   };
-  /** Tier 3's plan icons: a spine or a radial body (tier 4's plan follows its parts). */
+  /** Plan icons for an animal tier: a spine or a radial body (tiers 3 and 4 alike: user direction). */
   const buildPlans = () => {
-    $('.plans').replaceChildren(...(lineage!.tier === 3 ? PLANS_OF[3]! : []).map((i) => {
+    $('.plans').replaceChildren(...(PLANS_OF[lineage!.tier] ?? []).map((i) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'icon';
@@ -494,8 +482,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.eggs').innerHTML = Array.from({ length: lineage!.children + children },
       (_, k) => `<svg viewBox="0 0 16 16" class="${k >= lineage!.children ? 'new' : ''}" aria-hidden="true">${icon}</svg>`).join('');
     $('.kids').setAttribute('aria-label', `${lineage!.children} children in reserve, ${children} more`);
-    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(2)} energy/s`
-      + (lineage!.tier === 4 ? ` · ${PLAN_NAMES[plan]!.toLowerCase()}` : '');
+    $('.stats').textContent = `${placementsOf(gs).length}/${MAX_PARTS} parts · upkeep ${cat.upkeepOf(genome).toFixed(2)} energy/s`;
     $('.message').textContent = message;
     for (const [i, b] of [...swatches.children].entries()) b.setAttribute('aria-checked', String(i === pigment));
     for (const [i, b] of [...$('.patterns').children].entries()) b.setAttribute('aria-checked', String(i === pattern));
@@ -571,7 +558,6 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     if (i < 0) return;
     const [group] = groups.splice(i, 1);
     if (e.button === 2) { // right click: remove
-      followParts();
       render();
       return;
     }
@@ -660,7 +646,6 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     // From the release itself: at low frame rates the last pointermove may not have been seen yet.
     if (e.target === canvas) drag.at = dropAt(e, drag);
     if (e.target === canvas && drag.at) commit(drag.at);
-    else if (drag.group) followParts(); // a lifted part dropped off the body: removed
     if (e.target === canvas || drag.group) drag = undefined; // palette releases are handled by its click
     render();
   };
@@ -713,6 +698,24 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   return {
     get isOpen() { return !root.hidden; },
+    /** Take the backdrop from a just-rendered game frame (call in the same task as the render). */
+    backdrop(source: HTMLCanvasElement) {
+      const w = 160;
+      const h = Math.max(1, Math.round((w * source.height) / source.width));
+      Object.assign(backdrop, { width: w, height: h });
+      const g = backdrop.getContext('2d')!;
+      g.filter = 'blur(5px)';
+      g.drawImage(source, -12, -12, w + 24, h + 24); // overscan: the blur doesn't darken the edges
+      g.filter = 'none';
+      g.globalCompositeOperation = 'multiply';
+      g.fillStyle = '#3c6cb0'; // into navy
+      g.fillRect(0, 0, w, h);
+      g.globalCompositeOperation = 'source-over';
+      g.fillStyle = 'rgb(9 24 52 / 0.35)'; // and darker
+      g.fillRect(0, 0, w, h);
+      backdropTexture.needsUpdate = true;
+      scene.background = backdropTexture;
+    },
     /**
      * Open on the lineage's current design; `onSubmit` sends it to the server (final, or a draft).
      * `stageUp`: the species just evolved and designs its first individual of the new tier.
@@ -727,7 +730,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       ({ pigment, pattern } = pigmentOf(hue));
       shape = l.shape;
       form = formOf(l);
-      plan = l.plan;
+      plan = PLANS_OF[l.tier]?.includes(l.plan) ? l.plan : PLANS_OF[l.tier]?.[0] ?? l.plan; // older tier-4 plans: a spine
       radii = l.radii.length ? [...l.radii] : [...(DEFAULT_RADII_OF[l.plan] ?? DEFAULT_RADII)];
       arms = l.plan === 1 ? l.arms : 0;
       if (l.plan === 1 && !arms) { // the older lobes format: one-station arms
@@ -802,10 +805,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         place(handles.tail, undefined);
         for (const el of [...widths, ...benders]) place(el, undefined);
       }
-      // The clock: the ring empties over the editor's time, the hand ticks once a second.
+      // The clock: a ring that empties over the editor's time.
       const secs = Math.max(0, Math.ceil(secondsLeft));
       $<SVGCircleElement>('.ed-clock .left').style.strokeDashoffset = String(100 - (100 * Math.max(0, secondsLeft)) / CYST_TIME);
-      $<SVGLineElement>('.ed-clock .hand').style.transform = `rotate(${-(secs % 60) * 6}deg)`;
       $('.ed-clock .secs').textContent = `${secs}`;
       $('.ed-clock').classList.toggle('late', secs <= 10);
       $('.ed-clock .what').textContent = evolving ? `Evolved: your first ${TIER_NAMES[lineage!.tier]!.toLowerCase()}`

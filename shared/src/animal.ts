@@ -20,15 +20,15 @@ export const STARTER_LIBRARY3 = TIER3.GENES.paddle.bit | TIER3.GENES.tail.bit | 
   | TIER3.GENES.mandible.bit | TIER3.GENES.eye.bit;
 
 /**
- * Body plans. Tier 3: segments in a chain along the spine (worms, larvae), or lobes around a centre. Tier 4: an
- * arthropod (hard segmented plates) or a mollusk (a soft body: a head and a big visceral mass, under a shell if
- * it has one); both lay their segments out along a spine. Only plan 1 (radial) is laid out around a centre.
+ * Body plans: stations in a chain along a spine (worms, larvae, crustaceans, slugs), or arms around a centre (radial).
+ * Tiers 3 and 4 both offer them (user direction: the same rules). Arthropod and Mollusk are older tier-4 plans, kept
+ * so old cards still read; a tier-4 body now looks soft (mollusk) or plated (arthropod) by its parts.
  */
 export const PLAN_NAMES = ['Spine', 'Radial', 'Arthropod', 'Mollusk'] as const;
 export const ARTHROPOD = 2;
 export const MOLLUSK = 3;
 /** The plans each animal tier offers (PLAN_NAMES indices); the first is a new species' default. */
-export const PLANS_OF: Readonly<Record<number, readonly number[]>> = { 3: [0, 1], 4: [ARTHROPOD, MOLLUSK] };
+export const PLANS_OF: Readonly<Record<number, readonly number[]>> = { 3: [0, 1], 4: [0, 1] };
 export const MIN_SEGMENTS = 2;
 export const MAX_SEGMENTS = 8; // stations along the body: long worms need more than the old 6 segments
 /** Relative segment sizes the editor allows (the body is then fitted to the cell, so only proportions matter). */

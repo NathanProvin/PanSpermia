@@ -1,7 +1,7 @@
 import { Callbacks, Client, Predict, type Reconciler } from '@colyseus/sdk';
 import {
   ACTION_SPORE, ACTION_TOXIN, Input, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
-  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, MOLLUSK, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
+  BOT_SPECIES, EYE_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER4, TOXINS, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
   JET_COOLDOWN, formOf, MAX_TIER, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -11,7 +11,6 @@ import { type Ability, createHud } from './hud.ts';
 import { createLabels } from './labels.ts';
 import { type Look, createCells, hashId } from './scene/cells.ts';
 import { createClouds } from './scene/clouds.ts';
-import { createEggs } from './scene/eggs.ts';
 import { createMeteor } from './scene/meteor.ts';
 import { createNutrients } from './scene/nutrients.ts';
 import { createGiants } from './scene/giants.ts';
@@ -119,7 +118,6 @@ const cells = createCells(scene, (id, strength) => {
 });
 const editor = createEditor(renderer, document.getElementById('editor')!);
 const cloudLayer = createClouds();
-const eggLayer = createEggs();
 const meteor = createMeteor();
 // Dev: ?off=floor,haze,rim,plankton,nutrients hides a layer at load; `layers.rim.visible = false` from the console
 // does it live (perf attribution, see perf.ts).
@@ -130,7 +128,7 @@ const layers = {
 for (const [name, object] of Object.entries(layers)) if (off.has(name)) object.visible = false;
 if (import.meta.env.DEV) Object.assign(window, { layers, bloom: post.bloom, nutrientLayer, cloudLayer, camera });
 post.far.add(...pool.far, ...giants.objects);
-scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...eggLayer.objects, ...meteor.objects, ...ripples.objects);
+scene.add(...pool.objects, ...plankton.objects, ...nutrientLayer.objects, ...cloudLayer.objects, ...meteor.objects, ...ripples.objects);
 /** Camera height the intro starts from; the usual follow zoom then glides down to the hatching cell. */
 const INTRO_HEIGHT = 1800;
 let introPlayed = false;
@@ -175,6 +173,8 @@ let knownLibrary = -1;
 let knownLineage: Lineage | undefined;
 /** The dividing individual the editor was opened for (one design per cyst). */
 let designedFor: Player | undefined;
+/** The individual whose editor backdrop was taken (once per opening). */
+let backdropFor: Player | undefined;
 /** When our species evolved (the slice's ending: zoom out, then the species card), or 0. */
 /** Our species' tier as last seen: a rise is the stage-up moment. */
 let knownTier = 0;
@@ -219,8 +219,7 @@ try {
     subtitle.textContent = [
       '', '', 'Engulf smaller cells with a jaw, graze algae with a filter mouth. Bacteria are food now.',
       'Sweep up bacteria and algae with filter combs, bite with mandibles. Single cells are food now.',
-      l.plan === MOLLUSK ? 'Rasp algae with a radula, bite with a beak, hide in a shell. Small animals are food now.'
-        : 'Graze with mouthparts, crush with claws, armour up in an exoskeleton. Small animals are food now.',
+      'Walk on legs or glide on a foot, crush with claws or a beak, armour up in chitin or a shell. Small animals are food now.',
     ][l.tier] ?? '';
     stageup.replaceChildren(`${l.name} evolved into ${['', '', 'eukaryotes', 'plankton', 'animals'][l.tier]}`, subtitle);
     stageup.classList.add('on');
@@ -268,10 +267,6 @@ try {
   });
   callbacks.onAdd('clouds', (c, id) => cloudLayer.add(id, c));
   callbacks.onRemove('clouds', (_, id) => cloudLayer.remove(id));
-  // A clutch that vanishes before its hatching tick was eaten.
-  callbacks.onRemove('eggs', (egg) => {
-    if (egg.owner === room.sessionId && room.state.tick < egg.hatchTick) say('Your eggs were eaten!');
-  });
 
   let me: Reconciler | undefined;
   callbacks.onAdd('players', (player, id) => {
@@ -369,7 +364,13 @@ try {
       const fast = Math.hypot(self.vx, self.vy) / speedOf(self.mass, self.tier);
       currentAt(at.x, at.y, room.state.tick * TICK_DT, flowNow);
       const stream = Math.hypot(flowNow.x, flowNow.y);
-      if (w.player && w.player !== self) ripple(1);
+      if (w.player && w.player !== self) {
+        ripple(1);
+        // A cell that divided (the next individual took over where it was, same tier): show the mitosis.
+        if (self.tier <= 2 && w.player.tier === self.tier && Math.hypot(w.player.x - self.x, w.player.y - self.y) < 4 * r) {
+          cells.divide(lookOf(room.sessionId, self), at.x, at.y, predict.value(self, 'heading'), r);
+        }
+      }
       else if (dash > 0 && w.dash === 0) ripple(0.8);
       else if (fast > 0.75 && w.fast <= 0.75) ripple(0.4);
       else if (stream > STRONG_CURRENT && w.stream <= STRONG_CURRENT) ripple(0.5);
@@ -427,14 +428,12 @@ try {
       if (self.tier === 4 && TIER4.hasGene(self.genome4, 'inkSac')) {
         abilities.push({ id: 'ink', icon: '●', label: 'Ink', hint: 'R-click', ready: recharge(self.dashCooldown, INK_COOLDOWN), active: self.dash > 0 });
       }
-      const eggs = [...room.state.eggs.values()].find((e) => e.owner === room.sessionId);
       const status = self.cyst > 0
         ? (self.evolving ? `Evolved — design your first ${TIER_NAMES[lineage.tier]!.toLowerCase()}` : 'Designing the next generation')
         : self.call > 0 ? 'Calling a mate…'
-        : self.cocoon > 0 ? `Metamorphosis — emerging in ${Math.ceil(self.cocoon)} s`
+        : self.cocoon > 0 ? `${self.tier === 3 ? 'Eggs hatching' : 'Metamorphosis — emerging'} in ${Math.ceil(self.cocoon)} s`
         : self.spore > 0 ? 'Dormant spore'
-        : self.infection > 0 ? 'Infected!'
-        : eggs ? `Eggs hatch in ${Math.ceil((eggs.hatchTick - room.state.tick) / TICK_RATE)} s` : '';
+        : self.infection > 0 ? 'Infected!' : '';
       const floor = minMassOf(self.tier);
       hud.update(editor.isOpen ? undefined : {
         name: lineage.name, generation: lineage.generation, tier: lineage.tier,
@@ -469,12 +468,16 @@ try {
     perf.mark('nutrients');
     cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
     ripples.update(time, focus);
-    eggLayer.update(room.state.eggs.values(), tick, time, focus);
     perf.mark('clouds');
     perf.gpuBegin();
     // The editor stays up for exactly one division: until this individual hatches (or dies).
     if (editor.isOpen && (!self || self !== designedFor || self.cyst === 0)) editor.close();
     if (editor.isOpen) {
+      if (backdropFor !== designedFor) { // the editor just opened: its backdrop is this pond, blurred
+        backdropFor = designedFor;
+        post.render();
+        editor.backdrop(renderer.domElement);
+      }
       const view = editor.frame(time, dt, self!.cyst, innerWidth / innerHeight);
       post.render(view.scene, view.camera);
     } else post.render();

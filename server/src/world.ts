@@ -6,8 +6,8 @@ import {
   ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
-  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_EAT_DPS, EGG_HEALTH, EGG_RADIUS, EGG_TIME, Egg, MATE_DISTANCE,
-  MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, fitsPlan, SEGMENT_MIN,
+  T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_TIME, MATE_DISTANCE,
+  MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN,
   cleanForm, MAX_ARM, RADIAL_ARMS, MAX_BEND, MAX_PLACED, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
@@ -195,33 +195,6 @@ function bite(state: PoolState, tick: number) {
   }
 }
 
-/** Clutches hatch into the species' next individual, unless eukaryotes or animals eat them first. */
-function stepEggs(state: PoolState, tick: number) {
-  for (const [eid, egg] of [...state.eggs]) {
-    const l = state.lineages.get(egg.owner);
-    if (!l || l.extinct) {
-      state.eggs.delete(eid);
-      continue;
-    }
-    if (tick >= egg.hatchTick) {
-      state.eggs.delete(eid);
-      l.generation++;
-      state.players.set(egg.owner, nextOf(l, tick, { x: egg.x, y: egg.y, heading: Math.random() * 2 * Math.PI }));
-      continue;
-    }
-    for (const [pid, p] of state.players) {
-      if (pid === egg.owner || isMate(pid) || p.tier < 2 || dormant(p)) continue;
-      const reach = radiusOf(p.mass, p.tier) * 1.05 + EGG_RADIUS;
-      if (!((p.x - egg.x) ** 2 + (p.y - egg.y) ** 2 < reach * reach)) continue;
-      const bite = Math.min(egg.health, EGG_EAT_DPS * TICK_DT);
-      egg.health -= bite;
-      p.mass = Math.min(massCapOf(p.tier), p.mass + bite);
-      earn(state, pid, bite * DNA_PER_MASS);
-    }
-    if (egg.health <= 0) state.eggs.delete(eid);
-  }
-}
-
 /** DNA to a lineage (bots have none). */
 function earn(state: PoolState, id: string, dna: number) {
   const l = state.lineages.get(id);
@@ -237,12 +210,20 @@ export function embody(p: Player, tier: number, genome: number) {
   return p;
 }
 
-/** The lineage's next individual: its tier, design and name — where the parent divided, or anywhere. */
-function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: number }) {
+/** How long a new animal of a tier lies in its egg clutch (plankton) or cocoon (animals) before it moves. */
+const incubationOf = (tier: number) => (tier === 3 ? EGG_TIME : tier === 4 ? COCOON_TIME : 0);
+
+/**
+ * The lineage's next individual: its tier, design and name — where the parent divided, or anywhere. An animal begins
+ * life as eggs or a cocoon (user direction: even the first one, and after a death), unless it is emerging from one now
+ * or opening the stage-up editor (`incubate` false).
+ */
+function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: number }, incubate = true) {
   const p = embody(spawnPlayer(tick), l.tier, l.genome);
   p.name = l.name;
   p.shape = l.shape;
   if (at) Object.assign(p, at);
+  if (incubate) p.cocoon = incubationOf(l.tier);
   return p;
 }
 
@@ -263,12 +244,10 @@ export function foundSpecies(state: PoolState, id: string) {
   state.players.set(id, nextOf(state.lineages.get(id)!, state.tick));
 }
 
-let nextEggId = 0;
 /**
- * Editing done. Cells divide: a child with the lineage's current design takes over where the parent
- * divided. Animals lay a clutch instead and carry on, spent; the clutch hatches into the new design.
- * Arthropods and mollusks spin a cocoon: the parent itself, shielded and still, until the new design emerges.
- * A stage-up cyst (just evolved) simply hatches as the designed individual.
+ * Editing done. Cells divide: a child with the lineage's current design takes over where the parent divided.
+ * Plankton turn into an egg clutch and animals spin a cocoon: the parent itself, shielded and still, until the new
+ * design hatches or emerges. A stage-up cyst (just evolved) hatches as the designed individual — in its eggs or cocoon.
  */
 export function hatch(state: PoolState, id: string) {
   const parent = state.players.get(id);
@@ -279,17 +258,10 @@ export function hatch(state: PoolState, id: string) {
     state.players.set(id, nextOf(l, state.tick, { x: parent.x, y: parent.y, heading: parent.heading }));
     return;
   }
-  if (parent.tier === 3 && l.tier === 3) {
+  if (isAnimal(parent.tier) && l.tier === parent.tier) {
     parent.cyst = 0;
-    parent.mass = T3_SPAWN_MASS; // the energy went into the eggs
-    state.eggs.set(`e${nextEggId++}`, new Egg({
-      x: parent.x, y: parent.y, owner: id, hatchTick: state.tick + EGG_TIME * TICK_RATE, health: EGG_HEALTH, count: Math.min(6, 1 + l.children),
-    }));
-    return;
-  }
-  if (parent.tier === 4 && l.tier === 4) {
-    parent.cyst = 0;
-    parent.cocoon = COCOON_TIME;
+    parent.cocoon = incubationOf(parent.tier);
+    l.generation++;
     return;
   }
   l.generation++;
@@ -349,7 +321,6 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
     if (typeof gene !== 'string' || !Object.hasOwn(cat.GENES, gene)) return 'unknown part';
     const g = cat.GENES[gene]!;
     if (!(l.library & g.bit)) return 'part not unlocked';
-    if (!fitsPlan(body?.plan ?? 0, g.bit)) return 'part does not fit the body plan';
     if (typeof x !== 'number' || typeof y !== 'number' || typeof angle !== 'number' || typeof scale !== 'number'
       || !Number.isFinite(angle) || !(Math.hypot(x, y) <= 1.5) || !(scale >= 0.5 && scale <= 2)
       || typeof group !== 'number' || !Number.isInteger(group) || group < 0 || group > 255) {
@@ -392,7 +363,7 @@ export function submitDesign(state: PoolState, id: string, design: unknown, fina
   evolve(l);
   drafts.delete(l); // a draft of the old tier's design means nothing to the new body
   l.generation++;
-  state.players.set(id, Object.assign(nextOf(l, state.tick, { x: p.x, y: p.y, heading: p.heading }), { cyst: CYST_TIME, evolving: true }));
+  state.players.set(id, Object.assign(nextOf(l, state.tick, { x: p.x, y: p.y, heading: p.heading }, false), { cyst: CYST_TIME, evolving: true }));
   return undefined;
 }
 
@@ -675,7 +646,6 @@ export function stepWorld(state: PoolState): Death[] {
 
   collide(state);
   stepMates(state);
-  stepEggs(state, tick);
 
   for (const [id, p] of state.players) {
     if (dormant(p) || isMate(id)) continue;
@@ -839,9 +809,8 @@ export function stepWorld(state: PoolState): Death[] {
     if (p.cocoon > 0) {
       p.cocoon = Math.max(0, p.cocoon - TICK_DT - 1e-9);
       const l = state.lineages.get(id);
-      if (p.cocoon === 0 && l) { // metamorphosis done: the new design breaks out where the cocoon was
-        l.generation++;
-        state.players.set(id, nextOf(l, tick, { x: p.x, y: p.y, heading: p.heading }));
+      if (p.cocoon === 0 && l) { // hatched, or metamorphosis done: the new design breaks out where the eggs or cocoon were
+        state.players.set(id, nextOf(l, tick, { x: p.x, y: p.y, heading: p.heading }, false));
       }
       continue;
     }

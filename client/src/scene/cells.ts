@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Body, speedOf, SIDEROPHORE_REACH, MOLLUSK, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
+  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Body, speedOf, SIDEROPHORE_REACH, EGG_TIME, softBody4, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
   armOf, MAX_STATIONS, deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -71,7 +71,8 @@ uniform float uBody; // 0 a tier-3 animal, 1 an arthropod, 2 a mollusk
 uniform float uShell; // a mollusk's shell...
 uniform vec3 uShellAt; // ...over this spot (body frame xy, radius)
 uniform float uFoot; // a mollusk's foot skirt
-uniform float uCocoon; // tier 4: wrapped in a metamorphosis cocoon
+uniform float uCocoon; // a new animal: an egg clutch (tier 3) or a metamorphosis cocoon (tier 4)
+uniform float uHatch; // the clutch's development: 0 laid → 1 hatching
 uniform float uPattern; // 0 plain, 1 speckled, 2 banded (PATTERN_NAMES)
 varying vec2 vUv;
 ${NOISE}
@@ -136,6 +137,48 @@ vec4 drawCocoon(vec2 p, float t, vec2 head, vec2 tail, float big, float bodySd) 
   float alpha = inside * (0.94 - 0.25 * rim);
   return vec4(col * (1.0 - 0.3 * rim) * alpha, alpha); // premultiplied
 }
+// The egg clutch (plankton): five translucent eggs bound in jelly where the parent was, each lit as a sphere, an embryo
+// of the species' colour curled inside that grows and stirs as hatching nears (uHatch); the eggs breathe like the cocoon.
+vec4 drawEggs(vec2 p, float t, vec2 centre, float big) {
+  float aa = length(fwidth(p)) * 1.2;
+  float er = big * 0.62;
+  vec3 col = vec3(0.0);
+  float alpha = 0.0;
+  float jelly = 1e3;
+  vec3 L = lightDir();
+  for (int i = 0; i < 5; i++) {
+    float a = float(i) * 1.5708 + 0.4;
+    vec2 at = centre + (i == 0 ? vec2(0.0) : vec2(cos(a), sin(a)) * er * 1.6);
+    float r = er * (i == 0 ? 1.0 : 0.88) * (1.0 + 0.035 * sin(t * 1.5 + float(i) * 1.9));
+    vec2 q = p - at;
+    float d = length(q) - r;
+    jelly = min(jelly, d);
+    float inside = 1.0 - smoothstep(-aa, aa, d);
+    if (inside <= 0.0) continue;
+    float u = clamp(length(q) / r, 0.0, 1.0);
+    vec3 n = normalize(vec3(q / r, sqrt(max(0.0, 1.0 - u * u))));
+    float lit = 0.55 + 0.45 * max(0.0, dot(n, L));
+    float shell = exp(-pow((u - 0.93) / 0.05, 2.0));
+    float spec = pow(max(0.0, dot(reflect(-L, n), vec3(0.0, 0.0, 1.0))), 24.0);
+    // The embryo: a comma curled round the yolk, thickest at its head, twitching faster as it develops.
+    float tw = t * (0.6 + 4.0 * uHatch) + float(i) * 1.7;
+    vec2 e = q / r - 0.05 * uHatch * vec2(sin(tw * 2.0), cos(tw * 2.6));
+    float spin = tw * 0.15;
+    float ang = atan(e.y, e.x) + spin;
+    float curl = abs(length(e) - 0.36) - mix(0.04, 0.14, uHatch) * (0.45 + 0.55 * cos(ang * 0.5));
+    float embryo = 1.0 - smoothstep(-0.02, 0.02, curl);
+    float eye = 1.0 - smoothstep(0.035, 0.055, length(e - 0.36 * vec2(cos(-spin), sin(-spin))));
+    vec3 c = mix(vec3(0.93, 0.87, 0.64), uColor, 0.2) * lit * 0.85;
+    c = mix(c, uColor * 0.75 * lit, embryo * 0.85);
+    c = mix(c, vec3(0.04), eye * smoothstep(0.3, 0.7, uHatch));
+    c += shell * 0.22 + spec * 0.5;
+    float ea = inside * (0.5 + 0.3 * shell + 0.3 * embryo);
+    col = c * ea + col * (1.0 - ea); // premultiplied, the later egg on top
+    alpha = ea + alpha * (1.0 - ea);
+  }
+  float jm = (1.0 - smoothstep(-aa, aa, jelly - er * 0.22)) * 0.18 * (1.0 - alpha); // the jelly binding the clutch
+  return vec4(col + vec3(0.75, 0.72, 0.55) * jm, alpha + jm);
+}
 vec4 drawAnimal(vec2 p, float t) {
   vec2 head = uSeg[0].xy, tail = uSeg[0].xy;
   float big = 0.0;
@@ -189,14 +232,8 @@ vec4 drawAnimal(vec2 p, float t) {
         vec2 mid = base + dir * s.z * 0.7;
         vec2 tip = mid + turn(dir, 0.5 * sin(t * 2.3 + float(i))) * s.z * 0.6;
         limbs = min(limbs, min(segment(p, base, mid) - 0.04 * s.z, segment(p, mid, tip) - 0.022 * s.z));
-      } else if (i == 0 && mollusk > 0.5) { // eye stalks with an eye at each tip, and short oral tentacles below
-        vec2 base = s.xy + ax * s.z * 0.55 + side * fk * s.z * 0.35;
-        vec2 tip = base + turn(ax, fk * (0.35 + 0.08 * sin(t * 1.3 + fk))) * s.z * (0.95 + 0.1 * sin(t * 0.9 + fk));
-        limbs = min(limbs, segment(p, base, tip) - mix(0.07, 0.04, clamp(dot(p - base, ax) / s.z, 0.0, 1.0)) * s.z);
-        eyes = min(eyes, length(p - tip) - 0.09 * s.z);
-        vec2 oral = s.xy + ax * s.z * 0.85 + side * fk * s.z * 0.18;
-        limbs = min(limbs, segment(p, oral, oral + turn(ax, fk * (0.9 + 0.15 * sin(t * 2.0 + fk))) * s.z * 0.45) - 0.04 * s.z);
-      } else if (i == 0) { // antennae: thin, jointed, sweeping
+      } else if (i == 0) { // antennae: thin, jointed, sweeping — tier 3 only (a tier-4 body is nude: user direction)
+        if (uBody > 0.5) continue;
         vec2 base = s.xy + ax * s.z * 0.8 + side * fk * s.z * 0.3;
         vec2 dir = turn(ax, fk * (0.45 + 0.1 * sin(t * 1.7 + fk)));
         vec2 mid = base + dir * s.z * (0.9 + 0.3 * arthropod);
@@ -217,7 +254,7 @@ vec4 drawAnimal(vec2 p, float t) {
     }
   }
   limbs = min(limbs, eyes);
-  if (uCocoon > 0.5) return drawCocoon(p, t, head, tail, big, sd);
+  if (uCocoon > 0.5) return uBody < 0.5 ? drawEggs(p, t, (head + tail) * 0.5, big) : drawCocoon(p, t, head, tail, big, sd);
   // Edge softness from the pixel size, not fwidth(sd): far links leave sd at 1e3, and that jump between
   // neighbouring pixels made fwidth huge (drew faint rings around bodies).
   float aa = length(fwidth(p)) * 1.2;
@@ -832,7 +869,7 @@ const bodyMaterial = material(VERTEX, FRAGMENT, {
   uGulp: { value: Array.from({ length: 4 }, () => new THREE.Vector2(0, 1)) },
   uShape: { value: new THREE.Vector3(1, 1, 0) }, uCentre: { value: 1 / 3 },
   uSeg: { value: Array.from({ length: MAX_STATIONS }, (_, i) => new THREE.Vector3(...(DEFAULT_SEGMENTS[i] ?? [0, 0, 0]))) },
-  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uArm: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uPattern: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
+  uSegN: { value: DEFAULT_SEGMENTS.length }, uRadial: { value: 0 }, uArm: { value: 0 }, uCarapace: { value: 0 }, uBody: { value: 0 }, uShell: { value: 0 }, uFoot: { value: 0 }, uShellAt: { value: new THREE.Vector3() }, uCocoon: { value: 0 }, uHatch: { value: 0 }, uPattern: { value: 0 }, uQuad: { value: new THREE.Vector4(0, 0, QUAD_HALF, QUAD_HALF) }, uPlate: { value: new THREE.Vector2(...PLATE[0]!) },
 });
 const partGeometry = new THREE.PlaneGeometry(1, 1);
 const partMaterial = material(VERTEX, PART_FRAGMENT, {
@@ -1057,6 +1094,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const dormant = pose.spore > 0 || pose.cyst > 0;
       frame.visible = pose.spore === 0 && !((pose.cocoon ?? 0) > 0); // a spore coat or a cocoon hides every part; a dividing cell keeps them
       body.material.uniforms.uCocoon!.value = (pose.cocoon ?? 0) > 0 ? 1 : 0;
+      body.material.uniforms.uHatch!.value = Math.min(1, Math.max(0, 1 - (pose.cocoon ?? 0) / EGG_TIME));
       const u = body.material.uniforms;
       const g1 = look.tier === 1 ? look.genome : 0; // whole-body features are tier-1 genes
       u.uTime!.value = time;
@@ -1064,7 +1102,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uTier!.value = look.tier - 1;
       u.uCarapace!.value = look.tier === 3 ? (TIER3.hasGene(look.genome, 'carapace') ? 1 : 0)
         : look.tier === 4 && TIER4.hasGene(look.genome, 'exoskeleton') ? 1 : 0;
-      const mollusk = look.tier === 4 && look.plan === MOLLUSK;
+      const mollusk = look.tier === 4 && softBody4(look.genome); // a foot or a shell: soft and slick; otherwise plated
       u.uBody!.value = look.tier === 4 ? (mollusk ? 2 : 1) : 0;
       u.uShell!.value = mollusk && TIER4.hasGene(look.genome, 'shell') ? 1 : 0;
       u.uFoot!.value = mollusk && TIER4.hasGene(look.genome, 'foot') ? 1 : 0;
@@ -1196,9 +1234,40 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
 export type CellView = ReturnType<typeof createCellView>;
 
 /** `onImpact(id, strength 0..1)`: a cell bumped, bit or got hurt (the game shakes the camera for its own). */
+/** A division: the daughter pulls apart from the parent sideways (s), then swims off the screen (user direction). */
+const SPLIT_TIME = 0.8;
+const DAUGHTER_LIFE = 4;
+interface Daughter { view: CellView; look: Look; x: number; y: number; heading: number; dir: number; r: number; t: number; dist: number }
+
 export function createCells(scene: THREE.Scene, onImpact: (id: string, strength: number) => void = () => {}) {
   const views = new Map<string, CellView>();
+  const daughters: Daughter[] = [];
+  /** Visual only: the daughter cells of the player's divisions, each a cell view of its own. */
+  const stepDaughters = (time: number, dt: number, seen?: { halfW: number }) => {
+    for (let i = daughters.length - 1; i >= 0; i--) {
+      const d = daughters[i]!;
+      d.t += dt;
+      // Mitosis: the two overlap and pinch apart to touching; then the daughter swims away, faster than a cell can,
+      // so it is off the screen in a couple of seconds.
+      const split = Math.min(1, d.t / SPLIT_TIME);
+      const away = Math.max(0, d.t - SPLIT_TIME);
+      d.dist += Math.min(1, away / 0.5) * ((seen?.halfW ?? d.r * 20) / 1.6) * dt;
+      const off = 2.05 * d.r * split * split * (3 - 2 * split) + d.dist;
+      const turn = Math.min(1, Math.max(0, (d.t - 0.4) / 0.8));
+      const heading = d.heading + wrapAngle(d.dir - d.heading) * turn * turn * (3 - 2 * turn);
+      d.view.update({ x: d.x + Math.cos(d.dir) * off, y: d.y + Math.sin(d.dir) * off, heading, tumble: 0, spore: 0, cyst: 0 }, d.r, d.look, time, dt);
+      if (d.t > DAUGHTER_LIFE) {
+        d.view.dispose();
+        daughters.splice(i, 1);
+      }
+    }
+  };
   return {
+    /** The player's cell divided at (x, y): show its daughter splitting off and leaving. */
+    divide(look: Look, x: number, y: number, heading: number, r: number) {
+      const dir = heading + (Math.random() < 0.5 ? 1 : -1) * Math.PI / 2;
+      daughters.push({ view: createCellView(scene, Math.random()), look, x, y, heading, dir, r, t: 0, dist: 0 });
+    },
     /** `seen`: the visible area on the gameplay plane (centre, half extents); cells outside it are parked. */
     update(
       players: Iterable<[string, Player]> & { has(id: string): boolean },
@@ -1242,6 +1311,7 @@ export function createCells(scene: THREE.Scene, onImpact: (id: string, strength:
           views.delete(id);
         }
       }
+      stepDaughters(time, dt, seen);
     },
     get: (id: string) => views.get(id),
     /** A packet vanished at (x, y): the cell whose surface it was at took it up. */

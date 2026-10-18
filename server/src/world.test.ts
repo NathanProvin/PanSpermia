@@ -1,7 +1,7 @@
 import {
   ANIMAL_MOUTH_AHEAD, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, GENES, HEALTH_MAX, MASS_CAP, MIN_MASS, NUTRIENT_LIFETIME, NUTRIENT_MASS,
   ALGAE_MASS, CHUNK_MASS, ENGULF_SHARE, STARTER_GENOME2, STARTER_LIBRARY2, T2_MASS_CAP, T2_SPAWN_MASS, TIER2,
-  EGG_HEALTH, EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, ARTHROPOD, MOLLUSK, COCOON_TIME, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
+  EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CHILD_PRICE, CYST_TIME, DNA_PER_MASS, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
 } from '@panspermia/shared';
@@ -549,8 +549,8 @@ test('evolving needs the lifetime DNA, then the next generation hatches as a euk
   const parts3 = [{ gene: 'mandible', x: 1, y: 0, angle: 0, scale: 1, group: 0 }];
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBe('not ready to evolve');
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3, evolve: false })).toBeUndefined();
-  // A first animal hatches as itself: no mating, no clutch.
-  expect([state.players.get('p')!.tier, state.players.get('p')!.cyst, state.eggs.size]).toEqual([3, 0, 0]);
+  // A first plankton hatches as itself, no mating — from its egg clutch (user direction: even the first one).
+  expect([state.players.get('p')!.tier, state.players.get('p')!.cyst, state.players.get('p')!.cocoon]).toEqual([3, 0, EGG_TIME]);
   state.players.get('p')!.cyst = CYST_TIME;
   lineage.lifetimeDna = EVOLVE_DNA_T3;
   expect(submitDesign(state, 'p', { ...evolve, parts: parts3 })).toBeUndefined();
@@ -695,21 +695,20 @@ test('tier 4: claws swallow smaller animals and crush rivals through their armou
   stepWorld(s2);
   expect(T4_HEALTH_MAX - b.health).toBeCloseTo(BITE_DAMAGE[4]! * 1.5 * SHELL_ARMOUR, 6);
   expect(T4_HEALTH_MAX - a.health).toBeCloseTo(BITE_DAMAGE[4]!, 6);
-  // The body plan decides which parts fit: a mollusk can't walk on legs, an arthropod can't wear a shell.
+  // Tier 4 takes tier 3's plans (spine or radial) and any part on either; a foot or a shell makes the body soft.
   const { state: s4, player: p4, lineage: l4 } = species();
   Object.assign(l4, { tier: 4, genome: 0, library: ~0 >>> 0, dna: 1e4 });
   Object.assign(p4, { tier: 4, genome: 0, genome4: 0, mass: T4_SPAWN_MASS, cyst: CYST_TIME });
   const part = (gene: string, angle = 0) => ({ gene, x: Math.cos(angle), y: Math.sin(angle), angle, scale: 1, group: 0 });
   const design = (plan: number, ...genes: string[]) =>
     ({ parts: genes.map((g) => part(g)), hue: 0.2, children: 0, name: l4.name, plan, radii: [0.4, 0.9] });
-  expect(submitDesign(s4, 'p', design(0, 'eye'), false)).toBe('bad plan'); // a tier-3 plan
-  expect(submitDesign(s4, 'p', design(MOLLUSK, 'legs'), false)).toBe('part does not fit the body plan');
-  expect(submitDesign(s4, 'p', design(ARTHROPOD, 'shell'), false)).toBe('part does not fit the body plan');
-  expect(submitDesign(s4, 'p', design(MOLLUSK, 'foot', 'radula', 'shell', 'eye'))).toBeUndefined();
-  expect([l4.plan, l4.genome, p4.cocoon]).toEqual([MOLLUSK, TIER4.genomeOf(['foot', 'radula', 'shell', 'eye']), COCOON_TIME]);
+  expect(submitDesign(s4, 'p', design(MOLLUSK, 'foot'), false)).toBe('bad plan'); // the old tier-4 plans are gone
+  expect(submitDesign(s4, 'p', design(0, 'legs', 'foot', 'radula', 'shell', 'eye'))).toBeUndefined();
+  expect([l4.plan, l4.genome, p4.cocoon]).toEqual([0, TIER4.genomeOf(['legs', 'foot', 'radula', 'shell', 'eye']), COCOON_TIME]);
+  expect([softBody4(l4.genome), softBody4(TIER4.genomeOf(['legs', 'claw']))]).toEqual([true, false]);
   // An arthropod at its cap calls a mate of its own kind.
   const { state: s3, player, lineage } = species();
-  Object.assign(lineage, { tier: 4, plan: ARTHROPOD });
+  Object.assign(lineage, { tier: 4, plan: 0 });
   Object.assign(player, { tier: 4, genome: 0, genome4: STARTER_GENOME4, mass: T4_MASS_CAP, health: T4_HEALTH_MAX });
   stepWorld(s3);
   stepWorld(s3);
@@ -721,7 +720,7 @@ test('tier 4: claws swallow smaller animals and crush rivals through their armou
   lineage.dna = 1000;
   const fan = [{ gene: 'tailFan', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
   expect(submitDesign(s3, 'p', { parts: fan, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
-  expect([s3.players.get('p'), player.cyst, player.cocoon, s3.eggs.size]).toEqual([player, 0, COCOON_TIME, 0]);
+  expect([s3.players.get('p'), player.cyst, player.cocoon]).toEqual([player, 0, COCOON_TIME]);
   player.health = 1;
   run(s3, COCOON_TIME - 1);
   expect([s3.players.get('p'), player.health]).toEqual([player, 1]); // dormant: no harm, no regen, no metabolism
@@ -1020,41 +1019,36 @@ test('an animal at the cap calls; its mate swims in; mating opens the editor; th
   }
   expect(player.cyst).toBeGreaterThan(0);
   expect(state.players.has(MATE_PREFIX + 'p')).toBe(false);
-  // Editor done: a clutch is laid where the parent is, and the parent carries on, spent.
-  Object.assign(player, { x: 100, y: -50 });
+  // Editor done: the parent becomes an egg clutch where it is, shielded and still like a cocoon (user: wait, don't
+  // play on), and the new design hatches from it.
+  Object.assign(player, { x: 100, y: -50, vx: 0, vy: 0 });
   const parts = [{ gene: 'tail', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
   lineage.dna = 1000;
   expect(submitDesign(state, 'p', { parts, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
   expect(state.players.get('p')).toBe(player);
-  expect([player.cyst, player.mass]).toEqual([0, T3_SPAWN_MASS]);
-  const [egg] = [...state.eggs.values()];
-  expect([egg!.x, egg!.y, egg!.owner]).toEqual([100, -50, 'p']);
-  Object.assign(player, { x: 900, y: 900 });
-  for (let i = 0; i < EGG_TIME * TICK_RATE; i++) stepWorld(state);
+  expect([player.cyst, player.cocoon, lineage.generation]).toEqual([0, EGG_TIME, 2]);
+  for (let i = 0; i < EGG_TIME * TICK_RATE + 2; i++) stepWorld(state);
   const hatchling = state.players.get('p')!;
   expect(hatchling).not.toBe(player);
-  expect([hatchling.genome3, Math.round(hatchling.x), Math.round(hatchling.y), lineage.generation]).toEqual([TIER3.genomeOf(['tail']), 100, -50, 2]);
-  expect(state.eggs.size).toBe(0);
+  expect([hatchling.genome3, hatchling.cocoon, lineage.generation]).toEqual([TIER3.genomeOf(['tail']), 0, 2]);
+  expect(Math.hypot(hatchling.x - 100, hatchling.y + 50)).toBeLessThan(60); // where the eggs were
 });
 
-test('eukaryotes and animals eat an unguarded clutch; bacteria cannot', () => {
-  const { state, player } = animalSpecies();
-  player.mass = T3_SPAWN_MASS;
-  player.cyst = CYST_TIME;
-  hatch(state, 'p');
-  const egg = [...state.eggs.values()][0]!;
-  Object.assign(player, { x: 2000, y: 0, cyst: 0 });
-  const bug = spawnPlayer();
-  Object.assign(bug, { x: egg.x, y: egg.y });
-  state.players.set('b', bug);
-  stepWorld(state);
-  expect(egg.health).toBe(EGG_HEALTH);
-  const eu = spawnPlayer();
-  Object.assign(eu, { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: egg.x + 30, y: egg.y });
-  state.players.set('e', eu);
-  for (let i = 0; i < 4 * TICK_RATE && state.eggs.size; i++) stepWorld(state);
-  expect(state.eggs.size).toBe(0);
-  expect(eu.mass).toBeGreaterThan(300 + EGG_HEALTH * 0.5);
+test('every new animal begins as eggs (plankton) or a cocoon (animals), after a death too', () => {
+  const { state, player, lineage } = animalSpecies();
+  lineage.children = 2;
+  const die = (p: typeof player) => {
+    for (let i = 0; i < 2 * TICK_RATE && state.players.get('p') === p; i++) {
+      p.health = -1e6;
+      stepWorld(state);
+    }
+    return state.players.get('p')!;
+  };
+  const reborn = die(player);
+  expect([reborn === player, reborn.tier, reborn.cocoon > EGG_TIME - 0.1]).toEqual([false, 3, true]);
+  lineage.tier = 4;
+  reborn.cocoon = 0; // hatched (eggs and cocoons are shielded)
+  expect(die(reborn).cocoon).toBeGreaterThan(COCOON_TIME - 0.1);
 });
 
 test('cells are solid: overlapping cells push apart (the lighter moves more) and bounce', () => {
