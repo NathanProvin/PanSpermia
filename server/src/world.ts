@@ -14,7 +14,8 @@ import {
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
   Cloud, INK, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
-  PLASMID_RATE, TRANSFORM_CHANCE, PLASMID_UNLOCK_CHANCE, CYANO_MASS, CYANO_RATE, HYPHA_MASS, HYPHA_RATE, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
+  PLASMID_RATE, TRANSFORM_CHANCE, PLASMID_UNLOCK_CHANCE, CYANO_MASS, CYANO_RATE, HYPHA_MASS, HYPHA_RATE, SPIRULINA_MASS, SPIRULINA_RATE, DIATOM_MASS,
+  DIATOM_RATE, DINOFLAGELLATE_MASS, DINOFLAGELLATE_RATE, MACROALGA_MASS, MACROALGA_RATE, PLANT_TIER, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
@@ -533,21 +534,30 @@ export function yieldOf(kind: number, genome: number) {
 export const reachOf = (mass: number, genome: number) =>
   radiusOf(mass) * boost(SIDEROPHORE_REACH, copiesOf(genome, 'siderophores'));
 
-/** What a packet is worth to a mouth that takes plant food (dissolved, algae) and/or meat (debris, chunks). */
-function mouthYield(kind: number, plant: boolean, meat: boolean) {
-  if (plant && kind === NutrientKind.algae) return ALGAE_MASS;
+/** Mass of each plant a plant mouth takes (from PLANT_TIER's phase on). */
+const PLANT_MASS: Readonly<Record<number, number>> = {
+  [NutrientKind.algae]: ALGAE_MASS, [NutrientKind.cyano]: CYANO_MASS, [NutrientKind.hypha]: HYPHA_MASS,
+  [NutrientKind.spirulina]: SPIRULINA_MASS, [NutrientKind.diatom]: DIATOM_MASS,
+  [NutrientKind.dinoflagellate]: DINOFLAGELLATE_MASS, [NutrientKind.macroalga]: MACROALGA_MASS,
+};
+/** Plant packets: too big for a bacterium (algae and everything grazed like them). */
+const isPlant = (kind: number) => kind in PLANT_MASS;
+/**
+ * What a packet is worth to a mouth of `tier` that takes plant food (dissolved, algae and the other plants) and/or meat
+ * (debris, chunks). A plant too big for the tier is left alone.
+ */
+function mouthYield(kind: number, plant: boolean, meat: boolean, tier: number) {
+  if (plant && isPlant(kind)) return tier >= (PLANT_TIER[kind] ?? 2) ? PLANT_MASS[kind]! : 0;
   if (plant && kind === NutrientKind.dissolved) return NUTRIENT_MASS;
-  if (plant && kind === NutrientKind.cyano) return CYANO_MASS; // eaten like algae
-  if (plant && kind === NutrientKind.hypha) return HYPHA_MASS;
   if (meat && kind === NutrientKind.chunk) return CHUNK_MASS;
   if (meat && kind === NutrientKind.debris) return DEBRIS_MASS;
   return 0;
 }
 /** What one packet is worth to an animal: filter combs sweep up plant food, mandibles take meat. */
 export const yield3Of = (kind: number, genome3: number) =>
-  mouthYield(kind, TIER3.hasGene(genome3, 'filterComb'), TIER3.hasGene(genome3, 'mandible'));
+  mouthYield(kind, TIER3.hasGene(genome3, 'filterComb'), TIER3.hasGene(genome3, 'mandible'), 3);
 /** Tier 4: grazing mouthparts or a radula take plant food, claws or a beak meat. */
-export const yield4Of = (kind: number, genome4: number) => mouthYield(kind, grazes4(genome4), hunts4(genome4));
+export const yield4Of = (kind: number, genome4: number) => mouthYield(kind, grazes4(genome4), hunts4(genome4), 4);
 /** What one packet is worth to a eukaryote or bigger, by its tier's mouths. */
 export const mouthYieldOf = (kind: number, p: Player) =>
   p.tier === 4 ? yield4Of(kind, p.genome4) : p.tier === 3 ? yield3Of(kind, p.genome3) : yield2Of(kind, p.genome2);
@@ -572,7 +582,7 @@ export function swallows(e: Player, v: Player) {
  * takes meat (debris, chunks); 0 means it can't take it in.
  */
 export const yield2Of = (kind: number, genome2: number) =>
-  mouthYield(kind, TIER2.hasGene(genome2, 'filter'), TIER2.hasGene(genome2, 'jaw'));
+  mouthYield(kind, TIER2.hasGene(genome2, 'filter'), TIER2.hasGene(genome2, 'jaw'), 2);
 
 
 /**
@@ -606,7 +616,10 @@ export function stepWorld(state: PoolState): Death[] {
     const at = randomInDisc(WORLD_RADIUS);
     spawnNutrient(state, at.x, at.y, NutrientKind.dissolved);
   }
-  for (const [kind, rate] of [[NutrientKind.cyano, CYANO_RATE], [NutrientKind.hypha, HYPHA_RATE]] as const) {
+  for (const [kind, rate] of [
+    [NutrientKind.cyano, CYANO_RATE], [NutrientKind.hypha, HYPHA_RATE], [NutrientKind.spirulina, SPIRULINA_RATE],
+    [NutrientKind.diatom, DIATOM_RATE], [NutrientKind.dinoflagellate, DINOFLAGELLATE_RATE], [NutrientKind.macroalga, MACROALGA_RATE],
+  ] as const) {
     if (Math.random() < rate * TICK_DT) {
       const at = randomInDisc(WORLD_RADIUS);
       spawnNutrient(state, at.x, at.y, kind);
@@ -695,9 +708,8 @@ export function stepWorld(state: PoolState): Death[] {
           // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
           if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library |= n.gene;
         }
-      } else if (n.kind === NutrientKind.algae || n.kind === NutrientKind.cyano || n.kind === NutrientKind.hypha
-        || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
-        return; // too big for a bacterium to take in (algae, filaments, hyphae); not its kind of DNA
+      } else if (isPlant(n.kind) || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
+        return; // too big for a bacterium to take in (algae and every plant); not its kind of DNA
       } else if (n.kind === NutrientKind.phage) {
         // Phages bind the cell itself (siderophores don't reach them); a capsule may mask the receptor.
         if (d2 >= r * r || tick < p.graceUntil) return;

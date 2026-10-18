@@ -1,4 +1,4 @@
-import { NUTRIENT_CAP, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, TICK_RATE, currentAt, drift } from '@panspermia/shared';
+import { NUTRIENT_CAP, NUTRIENT_LIFETIME, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, TICK_RATE, currentAt, drift } from '@panspermia/shared';
 import { createSprites } from './sprites.ts';
 
 // Drifting packets in the focal plane, in one colour code: food is white or plant-coloured (dissolved motes, ragged
@@ -167,6 +167,151 @@ void main() {
   gl_FragColor = vec4(col, a) * uFade; // premultiplied; fainter from an animal's height
 }
 `;
+// The phases' plants (user direction: grazing for herbivores), drawn as matter like DNA so they read as solid organisms
+// at any height: spirulina (eukaryotes: a vivid turquoise corkscrew of cells), diatoms (plankton: glassy silica
+// frustules, round or boat-shaped, golden-brown chloroplasts inside), dinoflagellates (plankton: armoured red-orange
+// cells, three-horned or round, a girdle groove and a trailing flagellum) and macroalgae (animals: an olive kelp of
+// long blades with air bladders, a bright ruffled sea lettuce, or crimson branching red fronds). Each one's shape comes
+// from its seed; a new plant grows in and an old one shrinks away (its size, see update). A plant fades in with the camera's
+// height: a phase sees its own plants, and the next phase's appearing as it grows — never a kelp blade filling a
+// bacterium's screen.
+const FLORA_FRAGMENT = /* glsl */ `
+uniform float uTime;
+uniform float uFocus;
+varying vec2 vUv;
+varying float vSeed;
+vec2 rotate(vec2 p, float a) { return vec2(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y); }
+float h(float seed, float n) { return fract(sin(seed * 91.7 + n * 13.13) * 43758.5453); }
+float segment(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a;
+  return length(p - a - ab * clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0));
+}
+void main() {
+  float kind = floor(vSeed);
+  float seed = fract(vSeed);
+  vec2 p = vUv * 2.0 - 1.0;
+  float aa = length(fwidth(p)) * 1.2;
+  vec3 col = vec3(0.0);
+  float a = 0.0;
+  if (kind < 11.5) {
+    // Spirulina: a corkscrew filament, its turns lit on the near side, septa between the cells.
+    vec2 q = rotate(p, seed * 6.2831 + 0.1 * sin(uTime * 0.4 + seed * 5.0));
+    float len = 0.55 + 0.35 * h(seed, 1.0);
+    float k = 13.0 + 7.0 * h(seed, 2.0);
+    float ph = q.x * k + uTime * 0.8 + seed * 20.0;
+    float amp = 0.12 + 0.06 * h(seed, 3.0);
+    float bowY = 0.2 * (h(seed, 4.0) - 0.5) * q.x * q.x;
+    float d = abs(q.y - bowY - amp * sin(ph)) - (0.045 + 0.015 * cos(ph));
+    float body = (1.0 - smoothstep(-aa, aa, d)) * (1.0 - smoothstep(len - 0.03, len, abs(q.x)));
+    float near = 0.5 + 0.5 * cos(ph);
+    float septa = smoothstep(0.85, 1.0, cos(q.x * 70.0));
+    col = mix(vec3(0.02, 0.38, 0.42), vec3(0.2, 0.9, 0.82), near) * (1.0 - 0.35 * septa);
+    a = body * 0.95;
+  } else if (kind < 12.5) {
+    // A diatom: a glassy frustule — round (centric: radial rows of pores) or a boat (pennate: a central raphe, ribs).
+    vec2 q = rotate(p, seed * 6.2831 + uTime * 0.05);
+    float centric = step(0.5, h(seed, 1.0));
+    float r = length(q);
+    float ang = atan(q.y, q.x);
+    float boat = length(q * vec2(1.0, 2.6 + 1.4 * h(seed, 2.0)));
+    float shape = mix(boat, r * 1.2, centric) - 0.62;
+    float body = 1.0 - smoothstep(-aa, aa, shape);
+    float rim = smoothstep(-0.12, -0.02, shape) * body;
+    float pores = mix(smoothstep(0.55, 0.9, cos(q.x * 55.0)), smoothstep(0.5, 0.9, cos(ang * 36.0)) * smoothstep(0.08, 0.2, r), centric);
+    float raphe = (1.0 - centric) * (1.0 - smoothstep(0.0, 0.015, abs(q.y))) * step(abs(q.x), 0.5);
+    float plastid = smoothstep(0.25, 0.75, sin(q.x * 5.0 + seed * 9.0) * sin(q.y * 7.0 + seed * 4.0) + 0.3) * smoothstep(-0.05, -0.2, shape);
+    col = mix(vec3(0.72, 0.78, 0.7), vec3(0.62, 0.42, 0.1), plastid * 0.85) * (1.0 - 0.25 * pores) + rim * 0.35 - raphe * 0.3;
+    a = body * mix(0.55, 0.92, max(rim, plastid));
+  } else if (kind < 13.5) {
+    // A dinoflagellate: an armoured theca in red-orange plates around a girdle groove, horns (Ceratium) or round
+    // (Peridinium), a flagellum trailing in waves.
+    vec2 q = rotate(p, seed * 6.2831 + 0.2 * sin(uTime * 0.7 + seed * 7.0));
+    float horned = step(0.45, h(seed, 1.0));
+    float cell = length(q * vec2(1.0, 1.15)) - 0.36;
+    float horns = min(segment(q, vec2(0.0, 0.2), vec2(0.0, 0.85)) - 0.07 * (1.0 - smoothstep(0.2, 0.85, q.y)) - 0.02,
+      min(segment(q, vec2(-0.1, -0.2), vec2(-0.55, -0.75)), segment(q, vec2(0.1, -0.2), vec2(0.4, -0.8))) - 0.05);
+    float shape = mix(cell, min(cell, horns), horned);
+    float body = 1.0 - smoothstep(-aa, aa, shape);
+    float girdle = (1.0 - smoothstep(0.0, 0.035, abs(q.y + 0.05 * sin(q.x * 6.0)))) * step(cell, 0.0);
+    vec2 cellId = floor(q * 6.5 + seed * 3.0);
+    float plates = smoothstep(0.86, 0.98, max(abs(fract(q.x * 6.5 + seed * 3.0) - 0.5), abs(fract(q.y * 6.5 + seed * 3.0) - 0.5)) * 2.0);
+    float flag = segment(q, vec2(0.05, -0.3), vec2(0.05 + 0.08 * sin(uTime * 6.0 + q.y * 20.0), -0.95));
+    float whip = (1.0 - smoothstep(0.012, 0.03, flag)) * (1.0 - body);
+    float shade = 0.75 + 0.25 * fract(sin(dot(cellId, vec2(12.9, 78.2))) * 437.5);
+    col = vec3(0.88, 0.3, 0.12) * shade * (1.0 - 0.35 * plates) * (1.0 - 0.55 * girdle) + vec3(0.95, 0.75, 0.55) * whip;
+    a = body * 0.92 + whip * 0.6;
+  } else {
+    // A macroalga (from a holdfast at one end): kelp, sea lettuce or a red alga.
+    vec2 q = rotate(p, seed * 6.2831 + 0.06 * sin(uTime * 0.5 + seed * 3.0));
+    float type = h(seed, 1.0);
+    vec2 hold = vec2(-0.75, 0.0);
+    if (type < 0.4) {
+      // Kelp: a stipe, then long wavy blades fanning out with a midrib, an air bladder at each blade's base.
+      float d = 1e3;
+      float mid = 1e3;
+      float bladder = 1e3;
+      for (int i = 0; i < 5; i++) {
+        float t = float(i) / 4.0 - 0.5;
+        vec2 base = hold + vec2(0.3, 0.0);
+        float ang = t * (0.9 + 0.5 * h(seed, 2.0 + float(i))) + 0.15 * sin(uTime * 0.6 + float(i));
+        vec2 dir = vec2(cos(ang), sin(ang));
+        vec2 rel = q - base;
+        float along = dot(rel, dir);
+        float across = dot(rel, vec2(-dir.y, dir.x));
+        float bl = 0.95 + 0.4 * h(seed, 8.0 + float(i));
+        float w = 0.09 * sin(3.1416 * clamp(along / bl, 0.0, 1.0)) * (1.0 + 0.25 * sin(along * 30.0 + seed * 9.0));
+        d = min(d, max(abs(across) - w, max(-along, along - bl)));
+        mid = min(mid, max(abs(across), max(-along, along - bl)));
+        bladder = min(bladder, length(rel - dir * 0.1) - 0.045);
+      }
+      float stipe = segment(q, hold, hold + vec2(0.3, 0.0)) - 0.025;
+      float body = 1.0 - smoothstep(-aa, aa, min(min(d, stipe), bladder));
+      col = vec3(0.42, 0.36, 0.1) * (1.0 - 0.4 * (1.0 - smoothstep(0.0, 0.012, mid))) + vec3(0.2, 0.18, 0.04) * (1.0 - smoothstep(-aa, aa, bladder));
+      a = body * 0.93;
+    } else if (type < 0.7) {
+      // Sea lettuce: one bright green ruffled sheet, translucent, its veins and its frilled edge.
+      vec2 c = q - vec2(0.05, 0.0);
+      float ang = atan(c.y, c.x);
+      float edge = 0.62 + 0.14 * sin(ang * 5.0 + seed * 20.0) + 0.07 * sin(ang * 13.0 - seed * 9.0) + 0.02 * sin(uTime + ang * 3.0);
+      float sd = length(c) - edge;
+      float body = 1.0 - smoothstep(-aa, aa, sd);
+      float frill = smoothstep(-0.08, 0.0, sd) * body;
+      float veins = smoothstep(0.9, 1.0, cos(ang * 18.0 + length(c) * 6.0));
+      col = vec3(0.3, 0.78, 0.2) * (0.85 + 0.25 * frill) * (1.0 - 0.2 * veins);
+      a = body * (0.7 + 0.25 * frill);
+    } else {
+      // A red alga: crimson fronds branching twice from the holdfast.
+      float d = 1e3;
+      for (int i = 0; i < 3; i++) {
+        float t = float(i) - 1.0;
+        vec2 a1 = hold + vec2(0.55, t * 0.35 * (0.7 + 0.6 * h(seed, 2.0 + float(i))));
+        vec2 a2 = a1 + vec2(0.55, t * 0.3 + 0.25 * (h(seed, 5.0 + float(i)) - 0.5));
+        vec2 b1 = a1 + vec2(0.35, 0.3 + 0.2 * h(seed, 8.0 + float(i)));
+        vec2 b2 = a1 + vec2(0.35, -0.3 - 0.2 * h(seed, 11.0 + float(i)));
+        d = min(d, min(segment(q, hold, a1) - 0.04, segment(q, a1, a2) - 0.03));
+        d = min(d, min(segment(q, a1, b1), segment(q, a1, b2)) - 0.022);
+      }
+      float body = 1.0 - smoothstep(-aa, aa, d);
+      col = vec3(0.72, 0.1, 0.2) * (0.85 + 0.2 * sin(q.x * 9.0 + seed * 5.0));
+      a = body * 0.92;
+    }
+  }
+  // Camera heights where each phase's plants fade in (bacteria ~300–620, eukaryotes ~930–1970, plankton ~2540–4420).
+  float from = kind < 11.5 ? 500.0 : kind < 13.5 ? 1500.0 : 3500.0;
+  a *= smoothstep(from, from * 1.5, uFocus);
+  // and recedes to half once the next phase looks down on it (still food, no longer the scenery).
+  float past = kind < 11.5 ? 2600.0 : kind < 13.5 ? 4600.0 : 1e9;
+  a *= 1.0 - 0.5 * smoothstep(past, past * 1.2, uFocus);
+  gl_FragColor = vec4(col * a, a); // premultiplied
+}
+`;
+const FLORA_CAP = 1024;
+/** Plant sprites (world units): each a little bigger than the phase that grazes it can swallow at a gulp. */
+const FLORA_SIZE: Record<number, number> = {
+  [NutrientKind.spirulina]: 150, [NutrientKind.diatom]: 260, [NutrientKind.dinoflagellate]: 300, [NutrientKind.macroalga]: 1300,
+};
+/** A plant grows in over its first seconds and shrinks away over its last (it lives NUTRIENT_LIFETIME). */
+const GROW = 4;
 const DNA_CAP = 2048;
 const SIZE: Record<number, number> = {
   [NutrientKind.dissolved]: 16, [NutrientKind.debris]: 22, [NutrientKind.fragment]: 22, [NutrientKind.plasmid]: 40,
@@ -177,9 +322,9 @@ const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
 
 /** `fx`, `fy`: the current where it was after its last drift (it glides on it until the next); flowTick < 0: none yet. */
-interface Packet { x: number; y: number; tick: number; kind: number; seed: number; fx: number; fy: number; flowTick: number }
+interface Packet { x: number; y: number; tick: number; born: number; kind: number; seed: number; fx: number; fy: number; flowTick: number }
 /** World units beyond the view edge still drawn (the biggest sprite is a seep glow). */
-const VIEW_MARGIN = SEEP_SIZE;
+const VIEW_MARGIN = Math.max(SEEP_SIZE, FLORA_SIZE[NutrientKind.macroalga]! / 2);
 /**
  * Every packet drifts lazily on its own period (catch-ups spread over frames by its seed; `drift` catches up
  * exactly from the packet's own tick, so skipping steps costs no accuracy). One in view: every 1–2 × NEAR_TICKS,
@@ -195,16 +340,17 @@ const MAX_CURRENT = 65;
 export function createNutrients() {
   const sprites = createSprites(NUTRIENT_CAP + SEEP_COUNT, FRAGMENT, 5);
   const dnaSprites = createSprites(DNA_CAP, DNA_FRAGMENT, 6, true);
+  const flora = createSprites(FLORA_CAP, FLORA_FRAGMENT, 4, true); // under the motes and DNA
   const packets = new Map<string, Packet>();
   const flow = { x: 0, y: 0 };
 
   return {
     /** Dev: the mirrored packets (console inspection). */
     packets,
-    objects: [sprites.mesh, dnaSprites.mesh],
+    objects: [flora.mesh, sprites.mesh, dnaSprites.mesh],
     /** Mirror a synced packet; its path is rebuilt locally by `drift`, never synced. */
     add(id: string, n: Nutrient) {
-      packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, kind: n.kind, seed: (Number(id) * 0.618034) % 1, fx: 0, fy: 0, flowTick: -1 });
+      packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, born: n.tick0, kind: n.kind, seed: (Number(id) * 0.618034) % 1, fx: 0, fy: 0, flowTick: -1 });
     },
     /** Forget a packet; returns where it was last drawn (a cell eating it gets a gulp there). */
     remove(id: string) {
@@ -231,6 +377,7 @@ export function createNutrients() {
       const halfH = view.halfH + VIEW_MARGIN;
       let i = 0;
       let n = 0; // DNA packets, in their own layer
+      let g = 0; // plants, in theirs
       for (const p of packets.values()) {
         const out = Math.max(Math.abs(p.x - view.x) - halfW, Math.abs(p.y - view.y) - halfH); // > 0: off the drawn area
         const period = out > 0 ? (out / MAX_CURRENT) * TICK_RATE * (0.5 + 0.5 * p.seed) : NEAR_TICKS * (1 + p.seed);
@@ -242,6 +389,20 @@ export function createNutrients() {
           p.flowTick = p.tick;
         }
         if (out > 0 || i >= NUTRIENT_CAP) continue;
+        const plant = FLORA_SIZE[p.kind];
+        if (plant) {
+          if (g >= FLORA_CAP) continue;
+          const ahead = (tick - p.tick) * TICK_DT + glide;
+          const age = (tick - p.born) * TICK_DT + glide;
+          const grow = Math.min(1, age / GROW, (NUTRIENT_LIFETIME - age) / GROW);
+          flora.offsets[g * 3] = p.x + p.fx * ahead;
+          flora.offsets[g * 3 + 1] = p.y + p.fy * ahead;
+          flora.offsets[g * 3 + 2] = 0;
+          flora.sizes[g] = plant * Math.max(0.05, grow * (2 - grow)); // eased
+          flora.seeds[g] = p.kind + p.seed;
+          g++;
+          continue;
+        }
         if (isDna(p.kind)) {
           if (n >= DNA_CAP) continue;
           const ahead = (tick - p.tick) * TICK_DT + glide;
@@ -273,6 +434,8 @@ export function createNutrients() {
       sprites.commit(i);
       sprites.setFrame(time, focus);
       dnaSprites.commit(n);
+      flora.commit(g);
+      flora.setFrame(time, focus);
       dnaSprites.setFrame(time, focus);
     },
   };

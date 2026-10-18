@@ -7,7 +7,7 @@ import {
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
-  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf, yield2Of,
+  PHAGE_KILLER, foundSpecies, inInk, squirtInk, hatch, initPool, submitDesign, metabolize, reachOf, secrete, spawnNutrient, spawnPlayer, stepWorld, yieldOf, yield2Of, yield3Of, yield4Of,
 } from './world.ts';
 
 /** A human species 'p' with its first individual, unshielded so tests can hurt it. */
@@ -1104,6 +1104,16 @@ test('cyanobacteria filaments and hyphae are eaten like algae: plant mouths only
   const id = foodAt(state, player.x, player.y, NutrientKind.cyano);
   stepWorld(state);
   expect(state.nutrients.has(id)).toBe(true);
+});
+
+test('each phase has its plants: spirulina from eukaryotes, diatoms and dinoflagellates from plankton, macroalgae from animals', () => {
+  const plants = [NutrientKind.spirulina, NutrientKind.diatom, NutrientKind.dinoflagellate, NutrientKind.macroalga];
+  const filter = TIER2.GENES.filter.bit;
+  const combs = TIER3.genomeOf(['filterComb']);
+  const graze = TIER4.genomeOf(['maxillae']);
+  expect(plants.map((k) => [yieldOf(k, ~0) > 0, yield2Of(k, filter) > 0, yield3Of(k, combs) > 0, yield4Of(k, graze) > 0]))
+    .toEqual([[false, true, true, true], [false, false, true, true], [false, false, true, true], [false, false, false, true]]);
+  expect(yield4Of(NutrientKind.macroalga, TIER4.genomeOf(['claw']))).toBe(0); // a hunter's mouth leaves plants alone
 });
 
 test('DNA comes from plasmids in every phase, never from food', () => {

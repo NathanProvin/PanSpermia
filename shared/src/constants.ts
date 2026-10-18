@@ -144,6 +144,25 @@ export const CYANO_MASS = 4;
 export const CYANO_RATE = 9; // per s over the whole pool
 export const HYPHA_MASS = 3;
 export const HYPHA_RATE = 7;
+/**
+ * Plants for every phase's grazers (user direction: populate the pool for herbivore play), each eaten like algae — by
+ * plant mouths — and only from the phase big enough to take it in: spirulina (helical blue-green filaments) from
+ * eukaryotes, diatoms and dinoflagellates from plankton, macroalgae (kelp, sea lettuce, red fronds) from animals. A
+ * grazer's encounter rate ∝ its reach × speed × the plant's density (rate × NUTRIENT_LIFETIME / pool area): with these
+ * rates a foraging grazer finds roughly 5 (eukaryote), 13 (plankton) and 17 (animal) mass/s of its phase's plants,
+ * a few times its burn — a generation's growth in a few minutes of grazing. Provisional until the balance step.
+ */
+export const SPIRULINA_MASS = 12;
+export const SPIRULINA_RATE = 4; // per s over the whole pool
+// Half as many as first tried, each worth twice as much (the same food): the plankton's view was crowded.
+export const DIATOM_MASS = 80;
+export const DIATOM_RATE = 2;
+export const DINOFLAGELLATE_MASS = 120;
+export const DINOFLAGELLATE_RATE = 1.25;
+export const MACROALGA_MASS = 300;
+export const MACROALGA_RATE = 0.5;
+/** The phase that can first take each plant in (kind → tier); plants not listed are eaten from tier 2 (algae, filaments). */
+export const PLANT_TIER: Readonly<Record<number, number>> = { 11: 2, 12: 3, 13: 3, 14: 4 };
 export const ENGULF_RATIO = 0.5;
 export const ENGULF_SHARE = 0.8; // of the victim's mass, to the eater
 
