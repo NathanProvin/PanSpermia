@@ -1139,16 +1139,20 @@ test("a eukaryote's plasmid may unlock one of its own undiscovered parts", () =>
   expect(lineage.library).not.toBe(TIER2.GENES.cilia.bit);
 });
 
-test('cyanobacteria filaments and hyphae are eaten like algae: plant mouths only, never by bacteria', () => {
-  expect([yieldOf(NutrientKind.cyano, ~0), yieldOf(NutrientKind.hypha, ~0)]).toEqual([0, 0]);
+test('cyanobacteria filaments and hyphae are eaten like algae by plant mouths; bacteria take only the hyphae', () => {
+  expect([yieldOf(NutrientKind.cyano, ~0), yieldOf(NutrientKind.hypha, 0)]).toEqual([0, HYPHA_MASS]);
   for (const kind of [NutrientKind.cyano, NutrientKind.hypha]) {
     expect([yield2Of(kind, TIER2.GENES.filter.bit), yield2Of(kind, TIER2.GENES.jaw.bit)]).toEqual([kind === NutrientKind.cyano ? CYANO_MASS : HYPHA_MASS, 0]);
   }
-  // A bacterium leaves them drifting, like algae.
+  // A bacterium leaves the filaments drifting, like algae.
   const { state, player } = species();
   const id = foodAt(state, player.x, player.y, NutrientKind.cyano);
+  const hypha = foodAt(state, player.x, player.y, NutrientKind.hypha);
+  const before = player.mass;
   stepWorld(state);
   expect(state.nutrients.has(id)).toBe(true);
+  expect(state.nutrients.has(hypha)).toBe(false); // but takes a hypha in
+  expect(player.mass).toBeGreaterThan(before + HYPHA_MASS - 0.1);
 });
 
 test('each phase has its plants: spirulina from eukaryotes, diatoms and dinoflagellates from plankton, macroalgae from animals', () => {

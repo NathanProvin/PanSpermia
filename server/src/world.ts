@@ -616,6 +616,7 @@ export function yieldOf(kind: number, genome: number) {
   if (kind === NutrientKind.debris) return DEBRIS_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes'));
   if (kind === NutrientKind.chunk) return CHUNK_MASS * boost(EXOENZYME_YIELD, copiesOf(genome, 'exoenzymes')); // decomposers
   if (kind === NutrientKind.dissolved) return NUTRIENT_MASS * boost(TRANSPORTER_YIELD, copiesOf(genome, 'transporters'));
+  if (kind === NutrientKind.hypha) return HYPHA_MASS; // the one plant small enough for a bacterium
   return 0;
 }
 
@@ -875,8 +876,8 @@ export function stepWorld(state: PoolState): Death[] {
           // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
           if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library = withBit(l.library, n.gene);
         }
-      } else if (isPlant(n.kind) || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
-        return; // too big for a bacterium to take in (algae and every plant); not its kind of DNA
+      } else if ((isPlant(n.kind) && n.kind !== NutrientKind.hypha) || n.kind === NutrientKind.shard || n.kind === NutrientKind.virus) {
+        return; // too big for a bacterium to take in (algae and every plant but hyphae); not its kind of DNA
       } else if (n.kind === NutrientKind.phage) {
         // Phages bind the cell itself (siderophores don't reach them); a capsule may mask the receptor.
         if (d2 >= r * r || tick < p.graceUntil) return;

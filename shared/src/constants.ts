@@ -57,13 +57,13 @@ export const HEALTH_REGEN = 5;
 // Food: dissolved-nutrient packets drift on the currents from a few seeps (plumes) plus a thin
 // background; dead cells burst into richer debris. Packets dissolve after a lifetime.
 export const SEEP_COUNT = Math.round(131 * AREA);
-export const SEEP_RATE = 0.605; // +10 % (user direction) // packets/s per seep (1.1 of 1-mass motes before the pool grew: same food, half the packets)
+export const SEEP_RATE = 0.3025; // half as many motes, twice the mass (user, 2026-10-19: server tick in the 14625 pool) // +10 % (user direction) // packets/s per seep (1.1 of 1-mass motes before the pool grew: same food, half the packets)
 export const SEEP_SPREAD = 30; // emission jitter, world units
 export const SEEP_LIFETIME: readonly [number, number] = [90, 240]; // s before a seep dries up and reappears elsewhere
-export const BACKGROUND_RATE = (113 / 2) * 1.1 * AREA; // +10 % (user direction) // packets/s scattered over the whole pool (motes now 2 mass: same food, half the packets)
+export const BACKGROUND_RATE = (113 / 4) * 1.1 * AREA; // halved with NUTRIENT_MASS doubled (2026-10-19) // +10 % (user direction) // packets/s scattered over the whole pool (motes now 2 mass: same food, half the packets)
 export const NUTRIENT_LIFETIME = 60; // s
 export const NUTRIENT_CAP = Math.round(37500 * AREA); // packets alive at most
-export const NUTRIENT_MASS = 2; // dissolved packet (1 before the 9750 pool: twice the mass, half as many — the server drifts every packet)
+export const NUTRIENT_MASS = 4; // dissolved packet (1 before the 9750 pool, 2 before the 14625 pool: twice the mass, half as many each time — the server drifts every packet)
 export const DEBRIS_MASS = 2; // debris packet
 export const DEBRIS_SHARE = 0.5; // share of a dead cell's mass released as debris
 // Feeding genes.
@@ -89,7 +89,7 @@ export const PLASMID_RATE = (3.5 / 0.815) * AREA; // user: 30 % fewer than the 5
  * the global rates (the server drifts every packet), food and plasmids also appear around each bacterium, per s, in a ring
  * around it (world units), partly on screen.
  */
-export const LOCAL_FOOD_RATE = 1.5; // 2.5 grew a bacterium to the cap in 0.6 min (sim): a generation ~1–1.5 min
+export const LOCAL_FOOD_RATE = 0.75; // halved with the motes' mass doubled (2026-10-19): same food // 2.5 grew a bacterium to the cap in 0.6 min (sim): a generation ~1–1.5 min
 export const LOCAL_PLASMID_RATE = 1 / 20;
 export const LOCAL_RING: readonly [number, number] = [90, 380]; // partly on screen: the cell and the food drift on the same current, so food out of sight rarely meets it
 
@@ -160,18 +160,19 @@ export const T2_TURN_RATE = 2.2; // rad/s with a flagellum and no cilia
 // Diets. Algae are tier-2 plant food (bacteria can't take them in); a dead eukaryote falls apart
 // into meat chunks; a jaw engulfs any cell at most ENGULF_RATIO of the eater's mass.
 export const ALGAE_MASS = 6;
-export const ALGAE_RATE = (25.2) * AREA; // −10 % (user direction; was 28) // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
-export const SEEP_ALGAE = 0.225; // per s per seep (−10 %, was 0.25)
+export const ALGAE_RATE = (20.16) * AREA; // −20 % (user, 2026-10-19) // −10 % (user direction; was 28) // per s over the whole pool, plus SEEP_ALGAE at each seep (35.3 before cyanobacteria and hyphae)
+export const SEEP_ALGAE = 0.18; // per s per seep (−10 %, was 0.25; −20 % more, 2026-10-19)
 export const CHUNK_MASS = 10;
 /**
  * More plant food (user direction): cyanobacteria filaments and fungal hyphae, eaten like algae — by plant mouths
- * (a filter mouth, filter combs, grazing mouthparts or a radula), never by bacteria. Their mass/s (36 + 21) is taken back
+ * (a filter mouth, filter combs, grazing mouthparts or a radula). Hyphae are small enough for bacteria too (user, 2026-10-19:
+ * the small plants were cut 20 %, hyphae make it up to the bacteria); cyanobacteria filaments are not. Their mass/s (36 + 21) is taken back
  * from algae (35.3 → 28/s, −44), so plant eaters get ~3 % more food than the balance had and bacteria the same.
  */
 export const CYANO_MASS = 4;
-export const CYANO_RATE = (9) * AREA; // per s over the whole pool
+export const CYANO_RATE = (7.2) * AREA; // per s over the whole pool (−20 %, 2026-10-19)
 export const HYPHA_MASS = 3;
-export const HYPHA_RATE = (7) * AREA;
+export const HYPHA_RATE = (5.6) * AREA; // −20 % (2026-10-19), and bacteria may now eat them too
 /**
  * Plants for every phase's grazers (user direction: populate the pool for herbivore play), each eaten like algae — by
  * plant mouths — and only from the phase big enough to take it in: spirulina (helical blue-green filaments) from
