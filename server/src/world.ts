@@ -1,9 +1,9 @@
 // Authoritative world rules beyond movement. Pure functions over PoolState, no Room needed,
 // so the headless balancing sim (P3f) can drive them directly.
 import {
-  ADHESIN_DRAIN, ADHESIN_SHARE, GILL_METABOLISM, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
+  ADHESIN_DRAIN, ADHESIN_SHARE, GILL_METABOLISM, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, MAXILLA_YIELD, SPINE_GAPE, LOBOPOD_GRIP, OIL_METABOLISM, PEDUNCLE_DRAIN, PARASITE_SHARE, PALLIUM_RATIO, THECA_ARMOUR, VIRUS_BURST, VIRUS_DPS, VIRUS_LATENT, VIRUS_RATE,
   CHLOROPLAST_RATE, ENDOSYMBIOSIS_CHANCE, MITO_METABOLISM, PHOTO_RATE, SHAPES,
-  ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
+  ELECTRIC_DPS, ELECTRIC_REACH, SHARD_RATE, SHARD_UNLOCK_T4, SPIKE_ARC, SPIKE_DPS, SPIKE_REACH, minMassOf, wrapAngle,
   BITE_DAMAGE, SMALLER_BITE, BITE_INTERVAL, BITE_KNOCK, BITE_REACH, BITE_RECOIL, BOUNCE, BUMP_SPEED, PUSH,
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_TIME, MATE_DISTANCE,
@@ -670,7 +670,7 @@ export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> =
   },
   4: {
     // Two grazers, two diets (user direction): maxillae nibble the drifting single cells, a radula rasps seaweed (and diatoms).
-    maxillae: { food: grazeOn(MAXILLA_PLANTS), swallows: [] },
+    maxillae: { food: (k) => grazeOn(MAXILLA_PLANTS)(k) * MAXILLA_YIELD, swallows: [] },
     radula: { food: grazeOn(RADULA_PLANTS), swallows: [] },
     claw: { food: () => 0, swallows: [3] },
     beak: { food: () => 0, swallows: [3] },
@@ -857,7 +857,7 @@ export function stepWorld(state: PoolState): Death[] {
         } else if (n.kind === NutrientKind.shard) { // touching a meteor shard takes its part (DNA too, below the animals)
           if (!isAnimal(p.tier)) earn(state, id, PLASMID_DNA);
           if (l?.tier === 2) l.library = withBit(l.library, n.gene);
-          if (l && isAnimal(l.tier)) { // a random part of its own tier
+          if (l && isAnimal(l.tier) && (l.tier < 4 || Math.random() < SHARD_UNLOCK_T4)) { // a random part of its own tier
             const cat = catalogFor(l.tier);
             l.library = withBit(l.library, cat.GENES[cat.NAMES[Math.floor(Math.random() * cat.NAMES.length)]!]!.bit);
           }

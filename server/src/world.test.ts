@@ -4,7 +4,7 @@ import {
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, rimAt, FAULTS, keepInPool, insidePool, FAULT_SPAWN, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
-  EVOLVE_DNA_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf, PART_PRICE_SCALE, ALGA_BITES, ALGA_BITE_INTERVAL, MACROALGA_MASS,
+  EVOLVE_DNA_T4, SHARD_UNLOCK_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf, PART_PRICE_SCALE, ALGA_BITES, ALGA_BITE_INTERVAL, MACROALGA_MASS,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -926,6 +926,22 @@ test('meteor shards unlock tier-2 parts on touch; eaten chunks may carry the dea
   foodAt(s2.state, s2.player.x, s2.player.y, NutrientKind.chunk, TIER2.GENES.electric.bit);
   stepWorld(s2.state);
   expect(s2.lineage.library).toBe(before);
+});
+
+test('a tier-4 animal unlocks a part from only about one shard in four (a big body sweeps them up)', () => {
+  const { state, player, lineage } = species();
+  Object.assign(lineage, { tier: 4, library: STARTER_LIBRARY4 });
+  Object.assign(player, { tier: 4, genome: 0, genome4: STARTER_GENOME4, mass: T4_SPAWN_MASS, health: T4_HEALTH_MAX });
+  const touch = (roll: number) => {
+    lineage.library = STARTER_LIBRARY4;
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(roll);
+    foodAt(state, player.x, player.y, NutrientKind.shard, TIER2.GENES.spike.bit);
+    stepWorld(state);
+    spy.mockRestore();
+    return lineage.library !== STARTER_LIBRARY4;
+  };
+  expect(touch(SHARD_UNLOCK_T4 + 0.01)).toBe(false);
+  expect(touch(SHARD_UNLOCK_T4 - 0.01)).toBe(true);
 });
 
 // --- Photosynthesis, endosymbiosis, shapes (P8d) --------------------------------------------------

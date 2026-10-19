@@ -57,7 +57,15 @@ export const BOT_SPECIES: readonly Species[] = [
   // A copepod: rows fast on its oars, grabs with two pairs of mandibles (more threats, 2026-10-19).
   { name: 'Cyclops furax', tier: 3, archetype: 'hunter', genes: ['mandible', 'mandible', 'oars', 'oars', 'muscles', 'eye'], shape: 0, plan: 0,
     radii: [0.55, 0.7, 0.5, 0.35, 0.25] },
-  { name: 'Hydrina stellata', tier: 3, archetype: 'hunter', genes: ['mandible', 'paddle', 'paddle', 'paddle'], shape: 0, plan: 1, radii: [0.6, 0.4, 0.4, 0.4, 0.4, 0.4] },
+  // A hydra: stings with its nematocysts and bites; between kills its comb sieves specks, oil keeps the burn low. It had
+  // a mandible on three paddles only and burned every kill back down: it never reached its cap (2026-10-20).
+  { name: 'Hydrina stellata', tier: 3, archetype: 'hunter', genes: ['mandible', 'filterComb', 'nematocysts', 'nematocysts', 'paddle', 'paddle', 'oil', 'oil'], shape: 0, plan: 1,
+    radii: [0.65, 0.42, 0.42, 0.42, 0.42, 0.42] },
+  // Phase-4 residents (user, 2026-10-20): an omnivorous crayfish (a claw, grazing mouthparts between kills: two claws starved it), an amphipod grazing.
+  { name: 'Astacus fluviatilis', tier: 4, archetype: 'hunter', genes: ['claw', 'maxillae', 'legs', 'legs', 'tailFan', 'exoskeleton', 'antennae', 'eye'], shape: 0, plan: 0,
+    radii: [0.45, 0.62, 0.55, 0.45, 0.35, 0.28] },
+  { name: 'Gammarus pulex', tier: 4, archetype: 'grazer', genes: ['maxillae', 'legs', 'legs', 'legs', 'antennae', 'eye'], shape: 0, plan: 0,
+    radii: [0.42, 0.55, 0.6, 0.55, 0.45, 0.32] },
   // Rare visitors (user direction). Plankton: a thrashing predatory nematode, a mosquito larva sieving the water, a
   // dragonfly nymph's grasping jaws on clawed legs.
   { name: 'Nematoda praedator', tier: 3, archetype: 'hunter', genes: ['muscles', 'muscles', 'mandible', 'stylet'], shape: 0, plan: 0,

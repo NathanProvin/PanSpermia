@@ -6,7 +6,7 @@ import {
   ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, INK, NutrientKind, type Nutrient, type Player, type PoolState,
   type Species, TICK_DT, TICK_RATE, TIER2, TIER3, rimAt, keepInPool, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
   radiusOf, sanitizeInput, stepCell,
-  PYRAMID, isMate,
+  PYRAMID, isMate, FAULTS, WORLD_RADIUS, wrapAngle, type Archetype,
 } from '@panspermia/shared';
 import { type PacketGrid, buildGrid, grids, near } from './grid.ts';
 import { type Death, bitesWith, spawnPointFor, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
@@ -87,6 +87,21 @@ function incarnate(tick: number, s: Species, at?: { x: number; y: number; headin
   return p;
 }
 
+/**
+ * A shore dweller onto the rock at about angle `pick()`, facing the water. Never into a fault: the shore there is narrower
+ * than the body, which keepInPool pushed back off the shore line (the flaky polyp test).
+ */
+function toShore(p: Player, b: Brain, archetype: Archetype, pick: () => number) {
+  const r = radiusOf(p.mass, p.tier);
+  const clear = (a: number) => FAULTS.every((f) => Math.abs(wrapAngle(a - f.angle)) > 2.5 * f.width + r / WORLD_RADIUS);
+  let a = pick();
+  for (let i = 0; i < 50 && !clear(a); i++) a = pick();
+  const d = rimAt(a) - r * 1.02;
+  Object.assign(p, { x: Math.cos(a) * d, y: Math.sin(a) * d, heading: a + (archetype === 'anchored' ? Math.PI : Math.PI / 2) });
+  keepInPool(p, r);
+  if (archetype === 'anchored') b.anchor = { x: p.x, y: p.y };
+}
+
 let nextBotId = 0;
 /** Spawn a bot, species from the weighted cycle unless given. Ids contain no '~' and never collide with session ids. */
 export function addBot(state: PoolState, bots: Bots, species = SPAWN_CYCLE[nextBotId % SPAWN_CYCLE.length]!) {
@@ -95,14 +110,7 @@ export function addBot(state: PoolState, bots: Bots, species = SPAWN_CYCLE[nextB
   bots.set(id, b);
   const p = incarnate(state.tick, BOT_SPECIES[species]!);
   const { archetype } = BOT_SPECIES[species]!;
-  if (archetype === 'anchored' || archetype === 'wall') { // on the shore, facing the water
-    const a = Math.random() * 2 * Math.PI;
-    const r = radiusOf(p.mass, p.tier);
-    const d = rimAt(a) - r * 1.02;
-    Object.assign(p, { x: Math.cos(a) * d, y: Math.sin(a) * d, heading: a + (archetype === 'anchored' ? Math.PI : Math.PI / 2) });
-    keepInPool(p, r);
-    if (archetype === 'anchored') b.anchor = { x: p.x, y: p.y };
-  }
+  if (archetype === 'anchored' || archetype === 'wall') toShore(p, b, archetype, () => Math.random() * 2 * Math.PI);
   state.players.set(id, p);
   return id;
 }
@@ -143,13 +151,8 @@ export function callVisitors(state: PoolState, bots: Bots, x: number, y: number)
     b.leaveAt = state.tick + VISIT_TIME * TICK_RATE;
     const p = state.players.get(id)!;
     const r = radiusOf(p.mass, p.tier);
-    if (sp.archetype === 'anchored' || sp.archetype === 'wall') {
-      const a = Math.atan2(y, x) + (Math.random() - 0.5) * 0.3;
-      const d = rimAt(a) - r * 1.02;
-      Object.assign(p, { x: Math.cos(a) * d, y: Math.sin(a) * d, heading: a + (sp.archetype === 'anchored' ? Math.PI : Math.PI / 2) });
-      keepInPool(p, r);
-      if (b.anchor) b.anchor = { x: p.x, y: p.y };
-    } else {
+    if (sp.archetype === 'anchored' || sp.archetype === 'wall') toShore(p, b, sp.archetype, () => Math.atan2(y, x) + (Math.random() - 0.5) * 0.3);
+    else {
       const a = Math.random() * 2 * Math.PI;
       Object.assign(p, { x: x + Math.cos(a) * (r * 3 + 1500), y: y + Math.sin(a) * (r * 3 + 1500) });
       keepInPool(p, r);

@@ -132,15 +132,16 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] 7af8838 Smooth playback: one patch per server step (Windows timers beat against the patch timer), client tick clock for packets and tick-keyed playback of remote cells; bots ×2 (BOT_FILL 160, pyramid 9:5:2, tick ~17 ms); animal bots no longer spin on the spot; seaweed crumbs on every bite; parasitic mouths animate while draining (Player.sucking) and the player's suction streams energy in
   - [x] 23b16ea Stylet/proboscis drain only where placed (the front); fullscreen left of the ranking and the player's own rank boxed (below the top eight when out of it, glowing on a climb); calmer phase-3 steering (turn reversals 3.6 → 0.66/s) and a faint swimming wave; invisible animal bodies fixed (a stale part of another tier threw in the cell view's rebuild and left NaN)
   - Sim at the end of the day (8 min, 160 bots): phases evolve in 6.5 / 7.1 / 6.2 / 6.6 min; lives lost per generation 0.3 / 2.9 / 1.6; 2.9× real time. All tests pass but the flaky polyp one (~1 run in 3)
-- [ ] Next (after the branch playtest):
-  - [ ] Merge `balance-physics-threats` into master once the playtest confirms the feel (smoothness at phase 1, phase-3 movement, the suction and crumbs, the boxed rank)
-  - [ ] Phase 2 is the harshest (2.9 lives/gen): the pure carnivores Didinia and Lacrymaria never complete a generation and die ~70 times per generation — give them a grazing fallback or fewer, and recheck with humans
-  - [ ] Hydrina (radial, mandible only) never reaches its cap: it burns its kills back down — a design or diet fix
-  - [ ] Phases run ~6–7 min against the ~5 min target: human playtest of phase lengths, then EVOLVE_DNA
-  - [ ] Flaky polyp test: a coral spawned in a narrow fault is pushed off the shore line (spawn shore dwellers outside faults)
-  - [ ] Visitor frequency (25 min average), tier-4 resident bots and hazards (P10e)
-  - [ ] Client frame rate with 160 cells on modest machines (the browser readout showed 10–30 fps in the automated window: needs a real measurement)
-  - [ ] Then P6b–d: public alpha on a VPS, load test, first public playtest
+- [x] 2026-10-20: branch merged after the playtest; phases −25 % DNA (~5 min each in the sim), tier-4 shard unlocks ÷4 and maxillae ×0.4, Hydrina reworked, two tier-4 residents (Astacus, Gammarus), flaky polyp test fixed
+- [ ] Next:
+  - [ ] Invisible / glitchy phase-3 bodies "at first" (user, 2026-10-20): not reproduced — needs a screenshot and the exact moment
+  - [ ] (User: fine as is) Phase 2 is the harshest (2.9 lives/gen): the pure carnivores Didinia and Lacrymaria never complete a generation and die ~70 times per generation — give them a grazing fallback or fewer, and recheck with humans
+  - [x] Hydrina reworked (comb, nematocysts, oil): now divides, but the sim swings (1–4 gens in 8 min)
+  - [x] Phase lengths: EVOLVE_DNA −25 % → ~5 min each in the sim; confirm with humans
+  - [x] Flaky polyp test (shore dwellers spawn clear of the faults)
+  - [x] Tier-4 resident bots (Astacus, Gammarus); no tier-4 hazards (user). Visitor frequency (25 min average) left as is
+  - [x] Client frame rate with 160 cells: fluid at every phase on the user's machine
+  - [ ] Then P6b–d: public alpha on a VPS, load test, first public playtest (user: later)
 - [ ] P11 Tier 5 Chordate + womb. (Open question: the game now ends on land at tier 4 — keep P11 as a post-win stage or drop it.)
 - [ ] P12 Ascension + global Hall of Fame (SQLite).
 

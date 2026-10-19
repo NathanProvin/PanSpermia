@@ -105,7 +105,7 @@ export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors 
 /** Bots top a room up to this many cells (humans + bots); humans displace them as they join. */
 export const BOT_FILL = 160; // 50 until the 14625 pool (2026-10-19): ×2.25 area, more bots keep the encounters (user: more threats); 80, then ×2 once bigger motes freed the tick (user: the map felt empty)
 /** Shares of BOT_FILL per tier (index = tier), humans counted in their tier: a population pyramid. Tier 4: humans and rare visitors. */
-export const PYRAMID: readonly number[] = [0, 9, 5, 2, 0]; // 90 / 50 / 20 of 160: bots no longer spin, so animals hunt for real — 30 of them emptied the eukaryotes
+export const PYRAMID: readonly number[] = [0, 18, 10, 4, 1]; // 87 / 48 / 19 / 6 of 160 (tier 4: two resident species, user 2026-10-20); before, [0, 9, 5, 2, 0]: 90 / 50 / 20: bots no longer spin, so animals hunt for real — 30 of them emptied the eukaryotes
 /** New cells can't be hurt or infected, and bots don't hunt them, for this long (covers the meteor intro). */
 export const SPAWN_GRACE = 5; // s
 
@@ -135,11 +135,11 @@ export const MAX_PARTS = 24; // placements per design
  * 2026-10-19), from the balance sim's DNA/min per tier: bacteria ~80, eukaryotes ~230. Animals evolve in the editor at a
  * mating, so their phase is at least a generation (~3–5 min): about one mating's GEN_DNA plus a few kills.
  */
-export const EVOLVE_DNA = 450;
-export const EVOLVE_DNA_T2 = 1950; // 1300 → +50 % (user, 2026-10-19: phase 2 → 3 too easy); // lifetime DNA for a eukaryote species to become an animal
+export const EVOLVE_DNA = 340; // −25 % each (user, 2026-10-20: phases ran 6–7 min against the 5 min aim)
+export const EVOLVE_DNA_T2 = 1450; // 1300 → +50 % (user, 2026-10-19: phase 2 → 3 too easy); // lifetime DNA for a eukaryote species to become an animal
 /** And for an animal species to walk onto land: the game won (user direction). */
-export const EVOLVE_DNA_T4 = 12000;
-export const EVOLVE_DNA_T3 = 3000; // and for an animal species to become an arthropod or mollusk
+export const EVOLVE_DNA_T4 = 9000;
+export const EVOLVE_DNA_T3 = 2250; // and for an animal species to become an arthropod or mollusk
 
 // Tier 2 — eukaryotes (P8). Mass continues from the tier-1 cap; speed and metabolism get their own
 // coefficients so a eukaryote feels as nimble at its scale as a bacterium does at its own.
@@ -213,6 +213,8 @@ export const EYE_SIGHT = 0.18; // camera pulls back this much more per stacked e
 // Meteor shards: Spore's meteor bits. Rare sparkly packets carrying a random tier-2 part; any eukaryote
 // that touches one unlocks it. A dead eukaryote's chunks carry its parts too (eaten with a jaw: may unlock).
 export const SHARD_RATE = (1 / 2.35) * AREA; // per s over the whole pool
+/** The chance a meteor shard unlocks a part for a tier-4 species: a big, fast body sweeps them up (user, 2026-10-20: too many parts too easily, ÷3 at least). */
+export const SHARD_UNLOCK_T4 = 0.25;
 
 // Photosynthesis and endosymbiosis (P8d). Light is uniform for now: a photosynthesizer gains mass
 // steadily without eating. Swallowing a bacterium may adopt it as an organelle (Margulis): one with
@@ -269,6 +271,7 @@ export const T3_TURN_RATE = 2.1; // rad/s with a tail and no paddles
  */
 export const FILTER_YIELD = 0.75; // 0.5 left plankton filter feeders at 6+ min a generation (sim); idle still earns nothing
 export const MASTAX_YIELD = 1.5; // × the big plants (spirulina, diatoms, dinoflagellates, macroalgae) a mastax grinds
+export const MAXILLA_YIELD = 0.4; // × the drifting plants a tier-4 grazer's maxillae nibble: a big walker sweeps whole fields (Gammarus bots divided every 0.9 min; user, 2026-10-20: phase 4 too easy by grazing)
 export const T3_SWIM_OARS = 1.25; // × speedOf at the top of a stroke; jump-and-glide averages ~1
 export const OAR_STROKES = 1.3; // strokes per second
 export const MUSCLE_SWIM = 0.25; // × swim per stack(muscles): the undulating body

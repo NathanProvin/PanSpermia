@@ -45,9 +45,9 @@ test('bots fill a population pyramid, humans counted in their tier', () => {
   for (const [i, tier] of [1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4].entries()) state.players.set('human' + i, Object.assign(spawnPlayer(), { tier }));
   fillBots(state, bots, 50);
   const count = (t: number) => [...state.players.values()].filter((p) => p.tier === t).length;
-  expect([count(1), count(2), count(3), count(4)]).toEqual([28, 16, 10, 1]); // 10 humans overflow tier 3's quota of 6: none displaced
+  expect([count(1), count(2), count(3), count(4)]).toEqual([27, 15, 10, 2]); // 10 humans overflow tier 3's quota of 6: none displaced; tier 4 takes what is left
   fillBots(state, bots, 50); // steady: nothing changes
-  expect(bots.size).toBe(28 - 1 + 16 - 2);
+  expect(bots.size).toBe(27 - 1 + 15 - 2 + 2 - 1);
 });
 
 test('a grazer swims to food', () => {
