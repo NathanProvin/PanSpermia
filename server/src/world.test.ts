@@ -4,7 +4,7 @@ import {
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, rimAt, FAULTS, keepInPool, insidePool, FAULT_SPAWN, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
-  EVOLVE_DNA_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf,
+  EVOLVE_DNA_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf, PART_PRICE_SCALE,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -472,6 +472,17 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   expect([lineage.dna, lineage.children]).toEqual([0, STARTER_CHILDREN + 1]);
 });
 
+test('up to 4 pairs of limbs; part prices scale with the phase', () => {
+  const { state, player, lineage } = species();
+  Object.assign(lineage, { tier: 4, genome: 0, library: bitsOf(...TIER4.NAMES.map((g) => TIER4.GENES[g].bit)), dna: 1e7 });
+  Object.assign(player, { tier: 4, genome: 0, genome4: 0, mass: T4_SPAWN_MASS, cyst: CYST_TIME });
+  const legs = (n: number) => ({ parts: Array.from({ length: n }, (_, i) => ({ gene: 'legs', x: Math.cos(1 + i * 0.2), y: Math.sin(1 + i * 0.2), angle: 1 + i * 0.2, scale: 1, group: 0 })),
+    hue: 0.2, children: 0, name: lineage.name, plan: 0, radii: [0.4, 0.9] });
+  expect(submitDesign(state, 'p', legs(9), false)).toBe('too many copies');
+  expect(submitDesign(state, 'p', legs(8), false)).toBeUndefined();
+  expect([TIER3.GENES.paddle.price, TIER2.GENES.cilia.price, GENES.pili.price]).toEqual([20 * PART_PRICE_SCALE[3]!, 10 * PART_PRICE_SCALE[2]!, 8]);
+});
+
 test('lives cost more and are fewer in higher phases', () => {
   const { state, player, lineage } = animalSpecies();
   player.cyst = CYST_TIME;
@@ -733,7 +744,7 @@ test('tier 4: claws swallow plankton (never bacteria) and crush rivals through t
   expect(T4_HEALTH_MAX - a.health).toBeCloseTo(BITE_DAMAGE[4]!, 6);
   // Tier 4 takes tier 3's plans (spine or radial) and any part on either; a foot or a shell makes the body soft.
   const { state: s4, player: p4, lineage: l4 } = species();
-  Object.assign(l4, { tier: 4, genome: 0, library: bitsOf(...TIER4.NAMES.map((g) => TIER4.GENES[g].bit)), dna: 1e4 });
+  Object.assign(l4, { tier: 4, genome: 0, library: bitsOf(...TIER4.NAMES.map((g) => TIER4.GENES[g].bit)), dna: 1e6 });
   Object.assign(p4, { tier: 4, genome: 0, genome4: 0, mass: T4_SPAWN_MASS, cyst: CYST_TIME });
   const part = (gene: string, angle = 0) => ({ gene, x: Math.cos(angle), y: Math.sin(angle), angle, scale: 1, group: 0 });
   const design = (plan: number, ...genes: string[]) =>
@@ -753,7 +764,7 @@ test('tier 4: claws swallow plankton (never bacteria) and crush rivals through t
   // Mated: the editor, then a cocoon (the parent itself, shielded and still), then the new design emerges.
   run(s3, MATE_TIMEOUT + 1);
   expect(player.cyst).toBeGreaterThan(0);
-  lineage.dna = 1000;
+  lineage.dna = 1e6;
   lineage.library = withBit(lineage.library, TIER4.GENES.tailFan.bit);
   const fan = [{ gene: 'tailFan', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
   expect(submitDesign(s3, 'p', { parts: fan, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
@@ -1062,7 +1073,7 @@ test('an animal at the cap calls; its mate swims in; mating opens the editor; th
   Object.assign(player, { x: 100, y: -50, vx: 0, vy: 0 });
   const parts = [{ gene: 'tail', x: -1, y: 0, angle: Math.PI, scale: 1, group: 0 }];
   lineage.library = withBit(lineage.library, TIER3.GENES.tail.bit);
-  lineage.dna = 1000;
+  lineage.dna = 1e6;
   expect(submitDesign(state, 'p', { parts, hue: 0.3, children: 0, name: lineage.name })).toBeUndefined();
   expect(state.players.get('p')).toBe(player);
   expect([player.cyst, player.cocoon, lineage.generation]).toEqual([0, EGG_TIME, 2]);

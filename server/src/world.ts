@@ -8,7 +8,7 @@ import {
   CARAPACE_ARMOUR, MANDIBLE_ARC, SPILL_MAX, STARTER_GENOME3, STARTER_LIBRARY3, T3_METABOLISM_BASE,
   T3_METABOLISM_RATE, T3_SPAWN_MASS, TIER3, COCOON_TIME, evolveDnaOf, EGG_TIME, MATE_DISTANCE,
   MATE_PREFIX, MATE_SPEED, MATE_TIMEOUT, isMate, DEFAULT_RADII_OF, MAX_SEGMENTS, MIN_SEGMENTS, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN,
-  cleanForm, MAX_ARM, RADIAL_ARMS, MAX_BEND, MAX_PLACED, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
+  cleanForm, MAX_ARM, RADIAL_ARMS, MAX_BEND, maxPlacedOf, ALGAE_MASS, ALGAE_RATE, CHUNK_MASS, ENGULF_RATIO, ENGULF_SHARE, SEEP_ALGAE, STARTER_GENOME2, STARTER_LIBRARY2,
   T2_METABOLISM_BASE, T2_METABOLISM_RATE, TIER2, MAX_TIER, MAX_MOUTHS, MOUTH_PARTS, VIRUS_SWARM, catalogFor, massCapOf,
   CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, PLASMID_DNA, Lineage, MAX_CHILDREN, MAX_PARTS, PACKET_DNA, Part,
   STARTER_CHILDREN, STARTER_LIBRARY, cleanName, randomSpeciesName, copiesOf, defaultParts, priceOf, stack, withCopies,
@@ -405,7 +405,7 @@ function parseDesign(l: Lineage, design: unknown): Design | string {
       return 'bad placement';
     }
     const n = (counts.get(gene) ?? 0) + 1;
-    if (n > (g.slot === 'coat' ? 1 : MAX_PLACED)) return 'too many copies';
+    if (n > maxPlacedOf(gene, g.slot)) return 'too many copies';
     counts.set(gene, n);
     genome = cat.withCopies(genome, gene, Math.min(n, g.maxCopies)); // effect stacks up to maxCopies
     price += g.price; // every placement is paid for

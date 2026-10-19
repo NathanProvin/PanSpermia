@@ -4,7 +4,7 @@
 // glides on a muscular foot or jets through a siphon, rasps with a radula or bites with a beak, under a shell.
 // Mouths set the diet as before: grazers sweep up plant food and specks, claws and beaks take meat and swallow
 // single cells and smaller animals, and bite whatever is too big.
-import { bitsOf, makeCatalog } from './genes.ts';
+import { bitsOf, makeCatalog, PART_PRICE_SCALE } from './genes.ts';
 
 export const TIER4 = makeCatalog({
   legs: { upkeep: 0.4, price: 40, maxCopies: 3, slot: 'membrane', at: 1.7, label: 'Walking legs' },
@@ -35,7 +35,7 @@ export const TIER4 = makeCatalog({
   fins: { upkeep: 0.2, price: 45, maxCopies: 3, slot: 'membrane', at: 2.4, label: 'Fins' },
   // Feathery external gills: more oxygen — a lower burn and a little more speed.
   gills: { upkeep: 0, price: 35, maxCopies: 3, slot: 'membrane', at: 1.2, label: 'External gills' },
-});
+}, PART_PRICE_SCALE[4]);
 export type Gene4 = (typeof TIER4.NAMES)[number];
 
 /** A newly evolved arthropod: a pair of walking legs, grazing mouthparts, an eye. */

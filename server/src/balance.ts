@@ -100,7 +100,12 @@ for (const t of [1, 2, 3, 4]) {
   const m = ss.reduce((a, i) => a + botMin[i]!, 0);
   const rate = ss.reduce((a, i) => a + dna[i]!, 0) / (m || 1);
   const alive = [...state.players.values()].filter((p) => p.tier === t).length;
-  console.log(`tier ${t}: ${alive} alive, ${round(rate)} DNA/min → evolve in ${round(evolveDnaOf(t) / (rate || 1e-9))} min`);
+  // Generation time (spawn → cap, mean over the lives that got there), lives lost per generation, DNA a generation brings.
+  const gens = ss.reduce((g, i) => g + rows[i]!.gens, 0);
+  const genMin = ss.reduce((g, i) => g + rows[i]!.genMin * rows[i]!.gens, 0) / (gens || 1);
+  const lost = ss.reduce((g, i) => g + rows[i]!.lysed + rows[i]!.virus + rows[i]!.starved, 0);
+  console.log(`tier ${t}: ${alive} alive, gen ${round(genMin)} min, ${round(lost / (gens || 1))} lives/gen, ${round(rate)} DNA/min`
+    + ` (${Math.round(rate * genMin)}/gen) → evolve in ${round(evolveDnaOf(t) / (rate || 1e-9))} min`);
 }
 const kinds = [...state.nutrients.values()].reduce((a, n) => ((a[n.kind] = (a[n.kind] ?? 0) + 1), a), [] as number[]);
 console.log([

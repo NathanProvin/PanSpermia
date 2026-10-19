@@ -34,9 +34,9 @@ test('bigger cells are larger and slower', () => {
   expect(speedOf(MASS_CAP)).toBeLessThan(speedOf(SPAWN_MASS));
 });
 
-test('every newborn swims 1.5× its old speed (coef · mass^-0.4) and loses half as much with mass', () => {
-  for (const [tier, spawn, cap, coef] of [[1, 10, 100, 300], [2, 120, 1000, 748], [3, 1200, 6000, 3055], [4, 6000, 10000, 6318]]) {
-    expect(speedOf(spawn!, tier) / (coef! * spawn! ** -0.4)).toBeCloseTo(1.5, 1);
+test('newborns swim 1.8× (phases 1–2) or 1.5× (3–4) their old speed (coef · mass^-0.4) and lose half as much with mass', () => {
+  for (const [tier, spawn, cap, coef, boost] of [[1, 10, 100, 300, 1.8], [2, 120, 1000, 748, 1.8], [3, 1200, 6000, 3055, 1.5], [4, 6000, 10000, 6318, 1.5]]) {
+    expect(speedOf(spawn!, tier) / (coef! * spawn! ** -0.4)).toBeCloseTo(boost!, 1);
     expect(Math.log(speedOf(cap!, tier) / speedOf(spawn!, tier)) / Math.log(cap! / spawn!)).toBeCloseTo(-0.2, 6);
   }
 });

@@ -24,9 +24,10 @@ export const RADIUS_PER_SQRT_MASS = 4;
  * a newborn arthropod or mollusk (≈ 870) is ~1.3× a grown animal and grows to ≈ 1120 (the pool is 13000 across).
  */
 export const TIER_SCALE = [1, 1, 1.5, 2.2, 2.8] as const;
-// Agar-like: bigger is slower. speed = SPEED_COEF · mass^SPEED_EXP u/s → 179 at spawn, 113 at cap.
-// Punchier (user, 2026-10-19): every newborn ×1.5 (coef_new = 1.5 · coef_old · spawn^0.2), half the slowdown with mass (−0.4 → −0.2).
-export const SPEED_COEF = 284;
+// Agar-like: bigger is slower. speed = SPEED_COEF · mass^SPEED_EXP u/s → 215 at spawn, 136 at cap.
+// Punchier (user, 2026-10-19): every newborn ×1.5 (coef_new = 1.5 · coef_old · spawn^0.2), half the slowdown with mass (−0.4 → −0.2);
+// then phases 1–2 another +20 % (×1.8 in all).
+export const SPEED_COEF = 341;
 export const SPEED_EXP = -0.2;
 
 // Swimming, as a fraction of speedOf(mass). Without motility genes a cell only creeps.
@@ -88,7 +89,7 @@ export const PLASMID_RATE = (3.5 / 0.815) * AREA; // user: 30 % fewer than the 5
  * the global rates (the server drifts every packet), food and plasmids also appear around each bacterium, per s, in a ring
  * around it (world units), partly on screen.
  */
-export const LOCAL_FOOD_RATE = 2.5;
+export const LOCAL_FOOD_RATE = 1.5; // 2.5 grew a bacterium to the cap in 0.6 min (sim): a generation ~1–1.5 min
 export const LOCAL_PLASMID_RATE = 1 / 20;
 export const LOCAL_RING: readonly [number, number] = [90, 380]; // partly on screen: the cell and the food drift on the same current, so food out of sight rarely meets it
 
@@ -121,11 +122,11 @@ export const PLASMID_DNA = 25; // per plasmid or meteor shard absorbed
  * 2026-10-19: scaling difficulty), so high phases lose more species to extinction — back to bacteria — and the pool keeps
  * its pyramid: many bacteria, fewer eukaryotes, fewer plankton still. ~12 % of each phase's evolve DNA.
  */
-export const CHILD_PRICE: readonly number[] = [0, 50, 150, 600, 2400];
+export const CHILD_PRICE: readonly number[] = [0, 50, 200, 1000, 4000];
 export const MAX_CHILDREN: readonly number[] = [0, 9, 7, 5, 3];
 export const STARTER_CHILDREN = 2; // reserve lives of a new species
 /** DNA paid to an animal (tiers 3–4) each time it mates at the cap: with kills, its DNA (it can't take up plasmids). */
-export const GEN_DNA: readonly number[] = [0, 0, 0, 4000, 16000];
+export const GEN_DNA: readonly number[] = [0, 0, 0, 2000, 6000];
 /** Reaching the size cap starts binary fission: a shielded division cyst while the editor is open. */
 export const CYST_TIME = 60; // s; when it runs out the cell hatches with its old design
 export const MAX_PARTS = 24; // placements per design
@@ -134,11 +135,11 @@ export const MAX_PARTS = 24; // placements per design
  * 2026-10-19), from the balance sim's DNA/min per tier: bacteria ~80, eukaryotes ~230. Animals evolve in the editor at a
  * mating, so their phase is at least a generation (~3–5 min): about one mating's GEN_DNA plus a few kills.
  */
-export const EVOLVE_DNA = 400;
-export const EVOLVE_DNA_T2 = 1200; // lifetime DNA for a eukaryote species to become an animal
+export const EVOLVE_DNA = 450;
+export const EVOLVE_DNA_T2 = 1300; // lifetime DNA for a eukaryote species to become an animal
 /** And for an animal species to walk onto land: the game won (user direction). */
-export const EVOLVE_DNA_T4 = 20000;
-export const EVOLVE_DNA_T3 = 5000; // and for an animal species to become an arthropod or mollusk
+export const EVOLVE_DNA_T4 = 12000;
+export const EVOLVE_DNA_T3 = 3000; // and for an animal species to become an arthropod or mollusk
 
 // Tier 2 — eukaryotes (P8). Mass continues from the tier-1 cap; speed and metabolism get their own
 // coefficients so a eukaryote feels as nimble at its scale as a bacterium does at its own.
@@ -147,7 +148,7 @@ export const T2_MIN_MASS = 60;
 export const T2_MASS_CAP = 1000; // radius ≈ 190
 // Bigger bodies swim faster in absolute terms (eukaryotes ×√TIER_SCALE, animals ×1.25), so a bigger tier
 // doesn't feel sluggish; animals not more, or they plow through the bacteria (sim).
-export const T2_SPEED_COEF = 431; // speed = coef · mass^SPEED_EXP: 165 u/s at spawn, 108 at cap
+export const T2_SPEED_COEF = 517; // speed = coef · mass^SPEED_EXP: 198 u/s at spawn, 130 at cap
 export const T2_HEALTH_MAX = 300;
 export const T2_METABOLISM_BASE = 0.1; // mass/s: 0.17 at spawn, 0.7 at cap
 export const T2_METABOLISM_RATE = 0.0006;
@@ -262,7 +263,7 @@ export const T3_TURN_RATE = 1.6; // rad/s with a tail and no paddles
  * Filters (filter combs, setose oars, filtering tentacles) only feed while swimming — the stroke pushes the water through
  * the sieve — at this share of the food × the swim speed's share of full speed (user: idle filter feeders filled up).
  */
-export const FILTER_YIELD = 0.5;
+export const FILTER_YIELD = 0.75; // 0.5 left plankton filter feeders at 6+ min a generation (sim); idle still earns nothing
 export const MASTAX_YIELD = 1.5; // × the big plants (spirulina, diatoms, dinoflagellates, macroalgae) a mastax grinds
 export const T3_SWIM_OARS = 1.25; // × speedOf at the top of a stroke; jump-and-glide averages ~1
 export const OAR_STROKES = 1.3; // strokes per second
@@ -307,7 +308,7 @@ export const MATE_DISTANCE = 700; // a mate answers the call from this far beyon
 export const MATE_SPEED = 420; // u/s, faster than any animal: it always arrives
 export const MATE_TIMEOUT = 15; // s of calling after which mating happens anyway
 /** s: a plankton individual begins as an egg clutch, shielded and still like a cocoon (user: wait, don't play the parent). */
-export const EGG_TIME = 5;
+export const EGG_TIME = 3; // eggs and cocoons both 3 s (user, 2026-10-19)
 
 // Tier 4 — arthropods and mollusks (P10). Mass continues from the tier-3 cap.
 export const T4_SPAWN_MASS = 6000; // radius ≈ 870 (TIER_SCALE 2.8)
@@ -332,7 +333,7 @@ export const SHELL_ARMOUR = 0.35;
 export const EXOSKELETON_SWIM = 0.92;
 export const SHELL_SWIM = 0.8;
 /** Tier-4 reproduction (P10c): after mating and the editor, the body spins a cocoon and the new design emerges from it. Every new animal begins in one. */
-export const COCOON_TIME = 12; // s, shielded and still
+export const COCOON_TIME = 3; // s, shielded and still
 /** Ink (P10d): the squirt that releases an ink cloud is a predicted dash, like the eukaryote's jet. */
 export const INK_TIME = 0.9; // s of dash
 export const INK_COOLDOWN = 10; // s

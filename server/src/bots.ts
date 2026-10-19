@@ -46,7 +46,7 @@ const HUNT_UNTIL = 0.7;
 /** Phagocytosis takes time: a eukaryote hunter rests this long after each swallow (caps its kill rate). */
 const DIGEST_TICKS = 6 * 20;
 /** An animal hunter rests longer after a meal: a few predators must not empty the pool. */
-const DIGEST_TICKS_T3 = 15 * 20; // 30 s until 2026-10-19: hunters took 7+ min a generation (the pyramid gives them more prey)
+const DIGEST_TICKS_T3 = 8 * 20; // 30 s until 2026-10-19: hunters took 6–7 min a generation (the pyramid gives them more prey)
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */

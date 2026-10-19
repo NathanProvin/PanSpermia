@@ -1,5 +1,5 @@
 import {
-  CHILD_PRICE, CYST_TIME, evolveDnaOf, type Catalog, type Form, type Lineage, MAX_BEND, MAX_CHILDREN, MAX_MOUTHS, MAX_PARTS, MAX_PLACED, MAX_TIER, MOUTH_PARTS,
+  CHILD_PRICE, CYST_TIME, evolveDnaOf, type Catalog, type Form, type Lineage, MAX_BEND, MAX_CHILDREN, MAX_MOUTHS, MAX_PARTS, maxPlacedOf, MAX_TIER, MOUTH_PARTS,
   NAME_MAX, type Placement, TIER_NAMES, catalogFor, cleanName, deform, undeform, DEFAULT_RADII, DEFAULT_RADII_OF, FORM_LIMITS,
   MAX_SEGMENTS, MIN_SEGMENTS, MAX_ARM, DEFAULT_ARMS, RADIAL_ARMS, PATTERN_NAMES, PIGMENTS, PLAN_NAMES, PLANS_OF, SEGMENT_MAX, SEGMENT_MIN, BEND_CENTRE, type Segment,
   animalRim, formOf, isAnimal, pigmentOf, segmentsOf, wrapAngle,
@@ -17,14 +17,15 @@ import { createCellView } from './scene/cells.ts';
 // Symmetry follows the body (user direction: no symmetry buttons): cells and spine bodies are bilateral — off the axis a
 // part is a mirrored pair, on it one; a radial body repeats a part on each of its 3–6 arms (at the centre, one). A
 // placement is all its copies or nothing, every copy paid for, the effect stacking up to the part's maxCopies
-// (MAX_PLACED copies at most).
+// (maxPlacedOf: MAX_PLACED copies, a limb MAX_LIMBS).
 // Sculpting, like clay, with colour-coded handles: length (amber) — a cell's nose stretches it, an animal's tail (a
 // radial body: its front arm's tip) adds or removes stations; width (cyan) — a cell's side, an animal's side at each
 // station (its neighbours follow a little); bend (magenta) — a cell's nose pulled sideways makes a comma, a spine or an
 // arm turns at each station (an S, a spiral, a pinwheel); the head stays put while you bend. A radial body's arm
 // count: the polygon buttons. Tiers 3 and 4 offer the same plans: a spine or a radial body.
 
-type Symmetry = 'axial' | 'radial';
+/** 'none': one copy wherever it is dropped (a eukaryote's mouths, user direction). */
+type Symmetry = 'axial' | 'radial' | 'none';
 /** One placement as the player made it: a master part plus how it repeats. */
 interface Group { gene: string; x: number; y: number; angle: number; scale: number; repeat: 'single' | 'axial' | 'radial'; n: number }
 export interface Design {
@@ -107,11 +108,11 @@ function placeAt(cat: Catalog, gene: string, bx: number, by: number, symmetry: S
     if (onAxis && symmetry === 'axial') y = 0;
     if (onAxis && symmetry === 'radial') x = y = 0;
   }
-  const copies = onAxis ? 1 : symmetry === 'axial' ? 2 : n;
+  const copies = onAxis || symmetry === 'none' ? 1 : symmetry === 'axial' ? 2 : n;
   if (copies > available) {
     return available < 1 ? 'No more of that part fits.' : `This symmetry needs ${copies} copies: only ${available} more fit.`;
   }
-  return { gene, x, y, angle, scale: 1, repeat: copies === 1 ? 'single' : symmetry, n: copies };
+  return { gene, x, y, angle, scale: 1, repeat: copies === 1 || symmetry === 'none' ? 'single' : symmetry, n: copies };
 }
 
 /** A pigment and pattern packed into the stored hue (pigmentOf unpacks it). */
@@ -375,6 +376,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const radialBody = () => animal() && plan === 1;
   const segments = () => segmentsOf(plan, radii, bends, radialBody() ? arms : 0);
   const symmetry = (): Symmetry => (radialBody() ? 'radial' : 'axial');
+  /** A eukaryote's mouths go on singly, anywhere (two at most): a mirrored pair took both mouth slots. */
+  const symmetryOf = (gene: string): Symmetry => (lineage!.tier === 2 && mouths().includes(gene) ? 'none' : symmetry());
   const shownForm = (): Form | number => (animal() ? shape : form); // animals are sculpted by their stations
   let children = 0;
   let submitted = false;
@@ -390,7 +393,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const working = () => (drag?.at ? [...groups, drag.at] : groups);
   const mouths = () => MOUTH_PARTS[lineage!.tier] ?? [];
   /** Copies of a part that may still go on: its own limit, and MAX_MOUTHS mouthparts in all. */
-  const available = (gene: string) => Math.min((cat.GENES[gene]!.slot === 'coat' ? 1 : MAX_PLACED) - placed(groups, gene),
+  const available = (gene: string) => Math.min(maxPlacedOf(gene, cat.GENES[gene]!.slot) - placed(groups, gene),
     mouths().includes(gene) ? MAX_MOUTHS - mouths().reduce((n, g) => n + placed(groups, g), 0) : Infinity);
 
   /** Re-place every part under the body's symmetry (a new plan or arm count); parts that no longer fit come off. */
@@ -398,7 +401,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const old = groups;
     groups = [];
     for (const g of old) {
-      const next = cat.GENES[g.gene]!.slot === 'coat' ? g : placeAt(cat, g.gene, g.x, g.y, symmetry(), arms, available(g.gene));
+      const next = cat.GENES[g.gene]!.slot === 'coat' ? g : placeAt(cat, g.gene, g.x, g.y, symmetryOf(g.gene), arms, available(g.gene));
       if (typeof next === 'string' || placementsOf([...groups, next]).length > MAX_PARTS) {
         message = 'Some parts came off: too many copies for this body.';
         continue;
@@ -455,8 +458,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       const i = groups.findIndex((g) => g.gene === gene);
       if (i >= 0) groups.splice(i, 1);
       else commit({ gene, x: 0, y: 0, angle: 0, scale: 1, repeat: 'single', n: 1 });
-    } else if (slot === 'membrane') commit(placeAt(cat, gene, Math.cos(at as number), Math.sin(at as number), symmetry(), arms, available(gene)));
-    else commit(placeAt(cat, gene, ...(at as readonly [number, number]), symmetry(), arms, available(gene)));
+    } else if (slot === 'membrane') commit(placeAt(cat, gene, Math.cos(at as number), Math.sin(at as number), symmetryOf(gene), arms, available(gene)));
+    else commit(placeAt(cat, gene, ...(at as readonly [number, number]), symmetryOf(gene), arms, available(gene)));
     render();
   };
 
@@ -743,7 +746,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const { bx, by } = toBody(e);
     if (Math.hypot(bx, by) > 1.6) return undefined;
     // A moved group keeps its own copies (they were already placed): only new ones must fit.
-    const g = placeAt(cat, d.gene, bx, by, symmetry(), arms, available(d.gene));
+    const g = placeAt(cat, d.gene, bx, by, symmetryOf(d.gene), arms, available(d.gene));
     if (typeof g === 'string') {
       message = g;
       return undefined;

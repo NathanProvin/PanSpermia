@@ -41,6 +41,13 @@ export interface Placement<G extends string = Gene> { gene: G; x: number; y: num
  * stores min(placed, maxCopies). Coats are whole-body: one at most.
  */
 export const MAX_PLACED = 6;
+/** Part prices × per tier (index = tier): each phase earns far more DNA than the last (user, 2026-10-19: children vs parts a real choice). */
+export const PART_PRICE_SCALE: readonly number[] = [1, 1, 4, 15, 50];
+/** Paired locomotion appendages of the animal phases: up to 4 pairs on a body (user direction); effect still caps at maxCopies. */
+export const LIMBS: readonly string[] = ['paddle', 'oars', 'lobopods', 'legs', 'fins'];
+export const MAX_LIMBS = 8;
+/** How many times a part may be placed: a coat once, a limb MAX_LIMBS, anything else MAX_PLACED. */
+export const maxPlacedOf = (gene: string, slot: Slot) => (slot === 'coat' ? 1 : LIMBS.includes(gene) ? MAX_LIMBS : MAX_PLACED);
 
 /** Most genes a catalog may hold: 26 base-4 digits stay below 2^53, exact in a double (the wire's number). */
 export const MAX_GENES = 26;
@@ -62,11 +69,13 @@ export const stack = (n: number) => (n > 0 ? (n + 1) / 2 : 0);
  * Genome helpers for one tier's part catalog. Each tier has its own catalog and genome field (tier 1:
  * `genome`, tier 2: `genome2`), so one tier's rules can never misread another tier's bits.
  */
-export function makeCatalog<const C extends Record<string, CatalogEntry>>(entries: C) {
+export function makeCatalog<const C extends Record<string, CatalogEntry>>(entries: C, priceScale = 1) {
   type G = keyof C & string;
   const NAMES = Object.keys(entries) as G[];
   if (NAMES.length > MAX_GENES) throw new Error(`a catalog holds at most ${MAX_GENES} genes`);
-  const GENES = Object.fromEntries(NAMES.map((g, index) => [g, { ...entries[g], index, bit: 4 ** index }])) as
+  // Prices scale with the phase's DNA income (PART_PRICE_SCALE), so a part stays worth weighing against a child.
+  const price = (p: number) => (priceScale === 1 ? p : Math.round((p * priceScale) / 5) * 5);
+  const GENES = Object.fromEntries(NAMES.map((g, index) => [g, { ...entries[g], price: price(entries[g]!.price), index, bit: 4 ** index }])) as
     { [K in G]: C[K] & { index: number; bit: number } };
   const copiesOf = (genome: number, gene: G) => Math.floor(genome / GENES[gene].bit) % 4;
   const withCopies = (genome: number, gene: G, n: number) =>

@@ -3,7 +3,7 @@
 // steer (no run-and-tumble: eukaryotes turn smoothly). Parts are added as their mechanics land.
 import { TIER3 } from './animal.ts';
 import { TIER4 } from './arthropod.ts';
-import { type Catalog, TIER1, bitsOf, makeCatalog } from './genes.ts';
+import { type Catalog, TIER1, bitsOf, makeCatalog, PART_PRICE_SCALE } from './genes.ts';
 
 export const TIER2 = makeCatalog({
   cilia: { upkeep: 0.03, price: 10, maxCopies: 3, slot: 'membrane', at: 2.0, label: 'Cilia' },
@@ -29,7 +29,7 @@ export const TIER2 = makeCatalog({
   theca: { upkeep: 0.03, price: 30, maxCopies: 1, slot: 'coat', at: 0, label: 'Theca' },
   // Ballistic harpoons: fired in front on left click (with any poison), a short, brutal burst.
   trichocysts: { upkeep: 0.03, price: 28, maxCopies: 2, slot: 'internal', at: [0.3, 0.28], label: 'Trichocysts' },
-});
+}, PART_PRICE_SCALE[2]);
 export type Gene2 = (typeof TIER2.NAMES)[number];
 
 /** A newly evolved eukaryote: a little cilia to steer and both mouths (omnivore) until the editor says otherwise. */

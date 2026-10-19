@@ -2,7 +2,7 @@
 // eukaryote's size. Filter combs sweep up specks (bacteria, algae, dissolved food) like a water flea;
 // mandibles bite: they swallow eukaryotes and smaller, and wound tier-3 rivals in front. Paddle legs steer
 // precisely, a tail drives fast in wide turns. The body is a chain of segments (P9b makes it editable).
-import { bitsOf, makeCatalog } from './genes.ts';
+import { bitsOf, makeCatalog, PART_PRICE_SCALE } from './genes.ts';
 
 export const TIER3 = makeCatalog({
   paddle: { upkeep: 0.15, price: 20, maxCopies: 3, slot: 'membrane', at: 1.6, label: 'Paddle legs' },
@@ -30,7 +30,7 @@ export const TIER3 = makeCatalog({
   tun: { upkeep: 0.1, price: 40, maxCopies: 1, slot: 'internal', at: [-0.3, -0.2], label: 'Tun' },
   // Lipid stores: a lower burn.
   oil: { upkeep: 0, price: 15, maxCopies: 3, slot: 'internal', at: [-0.2, 0.3], label: 'Oil droplets' },
-});
+}, PART_PRICE_SCALE[3]);
 export type Gene3 = (typeof TIER3.NAMES)[number];
 
 /** A newly evolved animal: paddles to steer, filter combs to feed, an eye (a water-flea larva). */
