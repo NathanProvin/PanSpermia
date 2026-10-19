@@ -1,4 +1,4 @@
-import { NUTRIENT_CAP, NUTRIENT_LIFETIME, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, TICK_RATE, currentAt, drift } from '@panspermia/shared';
+import { ALGA_BITES, NUTRIENT_CAP, NUTRIENT_LIFETIME, type Nutrient, NutrientKind, SEEP_COUNT, TICK_DT, TICK_RATE, currentAt, drift } from '@panspermia/shared';
 import { createSprites } from './sprites.ts';
 
 // Drifting packets in the focal plane, in one colour code: food is white or plant-coloured (dissolved motes, ragged
@@ -323,7 +323,7 @@ const SEEP_SIZE = 260;
 const SEEP_DEPTH = -15;
 
 /** `fx`, `fy`: the current where it was after its last drift (it glides on it until the next); flowTick < 0: none yet. */
-interface Packet { x: number; y: number; tick: number; born: number; kind: number; seed: number; fx: number; fy: number; flowTick: number }
+interface Packet { x: number; y: number; tick: number; born: number; kind: number; seed: number; fx: number; fy: number; flowTick: number; ref: Nutrient }
 /** World units beyond the view edge still drawn (the biggest sprite is a seep glow). */
 const VIEW_MARGIN = Math.max(SEEP_SIZE, FLORA_SIZE[NutrientKind.macroalga]! / 2);
 /**
@@ -353,7 +353,7 @@ export function createNutrients() {
     add(id: string, n: Nutrient) {
       // Wall seaweed's seed is its heading: its holdfast (the sprite's −x end) against the rock, its fronds into the water.
       const seed = n.kind === NutrientKind.wallAlga ? (((Math.PI - Math.atan2(n.y0, n.x0)) / (2 * Math.PI)) % 1 + 1) % 1 : (Number(id) * 0.618034) % 1;
-      packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, born: n.tick0, kind: n.kind, seed, fx: 0, fy: 0, flowTick: -1 });
+      packets.set(id, { x: n.x0, y: n.y0, tick: n.tick0, born: n.tick0, kind: n.kind, seed, fx: 0, fy: 0, flowTick: -1, ref: n });
     },
     /** Forget a packet; returns where it was last drawn (a cell eating it gets a gulp there). */
     remove(id: string) {
@@ -401,7 +401,8 @@ export function createNutrients() {
           flora.offsets[g * 3] = p.x + p.fx * ahead;
           flora.offsets[g * 3 + 1] = p.y + p.fy * ahead;
           flora.offsets[g * 3 + 2] = 0;
-          flora.sizes[g] = plant * Math.max(0.05, grow * (2 - grow)); // eased
+          const bitten = Math.max(0.35, Math.sqrt(1 - p.ref.bites / ALGA_BITES)); // a macroalga shrinks bite by bite
+          flora.sizes[g] = plant * bitten * Math.max(0.05, grow * (2 - grow)); // eased
           flora.seeds[g] = p.kind + p.seed;
           g++;
           continue;

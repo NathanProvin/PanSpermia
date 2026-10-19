@@ -7,7 +7,7 @@ export const TICK_DT = 1 / TICK_RATE;
 
 /** Pool radius, world units. */
 /** The pool's mean radius (rim.ts makes its shore irregular and cuts faults into it). */
-export const WORLD_RADIUS = 9750; // 1500 → 2200 (P8a) → 3000 (P9a) → 4500 (TIER_SCALE) → 6500 (P10a, tier 4) → 9750 (user: +50 %)
+export const WORLD_RADIUS = 14625; // 1500 → 2200 (P8a) → 3000 (P9a) → 4500 (TIER_SCALE) → 6500 (P10a, tier 4) → 9750 (user: +50 %) → 14625 (user: +50 %, 2026-10-19)
 /** Rates over the whole pool below were tuned for the 6500 pool: × its area growth keeps every density the same. */
 const AREA = (WORLD_RADIUS / 6500) ** 2;
 
@@ -103,9 +103,9 @@ export const PHAGE_BURST = 8; // phages released by a cell dying infected
 export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors a phage binds to
 
 /** Bots top a room up to this many cells (humans + bots); humans displace them as they join. */
-export const BOT_FILL = 50; // kept at 50 in the 4500 pool: 80 made the sim ~3× deadlier (2026-10-16); raise if the pool feels empty
+export const BOT_FILL = 80; // 50 until the 14625 pool (2026-10-19): ×2.25 area, more bots keep the encounters (user: more threats); 100 ran the server tick at ~30 ms of its 50
 /** Shares of BOT_FILL per tier (index = tier), humans counted in their tier: a population pyramid. Tier 4: humans and rare visitors. */
-export const PYRAMID: readonly number[] = [0, 8, 4, 2, 0];
+export const PYRAMID: readonly number[] = [0, 8, 5, 3, 0]; // 40 / 25 / 15 of 80: the bigger phases keep their density (threats), bacteria thin out
 /** New cells can't be hurt or infected, and bots don't hunt them, for this long (covers the meteor intro). */
 export const SPAWN_GRACE = 5; // s
 
@@ -136,7 +136,7 @@ export const MAX_PARTS = 24; // placements per design
  * mating, so their phase is at least a generation (~3–5 min): about one mating's GEN_DNA plus a few kills.
  */
 export const EVOLVE_DNA = 450;
-export const EVOLVE_DNA_T2 = 1300; // lifetime DNA for a eukaryote species to become an animal
+export const EVOLVE_DNA_T2 = 1950; // 1300 → +50 % (user, 2026-10-19: phase 2 → 3 too easy); // lifetime DNA for a eukaryote species to become an animal
 /** And for an animal species to walk onto land: the game won (user direction). */
 export const EVOLVE_DNA_T4 = 12000;
 export const EVOLVE_DNA_T3 = 3000; // and for an animal species to become an arthropod or mollusk
@@ -184,11 +184,14 @@ export const SPIRULINA_MASS = 12;
 export const SPIRULINA_RATE = (4) * AREA; // per s over the whole pool
 // Half as many as first tried, each worth twice as much (the same food): the plankton's view was crowded.
 export const DIATOM_MASS = 160; // ×2 (2026-10-19): plankton generations took 7–12 min (a phase is ~5); worth more, not more of them (crowding)
-export const DIATOM_RATE = (2) * AREA;
+export const DIATOM_RATE = (1.5) * AREA; // −25 % (user, 2026-10-19: harder)
 export const DINOFLAGELLATE_MASS = 240;
-export const DINOFLAGELLATE_RATE = (1.25) * AREA;
+export const DINOFLAGELLATE_RATE = (0.94) * AREA; // −25 %
 export const MACROALGA_MASS = 600; // ×2, as the plankton's plants
 export const MACROALGA_RATE = (0.5) * AREA;
+/** A macroalga (or wall seaweed) is bitten, not gulped (user: too strong): this many bites, one per eater per interval (s). */
+export const ALGA_BITES = 4;
+export const ALGA_BITE_INTERVAL = 1;
 /** The phase that can first take each plant in (kind → tier); plants not listed are eaten from tier 2 (algae, filaments). */
 export const PLANT_TIER: Readonly<Record<number, number>> = { 11: 2, 12: 3, 13: 3, 14: 4, 15: 4 };
 /** Seaweed attached along the shore (a macroalga's worth, never drifting), per s over the whole shore. */
@@ -257,7 +260,7 @@ export const T3_DRIFT = 0.15; // big animals barely drift
 export const T3_SWIM_CREEP = 0.3;
 export const T3_SWIM_PADDLE = 0.85; // × speedOf; precise steering
 export const T3_SWIM_TAIL = 1.3; // × speedOf; fast, turns at T3_TURN_RATE
-export const T3_TURN_RATE = 1.6; // rad/s with a tail and no paddles
+export const T3_TURN_RATE = 2.1; // rad/s with a tail and no paddles
 // Richer catalog, plankton (provisional until the balance step).
 /**
  * Filters (filter combs, setose oars, filtering tentacles) only feed while swimming — the stroke pushes the water through
@@ -279,7 +282,7 @@ export const OIL_METABOLISM = 0.15; // burn × (1 − this × stack(oil))
 export const CERATA_REFLECT = 0.35; // share of a bite's damage stung back into the biter, × stack(cerata)
 export const ANTENNA_SIGHT = 0.15; // the view widens this much more per stacked antenna pair (client)
 export const T4_SWIM_FINS = 1.15; // fins: fast and agile
-export const FIN_TURN = 2.0;
+export const FIN_TURN = 2.6;
 export const GILL_METABOLISM = 0.12; // burn × (1 − this × stack(gills))
 export const GILL_SPEED = 0.08; // swim × (1 + this × stack(gills))
 export const MANDIBLE_ARC = 0.7; // ± rad in front where jaws and mandibles bite (see BITE_*)
@@ -324,8 +327,8 @@ export const T4_SWIM_LEGS = 0.85; // walking legs: precise, like paddles
 export const T4_SWIM_TAILFAN = 1.3; // a tail fan: fast, turns at T4_TURN_RATE
 export const T4_SWIM_FOOT = 0.55; // a mollusk's muscular foot: slow and sure (it barely drifts)
 export const T4_SWIM_SIPHON = 1.35; // jet propulsion through a siphon: fast, turns at T4_TURN_RATE
-export const T4_TURN_RATE = 1.4; // rad/s with a tail fan or a siphon and nothing to steer with
-export const LEG_TURN = 2.2;
+export const T4_TURN_RATE = 1.8; // rad/s with a tail fan or a siphon and nothing to steer with
+export const LEG_TURN = 2.9;
 export const FOOT_DRIFT = 0.3; // × T4_DRIFT: a foot holds on
 /** Share of bite damage that gets through a hard exoskeleton, or a mollusk's shell (heavier: it slows the body). */
 export const EXOSKELETON_ARMOUR = 0.55;
@@ -340,13 +343,17 @@ export const INK_COOLDOWN = 10; // s
 export const INK_BOOST = 2.2; // × swim speed while dashing
 
 // Feel (movement polish): inertia and progressive turns. Gameplay over low-Reynolds realism: a cell's
-// velocity eases toward its propulsion with this time constant (s), per tier — bigger bodies feel heavier.
-export const INERTIA = [0, 0.3, 0.5, 0.8, 1];
+// velocity eases toward its propulsion with this time constant (s), per tier. Animals (tiers 3–4) were 0.8 / 1 s and slid
+// sideways after every turn (user: heavy, bumping left and right): now they swim on a keel — the forward speed eases at
+// INERTIA, the sideways part dies out within LATERAL_DAMP — and a hard turn sheds up to TURN_BRAKE of the swim.
+export const INERTIA = [0, 0.3, 0.5, 0.3, 0.35];
+export const LATERAL_DAMP = 0.1;
+export const TURN_BRAKE = 0.4;
 /** Turn rates (rad/s) of the steering motility types that used to turn instantly. */
 export const PILI_TURN = 4;
 export const CREEP_TURN = 2.5;
 export const CILIA_TURN = 3.5;
-export const PADDLE_TURN = 2.5;
+export const PADDLE_TURN = 3.2; // tier-3/4 turn rates ×1.3 (user, 2026-10-19: lighter, more agile)
 /** A tumble spins the cell round to its new random heading instead of jumping there (rad/s). */
 export const TUMBLE_SPIN = 14;
 // Collisions: overlapping cells push apart (by mass) and bounce.

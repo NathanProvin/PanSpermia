@@ -48,10 +48,15 @@ export const BOT_SPECIES: readonly Species[] = [
   { name: 'Amoebina vorax', tier: 2, archetype: 'hunter', genes: ['jaw', 'filter', 'cilia', 'cilia', 'mitochondrion'], shape: 0 }, // eats anything
   { name: 'Didinia ferox', tier: 2, archetype: 'hunter', genes: ['jaw', 'spike', 'spike', 'flagellum', 'cilia', 'mitochondrion'], shape: 0 },
   { name: 'Fulgur timidus', tier: 2, archetype: 'coward', genes: ['filter', 'cilia', 'cilia', 'jet', 'electric', 'eye'], shape: 1 },
+  // More threats (user, 2026-10-19: feel the law of the jungle): a fast spiked stalker.
+  { name: 'Lacrymaria olor', tier: 2, archetype: 'hunter', genes: ['jaw', 'spike', 'flagellum', 'flagellum', 'cilia', 'eye'], shape: 2 },
   // P9d — animals: a water flea sieving the water, a long rotifer hunting with mandibles, a radial predator.
   // A water flea on its setose oars (reworked with the richer catalog): jumps and glides, sieves, armoured.
   { name: 'Daphnia errans', tier: 3, archetype: 'grazer', genes: ['oars', 'oars', 'filterComb', 'carapace', 'eye', 'oil'], shape: 0, plan: 0, radii: [0.5, 0.85, 0.45] },
   { name: 'Rotifera rapax', tier: 3, archetype: 'hunter', genes: ['mandible', 'filterComb', 'tail', 'eye'], shape: 1, plan: 0, radii: [0.55, 0.6, 0.5, 0.4, 0.3] },
+  // A copepod: rows fast on its oars, grabs with two pairs of mandibles (more threats, 2026-10-19).
+  { name: 'Cyclops furax', tier: 3, archetype: 'hunter', genes: ['mandible', 'mandible', 'oars', 'oars', 'muscles', 'eye'], shape: 0, plan: 0,
+    radii: [0.55, 0.7, 0.5, 0.35, 0.25] },
   { name: 'Hydrina stellata', tier: 3, archetype: 'hunter', genes: ['mandible', 'paddle', 'paddle', 'paddle'], shape: 0, plan: 1, radii: [0.6, 0.4, 0.4, 0.4, 0.4, 0.4] },
   // Rare visitors (user direction). Plankton: a thrashing predatory nematode, a mosquito larva sieving the water, a
   // dragonfly nymph's grasping jaws on clawed legs.

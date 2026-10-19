@@ -15,7 +15,7 @@ import {
   Cloud, INK, REGEN_DELAY, T6SS_DPS, TOXINS, cloudDps, cloudRadius, contactFactor, healthMaxOf, toxinFactor,
   CAPSULE_PHAGE_BLOCK, GENES, GENE_NAMES, PHAGE_BURST, PHAGE_CLEARANCE, PHAGE_DPS, PHAGE_LATENT, PHAGE_RATE,
   PLASMID_RATE, TRANSFORM_CHANCE, PLASMID_UNLOCK_CHANCE, CYANO_MASS, CYANO_RATE, HYPHA_MASS, HYPHA_RATE, SPIRULINA_MASS, SPIRULINA_RATE, DIATOM_MASS,
-  DIATOM_RATE, DINOFLAGELLATE_MASS, DINOFLAGELLATE_RATE, MACROALGA_MASS, MACROALGA_RATE, PLANT_TIER, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
+  DIATOM_RATE, DINOFLAGELLATE_MASS, DINOFLAGELLATE_RATE, MACROALGA_MASS, MACROALGA_RATE, ALGA_BITES, ALGA_BITE_INTERVAL, PLANT_TIER, BACKGROUND_RATE, DEBRIS_MASS, DEBRIS_SHARE, EXOENZYME_YIELD, HEALTH_MAX,
   HEALTH_REGEN, MASS_CAP, METABOLISM_BASE, METABOLISM_RATE, MIN_MASS, NUTRIENT_CAP, NUTRIENT_LIFETIME, NUTRIENT_MASS, Nutrient, NutrientKind, Player,
   type Gene, type PoolState, SEEP_COUNT, SEEP_LIFETIME, SEEP_RATE, SEEP_SPREAD, SIDEROPHORE_REACH, SPAWN_MASS, STARTER_GENOME,
   EXOSKELETON_ARMOUR, SHELL_ARMOUR, STARTER_GENOME4, STARTER_LIBRARY4, T4_METABOLISM_BASE, T4_METABOLISM_RATE, TIER4,
@@ -209,7 +209,7 @@ const PARASITES: Readonly<Record<number, { gene: string; host: (h: Player, p: Pl
 };
 
 /** A mouth that bites (and swallows): a eukaryote's jaw, an animal's mandibles, an arthropod's claws or a mollusk's beak. */
-const bitesWith = (p: Player) => p.tier === 2 ? TIER2.hasGene(p.genome2, 'jaw') : p.tier === 3 ? TIER3.hasGene(p.genome3, 'mandible')
+export const bitesWith = (p: Player) => p.tier === 2 ? TIER2.hasGene(p.genome2, 'jaw') : p.tier === 3 ? TIER3.hasGene(p.genome3, 'mandible')
   : p.tier === 4 && hunts4(p.genome4);
 /** Share of a bite's damage that gets through: a carapace, an exoskeleton, a shell; a bacterium's thick wall. */
 function armourOf(v: Player) {
@@ -267,9 +267,11 @@ function bite(state: PoolState, tick: number) {
   }
 }
 
-/** DNA to a lineage (bots have none). */
 /** DNA bots would have earned (they have no lineage): the balance sim reads it. Weak: a dead cell is a new Player. */
 export const botDna = new WeakMap<Player, number>();
+/** A tier-4 grazer bites a macroalga at most once per ALGA_BITE_INTERVAL: the tick of its next bite. */
+const nextAlgaBite = new WeakMap<Player, number>();
+/** DNA to a lineage (bots have none). */
 function earn(state: PoolState, id: string, dna: number) {
   const l = state.lineages.get(id);
   if (!l) {
@@ -672,8 +674,14 @@ export const MOUTHS: Readonly<Record<number, Readonly<Record<string, Mouth>>>> =
     polypTentacles: { food: () => 0, swallows: [2, 3], out: 0.4, reach: 0.55 },
   },
 };
-const mouthsIn = (tier: number, genome: number) =>
-  Object.entries(MOUTHS[tier] ?? {}).filter(([g]) => catalogFor(tier).copiesOf(genome, g) > 0).map(([, m]) => m);
+/** The mouths a design carries, memoized by tier and genome (asked per packet and per pair: the hot path). */
+const mouthMemo = [0, 1, 2, 3, 4].map(() => new Map<number, Mouth[]>()); // per tier, by genome (genomes reach 2^52)
+const mouthsIn = (tier: number, genome: number) => {
+  const memo = mouthMemo[tier] ?? new Map<number, Mouth[]>();
+  let m = memo.get(genome);
+  if (!m) memo.set(genome, (m = Object.entries(MOUTHS[tier] ?? {}).filter(([g]) => catalogFor(tier).copiesOf(genome, g) > 0).map(([, x]) => x)));
+  return m;
+};
 /** What one packet is worth to an animal: the best of its mouthparts. */
 export const yield3Of = (kind: number, genome3: number) => Math.max(0, ...mouthsIn(3, genome3).map((m) => m.food(kind)));
 export const yield4Of = (kind: number, genome4: number) => Math.max(0, ...mouthsIn(4, genome4).map((m) => m.food(kind)));
@@ -858,7 +866,12 @@ export function stepWorld(state: PoolState): Death[] {
           }
         } else {
           // Eukaryotes and animals eat by mouth; phages (bacteria-only viruses) drift past.
-          p.mass = Math.min(massCapOf(p.tier), p.mass + food);
+          if (n.kind === NutrientKind.macroalga || n.kind === NutrientKind.wallAlga) { // bitten, not gulped: ALGA_BITES, one per interval
+            if (tick < (nextAlgaBite.get(p) ?? 0)) return;
+            nextAlgaBite.set(p, tick + ALGA_BITE_INTERVAL * TICK_RATE);
+            p.mass = Math.min(massCapOf(p.tier), p.mass + food / ALGA_BITES);
+            if (++n.bites < ALGA_BITES) return; // still there for the next bite (anyone's)
+          } else p.mass = Math.min(massCapOf(p.tier), p.mass + food);
           // A chunk of a dead eukaryote may carry one of its parts (Spore: eat a creature, get its part).
           if (l?.tier === 2 && p.tier === 2 && n.gene && Math.random() < TRANSFORM_CHANCE) l.library = withBit(l.library, n.gene);
         }
@@ -888,14 +901,16 @@ export function stepWorld(state: PoolState): Death[] {
   // of the eater's mass whose centre it covers — bacteria are snacks. A eukaryote engulfs with its whole body;
   // an animal only with its mouth, at the head (else a big animal vacuums up everything it swims over).
   // Endospores resist digestion; cysts and newborns are shielded.
-  // ponytail: O(players²), fine at 80; use a grid when bot counts rise.
+  // ponytail: O(players²) with a cheap distance cut, fine at 100; use a grid when counts rise further.
   for (const [eid, e] of state.players) {
     if (e.tier < 2 || dormant(e) || e.engulfedBy || isMate(eid)) continue;
     const r = radiusOf(e.mass, e.tier);
     const mouth = r * EUK_MOUTH;
     const mouths = isAnimal(e.tier) ? mouthPointsOf(state, eid, e) : [];
     const sieve = isAnimal(e.tier) ? sieveOf(e) : 0;
+    const near2 = (r * 3) ** 2; // beyond every mouthpart's reach plus a swallowable victim (≤ ½ the mass: radius < r)
     for (const [vid, v] of state.players) {
+      if ((v.x - e.x) ** 2 + (v.y - e.y) ** 2 > near2) continue; // cheap first: 100 bots make this loop 10k pairs a tick
       if (vid === eid || v.engulfedBy || dormant(v) || tick < v.graceUntil || !swallows(e, v)) continue;
       let share = 1;
       if (isAnimal(e.tier)) { // a mouthpart that takes this tier must touch it; a filter only works while swimming
@@ -969,12 +984,14 @@ export function stepWorld(state: PoolState): Death[] {
       }
     }
     for (const [aid, a] of state.players) {
+      const t6ss = hasGene(a.genome, 't6ss');
+      if (!t6ss && a.tier !== 2) continue; // only these hurt by contact: skip the rest before any maths
       if (aid === id || dormant(a) || isMate(aid) || outranks(p, a.tier)) continue;
       const ra = radiusOf(a.mass, a.tier);
       const dx = p.x - a.x;
       const dy = p.y - a.y;
       const d = Math.hypot(dx, dy);
-      if (hasGene(a.genome, 't6ss') && d < (ra + r) * 1.08) { // collisions hold cells at touching distance
+      if (t6ss && d < (ra + r) * 1.08) { // collisions hold cells at touching distance
         hurt(p, T6SS_DPS * stack(copiesOf(a.genome, 't6ss')) * contactFactor(p.genome) * TICK_DT, aid, tick);
       }
       if (a.tier !== 2) continue; // animals fight by biting (see bite)

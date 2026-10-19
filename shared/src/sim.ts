@@ -6,7 +6,7 @@ import {
   JET_COOLDOWN, JET_TIME, MITO_SPEED, THECA_SWIM, TUN_TIME, TUN_COOLDOWN, T3_SWIM_OARS, OAR_STROKES, MUSCLE_SWIM,
   T3_SWIM_LOBOPOD, LOBOPOD_DRIFT, T4_SWIM_FINS, FIN_TURN, GILL_SPEED, T3_DRIFT, T3_MASS_CAP, T3_MIN_MASS, T3_SPAWN_MASS, T3_SPEED_COEF, T3_SWIM_CREEP,
   T3_SWIM_PADDLE, T3_SWIM_TAIL, T3_TURN_RATE, EVOLVE_DNA, EVOLVE_DNA_T2, RUN_TURN_RATE, SPEED_COEF, SPEED_EXP, SWIM_CREEP, SWIM_FLAGELLUM, SWIM_PILI,
-  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, CILIA_TURN, CREEP_TURN, INERTIA, PADDLE_TURN,
+  TUMBLE_ANGLE, TUMBLE_ERROR, TUMBLE_ERROR_CHEMO, TUMBLE_TIME, TIER_SCALE, CILIA_TURN, CREEP_TURN, INERTIA, LATERAL_DAMP, TURN_BRAKE, PADDLE_TURN,
   PILI_TURN, TUMBLE_SPIN, EVOLVE_DNA_T3, EVOLVE_DNA_T4, FOOT_DRIFT, LEG_TURN, T4_DRIFT, T4_MASS_CAP, T4_MIN_MASS, T4_SPAWN_MASS, T4_SPEED_COEF,
   T4_SWIM_CREEP, T4_SWIM_FOOT, T4_SWIM_LEGS, T4_SWIM_SIPHON, T4_SWIM_TAILFAN, T4_TURN_RATE, EXOSKELETON_SWIM, SHELL_SWIM, INK_BOOST, INK_COOLDOWN, INK_TIME,
 } from './constants.ts';
@@ -86,10 +86,12 @@ export interface CellBody {
   aim: number;
 }
 
-/** Turn the heading toward `want` at most `rate`·dt: no body ever snaps round. */
+/** Turn the heading toward `want` at most `rate`·dt: no body ever snaps round. Returns the share of the rate used (0–1). */
 function turnToward(b: CellBody, want: number, rate: number, dt: number) {
   const diff = wrapAngle(want - b.heading);
-  b.heading = wrapAngle(b.heading + Math.sign(diff) * Math.min(Math.abs(diff), rate * dt));
+  const step = Math.min(Math.abs(diff), rate * dt);
+  b.heading = wrapAngle(b.heading + Math.sign(diff) * step);
+  return rate * dt > 0 ? step / (rate * dt) : 0;
 }
 const flow = { x: 0, y: 0 };
 
@@ -196,7 +198,7 @@ function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number
   const lobopods = TIER3.copiesOf(genome3, 'lobopods');
   let swim = 0;
   if (throttle > 0 && b.spore === 0) {
-    turnToward(b, want, tails && !paddles && !oars && !lobopods ? T3_TURN_RATE : PADDLE_TURN, dt);
+    const turning = turnToward(b, want, tails && !paddles && !oars && !lobopods ? T3_TURN_RATE : PADDLE_TURN, dt);
     swim = tails ? T3_SWIM_TAIL * (1 + FLAGELLUM_STACK * (stack(tails) - 1))
       : paddles ? T3_SWIM_PADDLE * (1 + FLAGELLUM_STACK * (stack(paddles) - 1))
       : lobopods ? T3_SWIM_LOBOPOD * (1 + FLAGELLUM_STACK * (stack(lobopods) - 1)) : T3_SWIM_CREEP;
@@ -204,7 +206,7 @@ function stepAnimal(b: CellBody, mass: number, genome3: number, throttle: number
       const stroke = Math.max(0, Math.sin(2 * Math.PI * OAR_STROKES * time)) ** 2;
       swim = Math.max(swim, T3_SWIM_OARS * (1 + FLAGELLUM_STACK * (stack(oars) - 1)) * (0.45 + 1.1 * stroke));
     }
-    swim *= 1 + MUSCLE_SWIM * stack(TIER3.copiesOf(genome3, 'muscles'));
+    swim *= (1 + MUSCLE_SWIM * stack(TIER3.copiesOf(genome3, 'muscles'))) * (1 - TURN_BRAKE * turning); // a hard turn sheds speed
   }
   move(b, mass, 3, swim * throttle * speedOf(mass, 3), T3_DRIFT * (lobopods ? LOBOPOD_DRIFT : 1), dt, time, INERTIA[3]!);
 }
@@ -231,11 +233,11 @@ function stepArthropod(
   const fins = TIER4.copiesOf(genome4, 'fins');
   let swim = 0;
   if (throttle > 0) {
-    turnToward(b, want, legs ? LEG_TURN : fins ? FIN_TURN : foot ? CREEP_TURN : fan || siphon ? T4_TURN_RATE : CREEP_TURN, dt);
+    const turning = turnToward(b, want, legs ? LEG_TURN : fins ? FIN_TURN : foot ? CREEP_TURN : fan || siphon ? T4_TURN_RATE : CREEP_TURN, dt);
     swim = Math.max(T4_SWIM_CREEP, fan ? T4_SWIM_TAILFAN : 0, siphon ? T4_SWIM_SIPHON : 0, foot ? T4_SWIM_FOOT : 0,
       legs ? T4_SWIM_LEGS * (1 + FLAGELLUM_STACK * (stack(legs) - 1)) : 0,
       fins ? T4_SWIM_FINS * (1 + FLAGELLUM_STACK * (stack(fins) - 1)) : 0);
-    swim *= 1 + GILL_SPEED * stack(TIER4.copiesOf(genome4, 'gills'));
+    swim *= (1 + GILL_SPEED * stack(TIER4.copiesOf(genome4, 'gills'))) * (1 - TURN_BRAKE * turning);
   }
   swim *= (TIER4.hasGene(genome4, 'exoskeleton') ? EXOSKELETON_SWIM : 1) * (TIER4.hasGene(genome4, 'shell') ? SHELL_SWIM : 1);
   if (b.dash > 0) swim = Math.max(swim, T4_SWIM_LEGS) * INK_BOOST; // the squirt pushes even a creeping snail
@@ -248,8 +250,18 @@ function stepArthropod(
  */
 function move(b: CellBody, mass: number, tier: number, v: number, drift: number, dt: number, time: number, inertia: number) {
   const k = 1 - Math.exp(-dt / inertia);
-  b.vx += (Math.cos(b.heading) * v - b.vx) * k;
-  b.vy += (Math.sin(b.heading) * v - b.vy) * k;
+  const c = Math.cos(b.heading);
+  const s = Math.sin(b.heading);
+  if (tier >= 3) { // a keel: the forward speed eases toward v, the sideways slide dies out fast (LATERAL_DAMP)
+    const along = b.vx * c + b.vy * s;
+    const across = (b.vy * c - b.vx * s) * Math.exp(-dt / LATERAL_DAMP);
+    const fwd = along + (v - along) * k;
+    b.vx = c * fwd - s * across;
+    b.vy = s * fwd + c * across;
+  } else {
+    b.vx += (c * v - b.vx) * k;
+    b.vy += (s * v - b.vy) * k;
+  }
   currentAt(b.x, b.y, time, flow);
   b.x += (b.vx + flow.x * drift) * dt;
   b.y += (b.vy + flow.y * drift) * dt;

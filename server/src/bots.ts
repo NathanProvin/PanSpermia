@@ -9,7 +9,7 @@ import {
   PYRAMID, isMate,
 } from '@panspermia/shared';
 import { type PacketGrid, buildGrid, grids, near } from './grid.ts';
-import { type Death, spawnPointFor, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
+import { type Death, bitesWith, spawnPointFor, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
 
 export interface Brain {
   species: number; // index into BOT_SPECIES
@@ -30,7 +30,9 @@ export interface Brain {
 }
 export type Bots = Map<string, Brain>;
 
-const SIGHT = [0, 350, 650, 1100, 1800]; // per tier: bigger bodies sense a bigger world
+const SIGHT = [0, 350, 650, 1100, 1800]; // per tier: bigger bodies sense a bigger world (food)
+/** Prey and threats are spotted farther than food (2026-10-19: more threats; scanning packets that far was costly). */
+const PREY_SIGHT = [0, 350, 900, 1500, 1800];
 /** Fear and firing distances grow with the body, per tier. */
 const SCALE = [0, 1, 2, 3.5, 5];
 const THINK_TICKS = 4; // 5 Hz reactions, and 4× cheaper perception
@@ -43,10 +45,18 @@ const GRAZER_FEAR = 200; // grazers keep this gap from armed cells at least half
 const COWARD_FEAR = 250; // cowards keep this gap from any foreigner (×tier)
 /** Hunters stop hunting when this well fed, as a share of their tier's cap (they graze, divide, get hungry again). */
 const HUNT_UNTIL = 0.7;
+/** Hunters of tiers 2–3 hunt on almost to their cap (user, 2026-10-19: more motivated, the law of the jungle). */
+const HUNT_UNTIL_T23 = 0.95;
+/**
+ * A hunter of tiers 2–3 also goes for a rival of its own tier too big to swallow but no bigger than itself and unarmed (no
+ * jaw, mandibles or weapon): the grazers of its phase, players included, are bitten down. Armed rivals at 1.3× killed off
+ * every hunter in the sim (81 lives a generation).
+ */
+const RIVAL_RATIO = 1;
 /** Phagocytosis takes time: a eukaryote hunter rests this long after each swallow (caps its kill rate). */
-const DIGEST_TICKS = 6 * 20;
+const DIGEST_TICKS = 3 * 20; // 6 s until 2026-10-19 (more threats)
 /** An animal hunter rests longer after a meal: a few predators must not empty the pool. */
-const DIGEST_TICKS_T3 = 8 * 20; // 30 s until 2026-10-19: hunters took 6–7 min a generation (the pyramid gives them more prey)
+const DIGEST_TICKS_T3 = 6 * 20; // 30 → 8 → 6 s (2026-10-19): slow hunter generations, then more threats (4 s emptied the eukaryotes)
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */
@@ -222,6 +232,7 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   }
   const t2 = p.tier >= 2; // eukaryotes and animals: eat by mouth, swallow prey, no bacterial toxins
   const sight = SIGHT[p.tier]!;
+  const preySight = PREY_SIGHT[p.tier]!;
   const scale = SCALE[p.tier]!;
   const r = radiusOf(p.mass, p.tier);
   let sx = 0;
@@ -261,7 +272,7 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   sy += fy;
 
   // Other cells: prey, threats, kin.
-  let prey: { d: number; x: number; y: number } | undefined;
+  let prey: { d: number; reach: number; x: number; y: number } | undefined;
   let fleeing = false;
   let kinX = 0;
   let kinY = 0;
@@ -273,7 +284,9 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   const grazes = p.tier === 4 ? grazes4(p.genome4) : p.tier === 3 ? TIER3.hasGene(p.genome3, 'filterComb') : !t2 || TIER2.hasGene(p.genome2, 'filter');
   const fed = state.tick < b.fedUntil;
   // Animals always digest after a meal; grazing eukaryotes and bacteria hunt until well fed.
-  const hungry = isAnimal(p.tier) ? !fed && p.mass < massCapOf(p.tier) * HUNT_UNTIL : grazes ? p.mass < massCapOf(p.tier) * HUNT_UNTIL : !fed;
+  const until = p.tier === 2 || p.tier === 3 ? HUNT_UNTIL_T23 : HUNT_UNTIL;
+  const hungry = isAnimal(p.tier) ? !fed && p.mass < massCapOf(p.tier) * until : grazes ? p.mass < massCapOf(p.tier) * until : !fed;
+  const fights = (p.tier === 2 || p.tier === 3) && bitesWith(p);
   let swallowerClose = false;
   const inked = [...state.clouds.values()].some((c) => c.kind === INK); // rare: skip the per-cell check otherwise
   let host: { d: number; dx: number; dy: number; r: number } | undefined; // a parasite's target
@@ -283,7 +296,7 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
     const dx = o.x - p.x;
     const dy = o.y - p.y;
     const d = Math.hypot(dx, dy) || 1;
-    if (d > sight) continue;
+    if (d > preySight) continue;
     if (bots.get(oid)?.species === b.species) {
       kinX += dx;
       kinY += dy;
@@ -298,8 +311,11 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
     // Eukaryote and animal hunters chase what their mouth can swallow; bacterial hunters what's clearly smaller.
     // Animals only chase eukaryotes and smaller animals: bacteria are swept up in passing, not hunted.
     const catchable = t2 ? swallows(p, o) && (!isAnimal(p.tier) || o.tier >= 2) : o.mass < p.mass * PREY_RATIO;
-    const isPrey = archetype === 'hunter' && hungry && catchable && o.spore === 0 && o.cyst === 0 && o.cocoon === 0 && state.tick >= o.graceUntil;
-    if (isPrey && d < (prey?.d ?? Infinity)) prey = { d, x: dx / d, y: dy / d };
+    // Too big to swallow but its own tier and not much bigger: a biteable rival, chased at half the priority of a mouthful.
+    const rival = fights && !catchable && o.tier === p.tier && o.mass <= p.mass * RIVAL_RATIO && !bitesWith(o) && !armed(o); // kin skipped above
+    const isPrey = archetype === 'hunter' && hungry && (catchable || rival) && o.spore === 0 && o.cyst === 0 && o.cocoon === 0 && state.tick >= o.graceUntil;
+    const reach = rival ? d * 2 : d;
+    if (isPrey && reach < (prey?.reach ?? Infinity)) prey = { d, reach, x: dx / d, y: dy / d };
     // Everyone flees a jawed eukaryote or an animal big enough to swallow them.
     const swallower = swallows(o, p);
     // A eukaryote coward fears other eukaryotes, not the bacteria it towers over.

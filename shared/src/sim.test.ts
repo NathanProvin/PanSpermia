@@ -228,3 +228,27 @@ test('shapes: deform and undeform are inverses; a round body is the identity', a
   expect(deform(0, 0.3, -0.4, 1.2)).toEqual({ x: 0.3, y: -0.4, angle: 1.2 });
   expect(deform(1, 1, 0).x).toBeGreaterThan(1.4); // a rod is long
 });
+
+test('animals swim on a keel: no sideways slide after a turn, and a hard turn sheds speed', async () => {
+  const { TIER3 } = await import('./animal.ts');
+  const { T3_SPAWN_MASS } = await import('./constants.ts');
+  const paddles = TIER3.genomeOf(['paddle', 'paddle']);
+  const run = (b: CellBody, steps: number, want: (b: CellBody) => number) => {
+    for (let i = 0; i < steps; i++) {
+      const a = want(b);
+      stepCell(b, T3_SPAWN_MASS, 0, Math.cos(a), Math.sin(a), 0, DT, T, 3, 0, paddles);
+    }
+  };
+  const b = cell({ x: 0, y: 0 });
+  run(b, 100, () => 0); // cruising along +x
+  run(b, 20, () => Math.PI / 2); // then 1 s steering a quarter turn left
+  const speed = Math.hypot(b.vx, b.vy);
+  const across = Math.abs(b.vy * Math.cos(b.heading) - b.vx * Math.sin(b.heading));
+  expect(across).toBeLessThan(0.05 * speed); // it goes where its head points (0.8 s isotropic inertia slid on)
+  // Always turning at full rate (want 90° off the heading) vs straight on.
+  const circling = cell({ x: 0, y: 0 });
+  run(circling, 100, (c) => c.heading + Math.PI / 2);
+  const straight = cell({ x: 0, y: 0 });
+  run(straight, 100, () => 0);
+  expect(Math.hypot(circling.vx, circling.vy)).toBeLessThan(0.75 * Math.hypot(straight.vx, straight.vy));
+});

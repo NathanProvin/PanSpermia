@@ -4,7 +4,7 @@ import {
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, rimAt, FAULTS, keepInPool, insidePool, FAULT_SPAWN, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
-  EVOLVE_DNA_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf, PART_PRICE_SCALE,
+  EVOLVE_DNA_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf, PART_PRICE_SCALE, ALGA_BITES, ALGA_BITE_INTERVAL, MACROALGA_MASS,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -58,7 +58,7 @@ test('packets dissolve with age and against the rock', () => {
   expect(state.nutrients.has(old)).toBe(true);
   for (let i = 0; i < NUTRIENT_LIFETIME * TICK_RATE; i++) stepWorld(state);
   expect(state.nutrients.has(old)).toBe(false);
-});
+}, 20_000); // steps an empty pool for seconds: the 14625 pool spawns 2.25× the packets
 
 test('cells absorb food within reach only', () => {
   const { state, player } = worldWith();
@@ -423,7 +423,7 @@ test('reaching the cap starts a shielded division cyst; timing out hatches the o
   expect(child).not.toBe(player);
   expect(child.mass).toBeCloseTo(SPAWN_MASS, 1); // hatched ~0.1 s ago
   expect([child.genome, lineage.generation]).toEqual([STARTER_GENOME, 2]);
-});
+}, 20_000); // steps an empty pool for seconds: the 14625 pool spawns 2.25× the packets
 
 test('symmetry: a part may be placed up to MAX_PLACED times, paid per placement, its effect capped at maxCopies', () => {
   const { state, player, lineage } = species();
@@ -517,7 +517,7 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
   expect([lineage.genome, lineage.hue, lineage.children, lineage.generation])
     .toEqual([GENES.flagellum.bit, 0.2, STARTER_CHILDREN + 1, 2]);
   expect(lineage.dna).toBe(100 - (GENES.flagellum.price - GENES.pili.price) - CHILD_PRICE[1]!);
-});
+}, 20_000); // steps an empty pool for seconds: the 14625 pool spawns 2.25× the packets
 
 // --- Names, kills, evolution ----------------------------------------------------------------------
 
@@ -1411,4 +1411,20 @@ test('a design places at most two mouthparts, all kinds together', () => {
   const design = (parts: unknown[]) => ({ parts, hue: 0.1, children: 0, name: lineage.name });
   expect(submitDesign(state, 'p', design([at('filter', 0, 0), at('jaw', 0.5, 1), at('pallium', -0.5, 2)]), false)).toBe('at most 2 mouthparts');
   expect(submitDesign(state, 'p', design([at('filter', 0, 0), at('jaw', 0.5, 1), at('cilia', 2, 2)]), false)).toBeUndefined();
+});
+
+test('a macroalga is bitten, not gulped: ALGA_BITES bites, one per ALGA_BITE_INTERVAL', () => {
+  const grazer = Object.assign(spawnPlayer(), { tier: 4, genome: 0, genome4: TIER4.genomeOf(['radula']), mass: 7000, health: T4_HEALTH_MAX, x: 0, y: 0, heading: 0 });
+  const { state } = worldWith(grazer);
+  const id = foodAt(state, radiusOf(7000, 4) * (animalRim(0, DEFAULT_SEGMENTS) + MOUTH_OUT), 0, NutrientKind.macroalga);
+  const bites: number[] = [];
+  let last = grazer.mass;
+  for (let t = 0; t < ALGA_BITES * ALGA_BITE_INTERVAL * TICK_RATE; t++) {
+    stepWorld(state);
+    if (grazer.mass - last > 1) bites.push(Math.round(grazer.mass - last));
+    last = grazer.mass;
+    if (bites.length < ALGA_BITES) expect(state.nutrients.has(id)).toBe(true);
+  }
+  expect(bites).toEqual(Array(ALGA_BITES).fill(Math.round(MACROALGA_MASS / ALGA_BITES)));
+  expect(state.nutrients.has(id)).toBe(false);
 });

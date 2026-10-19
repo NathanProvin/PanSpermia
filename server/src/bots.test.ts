@@ -1,4 +1,4 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, MAX_MOUTHS, MOUTH_PARTS, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, MAX_MOUTHS, MOUTH_PARTS, TIER3, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
 
 const genomeOf = (s: (typeof BOT_SPECIES)[number]) => catalogFor(s.tier).genomeOf(s.genes);
 import { expect, test } from 'vitest';
@@ -42,12 +42,12 @@ test('bots top up and trim to the target, every species represented', () => {
 test('bots fill a population pyramid, humans counted in their tier', () => {
   const state = new PoolState();
   const bots: Bots = new Map();
-  for (const [i, tier] of [1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4].entries()) state.players.set('human' + i, Object.assign(spawnPlayer(), { tier }));
+  for (const [i, tier] of [1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4].entries()) state.players.set('human' + i, Object.assign(spawnPlayer(), { tier }));
   fillBots(state, bots, 50);
   const count = (t: number) => [...state.players.values()].filter((p) => p.tier === t).length;
-  expect([count(1), count(2), count(3), count(4)]).toEqual([29, 14, 8, 1]); // 8 humans overflow tier 3's quota of 7: none displaced
+  expect([count(1), count(2), count(3), count(4)]).toEqual([25, 16, 10, 1]); // 10 humans overflow tier 3's quota of 9: none displaced
   fillBots(state, bots, 50); // steady: nothing changes
-  expect(bots.size).toBe(29 - 1 + 14 - 2);
+  expect(bots.size).toBe(25 - 1 + 16 - 2);
 });
 
 test('a grazer swims to food', () => {
@@ -145,4 +145,12 @@ test('rare species visit on their own schedule, a polyp fixed to the shore, and 
   state.tick = Math.max(...visitors.map((b) => b.leaveAt!));
   stepVisitors(state, bots);
   expect([...bots.values()].filter((b) => b.leaveAt !== undefined && b.leaveAt <= state.tick).length).toBe(0);
+});
+
+test('a plankton hunter goes for a rival of its tier it can bite, not only for what it can swallow', () => {
+  const { state, bots, brain } = withBot('Cyclops furax', 3000);
+  const rival = Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3: TIER3.genomeOf(['filterComb', 'paddle']), mass: 2500, x: 1000, y: 0, graceUntil: 0 });
+  state.players.set('rival', rival);
+  stepBots(state, bots);
+  expect(brain.dirX).toBeGreaterThan(0.9);
 });

@@ -16,7 +16,7 @@ const STRAIGHTEN = 1.5;
 const MAX_JOINT = 0.45;
 const MAX_CURL = 1.2;
 /** Swimming undulation: a wave running head to tail (rad of bend, rad/s of phase idle → full swim, rad per link). */
-const WAVE_AMP = [0.03, 0.22];
+const WAVE_AMP = [0.03, 0.12]; // 0.22 until 2026-10-19: big bodies wagged left and right (user)
 const WAVE_RATE = [1.5, 8];
 const WAVE_LAG = 1.1;
 /** 1/s and the most a radial lobe strays from its rest spot (× its distance from the centre). */

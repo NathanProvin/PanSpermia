@@ -78,6 +78,8 @@ export const Nutrient = schema({
   y0: t.float32(),
   tick0: t.uint32(),
   kind: t.uint8(),
+  /** Bites taken out of a macroalga (ALGA_BITES eat it up): clients shrink it. */
+  bites: t.uint8().default(0),
   // Server-side: the GENES bit a fragment or plasmid carries, and the current position. Never sent.
   gene: t.number().noSync().default(0),
   x: t.number().noSync(),

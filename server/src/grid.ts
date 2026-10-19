@@ -3,7 +3,7 @@
 // cost more than drifting them (P10a profile).
 import { type Nutrient, type PoolState, RIM_MAX } from '@panspermia/shared';
 
-const CELL = 160; // 80 before the pool grew to 9750 (+ faults): the per-tick clear and prefix sum scale with SIDE²
+const CELL = 240; // 80 before the pool grew to 9750, 160 before 14625 (+ faults): the per-tick clear and prefix sum scale with SIDE²
 const SIDE = Math.ceil((2 * RIM_MAX) / CELL) + 1; // the farthest water (a fault's tip)
 const cellOf = (v: number) => Math.min(SIDE - 1, Math.max(0, Math.floor((v + RIM_MAX) / CELL)));
 
