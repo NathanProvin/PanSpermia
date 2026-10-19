@@ -434,3 +434,8 @@ On its own branch (user: may be breaking), not merged.
 - **Flaky polyp test fixed**: shore dwellers (polyp, snail) pick a shore angle clear of the faults (bots.ts toShore); a coral spawned in a crack narrower than itself was pushed off the shore line (0 failures in 26 runs, was ~1 in 3).
 - **Invisible phase-3 bodies** (user: bodies don't show at first): not reproduced. Checked in the browser with a temporary teleport: bots entering the screen (park → update), the own animal after evolving and hatching, the phase-3 editor, and the new phase-4 bots all draw their bodies, and the cell views' uniforms are finite. Needs the user's exact moment (a screenshot).
 - Sim (8 min, 160 bots): phase 1 gen 0.6 min, evolve 4.8; phase 2 gen 1.7, 3.2 lives/gen, evolve 5.3; phase 3 gen 2.8, 2.2 lives/gen, evolve 4.9; phase 4 gen 2.4, evolve 5.1; 2.9× real time.
+
+## 2026-10-20 — End of day
+- Master holds the merged balance branch plus d09bcc6 (shorter phases, harder phase 4, Hydrina, phase-4 residents, polyp test). Pushed to origin.
+- Kept in mind for tomorrow (user): the invisible-body hunt's debug code (a global `__dbg` handle in main.ts, a `dev:tp` teleport in PoolRoom), written down in ROADMAP "Next" to re-add — it is not in the code.
+- Tomorrow: the invisible bodies with the user's screenshot, a playtest of the new balance, a longer Hydrina sim, then the P11 decision and P12.
