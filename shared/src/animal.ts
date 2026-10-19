@@ -179,3 +179,13 @@ export function animalRim(angle: number, segments: Body = DEFAULT_SEGMENTS) {
   }
   return lo;
 }
+
+/**
+ * The outline's outward normal (rad) where a membrane part at canonical `angle` sits. Parts face it rather than the ray
+ * from the centre: on a long body that ray meets the head at a slant, and a row of combs along it left the body.
+ */
+export function animalNormal(angle: number, segments: Body = DEFAULT_SEGMENTS) {
+  const r = animalRim(angle, segments);
+  const [x, y, e] = [Math.cos(angle) * r, Math.sin(angle) * r, 1e-3];
+  return Math.atan2(animalSdf(x, y + e, segments) - animalSdf(x, y - e, segments), animalSdf(x + e, y, segments) - animalSdf(x - e, y, segments));
+}

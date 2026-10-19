@@ -38,7 +38,7 @@ document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
 // Top-down perspective camera over the gameplay plane z = 0, which is also the focal plane.
-const camera = new THREE.PerspectiveCamera(50, 1, 10, 14000); // far: a grown animal's camera over the pond floor
+const camera = new THREE.PerspectiveCamera(50, 1, 10, 24000); // far: a grown animal's camera (eyes, antennae) over the pond floor
 camera.position.z = 700;
 
 const post = createPost(renderer, scene, camera);
@@ -191,6 +191,8 @@ let backdropFor: Player | undefined;
 /** Our species' tier as last seen: a rise is the stage-up moment. */
 let knownTier = 0;
 const STAGEUP_MS = 4500;
+/** Camera height × per tier: plankton and animals see more of the pool around them. */
+const TIER_ZOOM = [1, 1, 1, 1.45, 1.8];
 let stageupUntil = 0;
 let pendingStageUp: Lineage | undefined;
 /** The species whose win (walking onto land) was shown. */
@@ -285,7 +287,8 @@ try {
     if (at) cells.gulp(at.x, at.y, performance.now() / 1000); // the cell that took it up dimples in
     // A DNA packet gone at our body's edge was ours: its DNA streams in. (The server doesn't say who took it.)
     const me = cells.get(room.sessionId)?.at;
-    if (at && isDna(at.kind) && me && Math.hypot(at.x - me.x, at.y - me.y) < me.radius * 1.6) {
+    const self = room.state.players.get(room.sessionId);
+    if (at && isDna(at.kind) && me && self && !isAnimal(self.tier) && Math.hypot(at.x - me.x, at.y - me.y) < me.radius * 1.6) { // animals take no loose DNA
       feed(at.x, at.y, me.radius * 0.1, 0, at.kind === NutrientKind.fragment ? PACKET_DNA : PLASMID_DNA, 1);
     }
   });
@@ -386,10 +389,11 @@ try {
       const own = catalogFor(self.tier);
       const sight = (1 + EYE_SIGHT * stack('eye' in own.GENES ? own.copiesOf(ownGenome(self), 'eye') : 0))
         * (1 + ANTENNA_SIGHT * stack(self.tier === 4 ? TIER4.copiesOf(self.genome4, 'antennae') : 0)); // antennae sense further
-      // bacterium: spawn ≈ 290, cap ≈ 620; eukaryote ≈ 930–1970; animal (gentler: specks still readable) ≈ 2540–4420;
-      // arthropod (gentler still: the pool is only so big) ≈ 4990–5740
+      // bacterium: spawn ≈ 290, cap ≈ 620; eukaryote ≈ 930–1970; plankton ≈ 3680–6410; animal ≈ 8980–10330
+      // (TIER_ZOOM: the big bodies filled the screen — user, 2026-10-19 — now about a eukaryote's share of it)
       const r = radiusOf(self.mass, self.tier);
-      const targetZ = (140 + 12 * Math.min(r, 126) + 5 * Math.max(0, Math.min(r, 680) - 126) + 3 * Math.max(0, r - 680)) * sight;
+      const targetZ = (140 + 12 * Math.min(r, 126) + 5 * Math.max(0, Math.min(r, 680) - 126) + 3 * Math.max(0, r - 680)) * sight
+        * (TIER_ZOOM[self.tier] ?? 1);
       const at = selfView!.at; // the cell's centre (an animal's quad is offset to fit its body)
       camera.position.set(at.x, at.y, camera.position.z + (targetZ - camera.position.z) * 0.05);
       // Bloom fades out as the camera rises: from an animal's height, piles of small additive lights (a plume of food,

@@ -3,9 +3,9 @@
 // Bots divide at the size cap like players, so a generation = spawn → cap. Targets (P4d, DECISIONS):
 // a generation in ~2 min; under one life lost per generation on average (lives/gen < 1); kills and
 // phages should matter without wiping the pool; no species should dominate or starve out.
-import { BOT_SPECIES, PoolState, TICK_RATE } from '@panspermia/shared';
-import { type Bots, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
-import { PHAGE_KILLER, VIRUS_KILLER, initPool, stepWorld } from './world.ts';
+import { BOT_SPECIES, GEN_DNA, PoolState, TICK_RATE, evolveDnaOf } from '@panspermia/shared';
+import { type Bots, addBot, divideBots, fillBots, rebirth, stepBots } from './bots.ts';
+import { PHAGE_KILLER, VIRUS_KILLER, botDna, initPool, stepWorld } from './world.ts';
 
 const minutes = Number(process.argv[2] ?? 20);
 const count = Number(process.argv[3] ?? 30);
@@ -14,11 +14,17 @@ const state = new PoolState();
 initPool(state);
 const bots: Bots = new Map();
 fillBots(state, bots, count);
+// Tier 4 has no resident bots (humans and rare visitors): one of each visitor stays as a probe of the phase's numbers.
+for (const [i, sp] of BOT_SPECIES.entries()) if (sp.rare && sp.tier === 4) addBot(state, bots, i);
 
 const rows = BOT_SPECIES.map((s) => ({
   species: s.name, archetype: s.archetype, lives: 0, kills: 0, lysed: 0, virus: 0, starved: 0,
-  gens: 0, genMin: 0, livesPerGen: 0, lifeMin: 0, massNow: 0, topKiller: '',
+  gens: 0, genMin: 0, livesPerGen: 0, lifeMin: 0, massNow: 0, dnaMin: 0, evolveMin: 0, topKiller: '',
 }));
+// DNA a bot earns (botDna: plasmids, kills; + GEN_DNA when an animal divides), over its species' bot-minutes alive.
+const dna = BOT_SPECIES.map(() => 0);
+const botMin = BOT_SPECIES.map(() => 0);
+const seen = new WeakMap<object, number>();
 const killedBy = BOT_SPECIES.map(() => BOT_SPECIES.map(() => 0)); // [victim][killer]
 const speciesOf = (id: string) => bots.get(id)!.species;
 for (const b of bots.values()) rows[b.species]!.lives++;
@@ -31,6 +37,14 @@ for (let t = 0; t < ticks; t++) {
   const infectedBefore = new Map([...state.players].map(([id, p]) => [id, p.infection]));
   stepBots(state, bots);
   const deaths = stepWorld(state);
+  for (const [id, b] of bots) {
+    const p = state.players.get(id);
+    if (!p) continue;
+    const now = botDna.get(p) ?? 0;
+    dna[b.species]! += now - (seen.get(p) ?? 0);
+    seen.set(p, now);
+    botMin[b.species]! += 1 / TICK_RATE / 60;
+  }
   for (const [id, p] of state.players) if (p.infection > (infectedBefore.get(id) ?? 0)) infections++;
 
   for (const { id, by } of deaths) {
@@ -53,6 +67,7 @@ for (let t = 0; t < ticks; t++) {
   const bornBefore = new Map([...bots].map(([id, b]) => [id, b.born]));
   for (const id of divideBots(state, bots)) {
     const row = rows[speciesOf(id)]!;
+    dna[speciesOf(id)]! += GEN_DNA[BOT_SPECIES[speciesOf(id)]!.tier] ?? 0;
     row.genMin += ((state.tick - bornBefore.get(id)!) / TICK_RATE / 60 - row.genMin) / ++row.gens; // running mean
   }
 }
@@ -67,6 +82,8 @@ for (const [s, row] of rows.entries()) {
   row.lifeMin = mean([...(lifeMin.get(s) ?? []), ...running]);
   row.massNow /= running.length || 1;
   row.livesPerGen = (row.lysed + row.virus + row.starved) / (row.gens || 1);
+  row.dnaMin = dna[s]! / (botMin[s] || 1);
+  row.evolveMin = evolveDnaOf(BOT_SPECIES[s]!.tier) / (row.dnaMin || 1e-9);
   const k = killedBy[s]!;
   const top = k.indexOf(Math.max(...k));
   if (k[top]) row.topKiller = `${BOT_SPECIES[top]!.name} (${Math.round((100 * k[top]) / row.lysed)}%)`;
@@ -77,6 +94,14 @@ console.table(rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) 
 const wall = (performance.now() - started) / 1000;
 const kills = rows.reduce((a, r) => a + r.kills, 0);
 const deaths = rows.reduce((a, r) => a + r.lysed + r.virus + r.starved, 0);
+// Per tier: a bot's mean DNA/min and minutes to earn its tier's evolve DNA (a phase's length, target ~5); cells alive.
+for (const t of [1, 2, 3, 4]) {
+  const ss = BOT_SPECIES.flatMap((sp, i) => (sp.tier === t ? [i] : []));
+  const m = ss.reduce((a, i) => a + botMin[i]!, 0);
+  const rate = ss.reduce((a, i) => a + dna[i]!, 0) / (m || 1);
+  const alive = [...state.players.values()].filter((p) => p.tier === t).length;
+  console.log(`tier ${t}: ${alive} alive, ${round(rate)} DNA/min → evolve in ${round(evolveDnaOf(t) / (rate || 1e-9))} min`);
+}
 const kinds = [...state.nutrients.values()].reduce((a, n) => ((a[n.kind] = (a[n.kind] ?? 0) + 1), a), [] as number[]);
 console.log([
   `${minutes} min, ${count} bots, ${round((minutes * 60) / wall)}× real time`,

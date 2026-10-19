@@ -30,7 +30,7 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
     initPool(this.state);
     const botFill = options.bots ?? BOT_FILL;
     this.setFixedTimestep((ctx) => {
-      fillBots(this.state, this.bots, Math.max(0, botFill - this.clients.length));
+      fillBots(this.state, this.bots, botFill); // humans count in their tier's quota
       const time = this.state.tick * TICK_DT;
       // One step per buffered input, the same step the client predicts and replays. Inputs of an
       // extinct species (no cell) are drained and dropped.

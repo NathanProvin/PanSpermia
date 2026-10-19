@@ -24,9 +24,10 @@ export const RADIUS_PER_SQRT_MASS = 4;
  * a newborn arthropod or mollusk (≈ 870) is ~1.3× a grown animal and grows to ≈ 1120 (the pool is 13000 across).
  */
 export const TIER_SCALE = [1, 1, 1.5, 2.2, 2.8] as const;
-// Agar-like: bigger is slower. speed = SPEED_COEF · mass^SPEED_EXP u/s → 119 at spawn, 47 at cap.
-export const SPEED_COEF = 300;
-export const SPEED_EXP = -0.4;
+// Agar-like: bigger is slower. speed = SPEED_COEF · mass^SPEED_EXP u/s → 179 at spawn, 113 at cap.
+// Punchier (user, 2026-10-19): every newborn ×1.5 (coef_new = 1.5 · coef_old · spawn^0.2), half the slowdown with mass (−0.4 → −0.2).
+export const SPEED_COEF = 284;
+export const SPEED_EXP = -0.2;
 
 // Swimming, as a fraction of speedOf(mass). Without motility genes a cell only creeps.
 export const SWIM_CREEP = 0.35;
@@ -82,6 +83,14 @@ export const PLASMID_UNLOCK_CHANCE = 0.3;
  * value per plasmid keeps each phase near a few generations per evolution.
  */
 export const PLASMID_RATE = (3.5 / 0.815) * AREA; // user: 30 % fewer than the 5× step
+/**
+ * Phase 1 felt like swimming in a void (user, 2026-10-19): the pool is huge next to a bacterium's view. Rather than raise
+ * the global rates (the server drifts every packet), food and plasmids also appear around each bacterium, per s, in a ring
+ * around it (world units), partly on screen.
+ */
+export const LOCAL_FOOD_RATE = 2.5;
+export const LOCAL_PLASMID_RATE = 1 / 20;
+export const LOCAL_RING: readonly [number, number] = [90, 380]; // partly on screen: the cell and the food drift on the same current, so food out of sight rarely meets it
 
 // Bacteriophages (agar's viruses): drift passively; touching one infects (it's used up). Infection
 // lyses from inside for PHAGE_LATENT s per phage; dying infected bursts out new phages (epidemics).
@@ -94,6 +103,8 @@ export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors 
 
 /** Bots top a room up to this many cells (humans + bots); humans displace them as they join. */
 export const BOT_FILL = 50; // kept at 50 in the 4500 pool: 80 made the sim ~3× deadlier (2026-10-16); raise if the pool feels empty
+/** Shares of BOT_FILL per tier (index = tier), humans counted in their tier: a population pyramid. Tier 4: humans and rare visitors. */
+export const PYRAMID: readonly number[] = [0, 8, 4, 2, 0];
 /** New cells can't be hurt or infected, and bots don't hunt them, for this long (covers the meteor intro). */
 export const SPAWN_GRACE = 5; // s
 
@@ -105,18 +116,29 @@ export const FLAGELLUM_STACK = 0.4;
 export const KILL_DNA_SHARE = 0.25; // of the victim's mass, to the killer
 export const PACKET_DNA = 5; // per DNA fragment (a dead bacterium's gene) absorbed
 export const PLASMID_DNA = 25; // per plasmid or meteor shard absorbed
-export const CHILD_PRICE = 30; // DNA per extra child (fixed)
+/**
+ * DNA per extra child and the reserve cap, per tier (index = tier). Lives get dearer and fewer as a species climbs (user,
+ * 2026-10-19: scaling difficulty), so high phases lose more species to extinction — back to bacteria — and the pool keeps
+ * its pyramid: many bacteria, fewer eukaryotes, fewer plankton still. ~12 % of each phase's evolve DNA.
+ */
+export const CHILD_PRICE: readonly number[] = [0, 50, 150, 600, 2400];
+export const MAX_CHILDREN: readonly number[] = [0, 9, 7, 5, 3];
 export const STARTER_CHILDREN = 2; // reserve lives of a new species
+/** DNA paid to an animal (tiers 3–4) each time it mates at the cap: with kills, its DNA (it can't take up plasmids). */
+export const GEN_DNA: readonly number[] = [0, 0, 0, 4000, 16000];
 /** Reaching the size cap starts binary fission: a shielded division cyst while the editor is open. */
 export const CYST_TIME = 60; // s; when it runs out the cell hatches with its old design
 export const MAX_PARTS = 24; // placements per design
-export const MAX_CHILDREN = 9; // reserve cap
-/** Lifetime DNA a species must earn before it can evolve to the next tier (Spore's "Grow legs?"). */
-export const EVOLVE_DNA = 250;
-export const EVOLVE_DNA_T2 = 2500; // lifetime DNA for a eukaryote species to become an animal
-/** And for an animal species to walk onto land: the game won (user direction). Provisional. */
-export const EVOLVE_DNA_T4 = 60000;
-export const EVOLVE_DNA_T3 = 15000; // and for an animal species to become an arthropod or mollusk (~2–3 animal generations)
+/**
+ * Lifetime DNA a species must earn before it can evolve to the next tier (Spore's "Grow legs?"). Each phase ~5 min (user,
+ * 2026-10-19), from the balance sim's DNA/min per tier: bacteria ~80, eukaryotes ~230. Animals evolve in the editor at a
+ * mating, so their phase is at least a generation (~3–5 min): about one mating's GEN_DNA plus a few kills.
+ */
+export const EVOLVE_DNA = 400;
+export const EVOLVE_DNA_T2 = 1200; // lifetime DNA for a eukaryote species to become an animal
+/** And for an animal species to walk onto land: the game won (user direction). */
+export const EVOLVE_DNA_T4 = 20000;
+export const EVOLVE_DNA_T3 = 5000; // and for an animal species to become an arthropod or mollusk
 
 // Tier 2 — eukaryotes (P8). Mass continues from the tier-1 cap; speed and metabolism get their own
 // coefficients so a eukaryote feels as nimble at its scale as a bacterium does at its own.
@@ -125,7 +147,7 @@ export const T2_MIN_MASS = 60;
 export const T2_MASS_CAP = 1000; // radius ≈ 190
 // Bigger bodies swim faster in absolute terms (eukaryotes ×√TIER_SCALE, animals ×1.25), so a bigger tier
 // doesn't feel sluggish; animals not more, or they plow through the bacteria (sim).
-export const T2_SPEED_COEF = 748; // speed = coef · mass^SPEED_EXP: 110 u/s at spawn, 47 at cap
+export const T2_SPEED_COEF = 431; // speed = coef · mass^SPEED_EXP: 165 u/s at spawn, 108 at cap
 export const T2_HEALTH_MAX = 300;
 export const T2_METABOLISM_BASE = 0.1; // mass/s: 0.17 at spawn, 0.7 at cap
 export const T2_METABOLISM_RATE = 0.0006;
@@ -160,11 +182,11 @@ export const HYPHA_RATE = (7) * AREA;
 export const SPIRULINA_MASS = 12;
 export const SPIRULINA_RATE = (4) * AREA; // per s over the whole pool
 // Half as many as first tried, each worth twice as much (the same food): the plankton's view was crowded.
-export const DIATOM_MASS = 80;
+export const DIATOM_MASS = 160; // ×2 (2026-10-19): plankton generations took 7–12 min (a phase is ~5); worth more, not more of them (crowding)
 export const DIATOM_RATE = (2) * AREA;
-export const DINOFLAGELLATE_MASS = 120;
+export const DINOFLAGELLATE_MASS = 240;
 export const DINOFLAGELLATE_RATE = (1.25) * AREA;
-export const MACROALGA_MASS = 300;
+export const MACROALGA_MASS = 600; // ×2, as the plankton's plants
 export const MACROALGA_RATE = (0.5) * AREA;
 /** The phase that can first take each plant in (kind → tier); plants not listed are eaten from tier 2 (algae, filaments). */
 export const PLANT_TIER: Readonly<Record<number, number>> = { 11: 2, 12: 3, 13: 3, 14: 4, 15: 4 };
@@ -226,7 +248,7 @@ export const THECA_SWIM = 0.92;
 export const T3_SPAWN_MASS = 1200; // radius ≈ 305 (TIER_SCALE 2.2)
 export const T3_MIN_MASS = 600;
 export const T3_MASS_CAP = 6000; // radius ≈ 680
-export const T3_SPEED_COEF = 3055; // 180 u/s at spawn, 94 at cap (2350 until animals felt too slow: +30 %)
+export const T3_SPEED_COEF = 1109; // 269 u/s at spawn, 195 at cap
 export const T3_HEALTH_MAX = 1200;
 export const T3_METABOLISM_BASE = 0.5; // energy/s: ~1 at spawn, ~2.9 at cap
 export const T3_METABOLISM_RATE = 0.0004;
@@ -236,6 +258,11 @@ export const T3_SWIM_PADDLE = 0.85; // × speedOf; precise steering
 export const T3_SWIM_TAIL = 1.3; // × speedOf; fast, turns at T3_TURN_RATE
 export const T3_TURN_RATE = 1.6; // rad/s with a tail and no paddles
 // Richer catalog, plankton (provisional until the balance step).
+/**
+ * Filters (filter combs, setose oars, filtering tentacles) only feed while swimming — the stroke pushes the water through
+ * the sieve — at this share of the food × the swim speed's share of full speed (user: idle filter feeders filled up).
+ */
+export const FILTER_YIELD = 0.5;
 export const MASTAX_YIELD = 1.5; // × the big plants (spirulina, diatoms, dinoflagellates, macroalgae) a mastax grinds
 export const T3_SWIM_OARS = 1.25; // × speedOf at the top of a stroke; jump-and-glide averages ~1
 export const OAR_STROKES = 1.3; // strokes per second
@@ -277,7 +304,7 @@ export const SPILL_MAX = 40;
 
 // Tier 3 reproduction (P9c): mate call, mating, an egg clutch.
 export const MATE_DISTANCE = 700; // a mate answers the call from this far beyond touching distance (~3 s away)
-export const MATE_SPEED = 260; // u/s, faster than any animal: it always arrives
+export const MATE_SPEED = 420; // u/s, faster than any animal: it always arrives
 export const MATE_TIMEOUT = 15; // s of calling after which mating happens anyway
 /** s: a plankton individual begins as an egg clutch, shielded and still like a cocoon (user: wait, don't play the parent). */
 export const EGG_TIME = 5;
@@ -286,7 +313,7 @@ export const EGG_TIME = 5;
 export const T4_SPAWN_MASS = 6000; // radius ≈ 870 (TIER_SCALE 2.8)
 export const T4_MIN_MASS = 3000;
 export const T4_MASS_CAP = 10000; // radius ≈ 1120
-export const T4_SPEED_COEF = 6318; // 195 u/s at spawn, 159 at cap (4860 until animals felt too slow: +30 %)
+export const T4_SPEED_COEF = 1662; // 292 u/s at spawn, 263 at cap
 export const T4_HEALTH_MAX = 5000; // 3000 → 5000 (polish S0): tier-3 jaws mustn't kill an unarmed snail in a minute
 export const T4_METABOLISM_BASE = 1.5; // energy/s: ~3.3 at spawn, ~4.5 at cap
 export const T4_METABOLISM_RATE = 0.0003;

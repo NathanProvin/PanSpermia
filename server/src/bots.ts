@@ -6,7 +6,7 @@ import {
   ACTION_SPORE, ACTION_TOXIN, BOT_SPECIES, INK, NutrientKind, type Nutrient, type Player, type PoolState,
   type Species, TICK_DT, TICK_RATE, TIER2, TIER3, rimAt, keepInPool, catalogFor, grazes4, hasGene, healthMaxOf, hunts4, isAnimal, massCapOf,
   radiusOf, sanitizeInput, stepCell,
-  hasBit, withBit,
+  PYRAMID, isMate,
 } from '@panspermia/shared';
 import { type PacketGrid, buildGrid, grids, near } from './grid.ts';
 import { type Death, spawnPointFor, embody, inInk, mouthYieldOf, secrete, spawnPlayer, squirtInk, swallows, yieldOf } from './world.ts';
@@ -35,7 +35,8 @@ const SIGHT = [0, 350, 650, 1100, 1800]; // per tier: bigger bodies sense a bigg
 const SCALE = [0, 1, 2, 3.5, 5];
 const THINK_TICKS = 4; // 5 Hz reactions, and 4× cheaper perception
 const PHAGE_DODGE = 90; // keep this far beyond the membrane
-const GENE_VALUE = 3; // how much a missing gene is worth, in food terms
+/** What loose DNA (a plasmid, a fragment) is worth to a bacterium / a eukaryote, in food terms: DNA is how a species evolves (animals can't take it up). */
+const DNA_VALUE = [0, 6, 30];
 const TOXIN_RANGE = 55; // fire when a foreigner is this close (+ half its radius)
 const PREY_RATIO = 0.7; // bacterial hunters only chase cells clearly smaller than themselves (agar's rule)
 const GRAZER_FEAR = 200; // grazers keep this gap from armed cells at least half their size (×tier)
@@ -45,7 +46,7 @@ const HUNT_UNTIL = 0.7;
 /** Phagocytosis takes time: a eukaryote hunter rests this long after each swallow (caps its kill rate). */
 const DIGEST_TICKS = 6 * 20;
 /** An animal hunter rests longer after a meal: a few predators must not empty the pool. */
-const DIGEST_TICKS_T3 = 30 * 20;
+const DIGEST_TICKS_T3 = 15 * 20; // 30 s until 2026-10-19: hunters took 7+ min a generation (the pyramid gives them more prey)
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */
@@ -95,15 +96,30 @@ export function addBot(state: PoolState, bots: Bots, species = SPAWN_CYCLE[nextB
   return id;
 }
 
-/** Add or remove bots until there are exactly `target`. */
-export function fillBots(state: PoolState, bots: Bots, target: number) {
-  const residents = () => [...bots].filter(([, b]) => b.leaveAt === undefined); // visitors come and go on their own
-  for (let n = residents().length; n < target; n++) addBot(state, bots);
-  let extra = residents().length - target;
-  for (const [id] of residents()) {
-    if (extra-- <= 0) break;
-    bots.delete(id);
-    state.players.delete(id);
+/** Each tier's resident species, weighted and interleaved (every species once, then the heavier ones again…), so a quota shorter than the cycle still holds every species. */
+const CYCLE_OF = [1, 2, 3, 4].map((t) => {
+  const own = [...new Set(SPAWN_CYCLE)].filter((i) => BOT_SPECIES[i]!.tier === t);
+  const weight = (i: number) => SPAWN_CYCLE.filter((j) => j === i).length;
+  return Array.from({ length: Math.max(0, ...own.map(weight)) }, (_, k) => own.filter((i) => weight(i) > k)).flat();
+});
+/**
+ * Top the pool up to `fill` cells as a population pyramid (PYRAMID shares per tier; user, 2026-10-19): each tier's bots
+ * fill its quota minus the humans of that tier, surplus bots leave. Humans are never displaced from their tier.
+ */
+export function fillBots(state: PoolState, bots: Bots, fill: number) {
+  const total = PYRAMID.reduce((a, b) => a + b, 0);
+  let left = fill;
+  for (let t = 1; t < PYRAMID.length; t++) {
+    const quota = t === PYRAMID.length - 1 || !PYRAMID.slice(t + 1).some(Boolean) ? left : Math.round((fill * PYRAMID[t]!) / total);
+    left -= quota;
+    const humans = [...state.players].filter(([id, p]) => p.tier === t && !bots.has(id) && !isMate(id)).length;
+    const residents = [...bots].filter(([id, b]) => b.leaveAt === undefined && state.players.get(id)?.tier === t); // visitors come and go on their own
+    const cycle = CYCLE_OF[t - 1]!;
+    for (let n = residents.length; n < quota - humans && cycle.length; n++) addBot(state, bots, cycle[nextBotId % cycle.length]!);
+    for (const [id] of residents.slice(Math.max(0, quota - humans))) {
+      bots.delete(id);
+      state.players.delete(id);
+    }
   }
 }
 
@@ -232,9 +248,8 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
       }
       return;
     }
-    const value = t2 ? mouthYieldOf(n.kind, p)
-      : n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid ? (hasBit(p.genome, n.gene) ? 0 : GENE_VALUE)
-      : yieldOf(n.kind, p.genome);
+    const value = n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid ? (DNA_VALUE[p.tier] ?? 0)
+      : t2 ? mouthYieldOf(n.kind, p) : yieldOf(n.kind, p.genome);
     const score = value / (d + 30);
     if (score > best) {
       best = score;

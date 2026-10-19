@@ -4,7 +4,7 @@ import {
   EGG_TIME, MATE_PREFIX, T3_MASS_CAP, EVOLVE_DNA, EVOLVE_DNA_T2, EVOLVE_DNA_T3, STARTER_GENOME4, STARTER_LIBRARY4, T4_HEALTH_MAX, T4_MASS_CAP, T4_SPAWN_MASS, TIER4, SHELL_ARMOUR, SMALLER_BITE, MOLLUSK, COCOON_TIME, softBody4, MATE_TIMEOUT, STARTER_GENOME3, STARTER_LIBRARY3, T3_SPAWN_MASS, TIER3, BITE_DAMAGE, BITE_INTERVAL, PUSH, CARAPACE_ARMOUR, cleanName, randomSpeciesName, CYANO_MASS, HYPHA_MASS, PEDUNCLE_DRAIN, PARASITE_SHARE, THECA_ARMOUR, STYLET_DRAIN, PROBOSCIS_DRAIN, CERATA_REFLECT, MASTAX_YIELD, DIATOM_MASS, SPINE_GAPE, TUN_TIME, TUN_COOLDOWN, CHILD_PRICE, CYST_TIME, KILL_DNA_SHARE, MAX_CHILDREN, PACKET_DNA, PLASMID_DNA, STARTER_CHILDREN, STARTER_GENOME,
   STARTER_LIBRARY, copiesOf, defaultParts, stack, NutrientKind, type Player, PHAGE_BURST, SPAWN_GRACE, PHAGE_DPS, PHAGE_LATENT, PoolState, REGEN_DELAY, T6SS_DPS, TOXINS, healthMaxOf, SEEP_COUNT, SIDEROPHORE_REACH, SPAWN_MASS, TICK_RATE, TRANSPORTER_YIELD, WORLD_RADIUS, drift,
   radiusOf, formOf, segmentsOf, armOf, MAX_STATIONS, MAX_SEGMENTS, MAX_PLACED, ACTION_SPORE, rimAt, FAULTS, keepInPool, insidePool, FAULT_SPAWN, MOUTH_OUT, DEFAULT_SEGMENTS, animalRim, bitsOf, hasBit, withBit, makeCatalog, INK, INK_COOLDOWN, INK_TIME, TICK_DT, stepCell,
-  EVOLVE_DNA_T4,
+  EVOLVE_DNA_T4, FILTER_YIELD, GEN_DNA, animalNormal, speedOf,
 } from '@panspermia/shared';
 import { expect, test, vi } from 'vitest';
 import {
@@ -451,7 +451,7 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   expect(submitDesign(state, 'p', design([{ ...part('pili'), scale: Number.NaN }]))).toBe('bad placement');
   expect(submitDesign(state, 'p', design([{ ...part('pili'), group: 256 }]))).toBe('bad placement');
   expect(submitDesign(state, 'p', design(Array(MAX_PLACED + 1).fill(part('pili'))))).toBe('too many copies');
-  expect(submitDesign(state, 'p', design([], MAX_CHILDREN))).toBe('bad children');
+  expect(submitDesign(state, 'p', design([], MAX_CHILDREN[1]!))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0.5))).toBe('bad children');
   expect(submitDesign(state, 'p', design([], 0, 1))).toBe('bad hue');
   lineage.library = withBit(lineage.library, GENES.flagellum.bit); // found (not a starter)
@@ -467,9 +467,20 @@ test('a design submission is validated, priced, refunds removed parts and hatche
   expect([child.genome, child.cyst, lineage.generation]).toEqual([GENES.flagellum.bit * 2, 0, 2]);
 
   child.cyst = CYST_TIME;
-  lineage.dna = CHILD_PRICE;
+  lineage.dna = CHILD_PRICE[1]!;
   expect(submitDesign(state, 'p', design(twoFlagella, 1))).toBeUndefined();
   expect([lineage.dna, lineage.children]).toEqual([0, STARTER_CHILDREN + 1]);
+});
+
+test('lives cost more and are fewer in higher phases', () => {
+  const { state, player, lineage } = animalSpecies();
+  player.cyst = CYST_TIME;
+  const kids = (children: number) => ({ parts: [], hue: 0.3, children, name: lineage.name });
+  lineage.dna = CHILD_PRICE[3]! - 1;
+  expect(submitDesign(state, 'p', kids(1), false)).toBe('not enough DNA');
+  lineage.dna = 1e6;
+  expect(submitDesign(state, 'p', kids(MAX_CHILDREN[3]! - lineage.children + 1), false)).toBe('bad children');
+  expect(submitDesign(state, 'p', kids(1), false)).toBeUndefined();
 });
 
 test('default layouts place exactly the genome\'s copies', () => {
@@ -494,7 +505,7 @@ test('a timed-out cyst hatches with the latest valid draft', () => {
   for (let i = 0; i < (CYST_TIME + 1) * TICK_RATE && lineage.generation === 1; i++) stepWorld(state);
   expect([lineage.genome, lineage.hue, lineage.children, lineage.generation])
     .toEqual([GENES.flagellum.bit, 0.2, STARTER_CHILDREN + 1, 2]);
-  expect(lineage.dna).toBe(100 - (GENES.flagellum.price - GENES.pili.price) - CHILD_PRICE);
+  expect(lineage.dna).toBe(100 - (GENES.flagellum.price - GENES.pili.price) - CHILD_PRICE[1]!);
 });
 
 // --- Names, kills, evolution ----------------------------------------------------------------------
@@ -589,6 +600,7 @@ test('animals: filter combs sweep up bacteria, mandibles swallow eukaryotes and 
     return a;
   };
   const filterer = animal(['filterComb'], 0);
+  filterer.vx = speedOf(2000, 3); // swimming: a filter only works on the move
   state.players.set('f', filterer);
   const bug = spawnPlayer();
   const eu = spawnPlayer();
@@ -1043,6 +1055,7 @@ test('an animal at the cap calls; its mate swims in; mating opens the editor; th
     stepWorld(state);
   }
   expect(player.cyst).toBeGreaterThan(0);
+  expect(lineage.lifetimeDna).toBe(GEN_DNA[3]); // a generation raised pays the animal its DNA
   expect(state.players.has(MATE_PREFIX + 'p')).toBe(false);
   // Editor done: the parent becomes an egg clutch where it is, shielded and still like a cocoon (user: wait, don't
   // play on), and the new design hatches from it.
@@ -1142,15 +1155,31 @@ test('each phase has its plants: spirulina from eukaryotes, diatoms and dinoflag
   expect(yield4Of(NutrientKind.macroalga, TIER4.genomeOf(['claw']))).toBe(0); // a hunter's mouth leaves plants alone
 });
 
-test('DNA comes from plasmids in every phase, never from food', () => {
+test('animals get no DNA from food nor loose DNA (it drifts past); mating pays theirs', () => {
   const { state, player, lineage } = animalSpecies();
   Object.assign(player, { mass: T3_SPAWN_MASS, cocoon: 0 });
   foodAt(state, player.x, player.y, NutrientKind.algae);
-  stepWorld(state);
-  expect(lineage.lifetimeDna).toBe(0);
   foodAt(state, player.x, player.y, NutrientKind.plasmid, 0);
   stepWorld(state);
-  expect(lineage.lifetimeDna).toBe(PLASMID_DNA);
+  expect(lineage.lifetimeDna).toBe(0);
+  expect([...state.nutrients.values()].some((n) => n.kind === NutrientKind.plasmid)).toBe(true);
+});
+
+test('filters feed only while swimming', () => {
+  const gain = (swim: number) => {
+    const state = new PoolState();
+    const a = Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3: TIER3.genomeOf(['filterComb']), mass: 2000, health: 1200, x: 0, y: 0, heading: 0 });
+    a.vx = swim * speedOf(2000, 3);
+    state.players.set('f', a);
+    const at = TIER3.GENES.filterComb.at as number;
+    const [rim, normal, r] = [animalRim(at, DEFAULT_SEGMENTS), animalNormal(at, DEFAULT_SEGMENTS), radiusOf(2000, 3)];
+    foodAt(state, (Math.cos(at) * rim + Math.cos(normal) * MOUTH_OUT) * r, (Math.sin(at) * rim + Math.sin(normal) * MOUTH_OUT) * r, NutrientKind.diatom);
+    const before = a.mass;
+    stepWorld(state);
+    return a.mass - before + 0.01; // + a tick's burn, about
+  };
+  expect(gain(0)).toBeLessThan(0.1); // idle: nothing goes through the sieve
+  expect(gain(1)).toBeCloseTo(DIATOM_MASS * FILTER_YIELD, 0);
 });
 
 // --- Richer catalog: tier 2 -----------------------------------------------------------------------
@@ -1318,7 +1347,8 @@ test('animal tentacles: a filtering crown swallows eukaryotes, a polyp crown pla
     const e = Object.assign(spawnPlayer(), { tier: 4, genome: 0, genome4: TIER4.genomeOf([gene]), mass: 8000, health: T4_HEALTH_MAX, x: 0, y: 0, heading: 0 });
     state.players.set('e', e);
     const at = TIER4.GENES[gene].at as number;
-    const out = radiusOf(8000, 4) * (animalRim(at, DEFAULT_SEGMENTS) + (gene === 'filterTentacles' ? 0.7 : 0.4));
+    const out = radiusOf(8000, 4) * (animalRim(at, DEFAULT_SEGMENTS) + (gene === 'filterTentacles' ? 0.5 : 0.4));
+    e.vx = speedOf(8000, 4); // swimming: a filter only works on the move
     const euk = Object.assign(spawnPlayer(), { tier: 2, genome: 0, genome2: 0, mass: 300, health: 300, x: Math.cos(at) * out, y: Math.sin(at) * out, graceUntil: 0 });
     const plk = Object.assign(spawnPlayer(), { tier: 3, genome: 0, genome3: 0, mass: 1500, health: 1200, x: Math.cos(at) * out, y: Math.sin(at) * out + 1, graceUntil: 0 });
     state.players.set('u', euk);

@@ -27,7 +27,7 @@ const other = (state: PoolState, x: number, mass: number, genome: number) => {
 test('bots top up and trim to the target, every species represented', () => {
   const state = new PoolState();
   const bots: Bots = new Map();
-  fillBots(state, bots, 40); // more than one full spawn cycle
+  fillBots(state, bots, 60); // more than one full spawn cycle of every tier
   expect(new Set([...bots.values()].map((b) => b.species)).size).toBe(BOT_SPECIES.filter((s) => !s.rare).length); // rare species only visit
   for (const [id, b] of bots) {
     const p = state.players.get(id)!;
@@ -37,6 +37,17 @@ test('bots top up and trim to the target, every species represented', () => {
   fillBots(state, bots, 3);
   expect(bots.size).toBe(3);
   expect(state.players.size).toBe(3);
+});
+
+test('bots fill a population pyramid, humans counted in their tier', () => {
+  const state = new PoolState();
+  const bots: Bots = new Map();
+  for (const [i, tier] of [1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4].entries()) state.players.set('human' + i, Object.assign(spawnPlayer(), { tier }));
+  fillBots(state, bots, 50);
+  const count = (t: number) => [...state.players.values()].filter((p) => p.tier === t).length;
+  expect([count(1), count(2), count(3), count(4)]).toEqual([29, 14, 8, 1]); // 8 humans overflow tier 3's quota of 7: none displaced
+  fillBots(state, bots, 50); // steady: nothing changes
+  expect(bots.size).toBe(29 - 1 + 14 - 2);
 });
 
 test('a grazer swims to food', () => {

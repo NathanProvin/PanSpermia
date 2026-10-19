@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Body, speedOf, SIDEROPHORE_REACH, EGG_TIME, softBody4, PIGMENTS, TIER2, TIER3, TIER4, animalRim, pigmentOf, catalogFor,
+  DEFAULT_SEGMENTS, type Form, GENES, type Placement, type Player, type Body, speedOf, SIDEROPHORE_REACH, EGG_TIME, softBody4, PIGMENTS, TIER2, TIER3, TIER4, animalRim, animalNormal, animalSdf, pigmentOf, catalogFor,
   armOf, MAX_STATIONS, deform, hasGene, isAnimal, radiusOf, shapeUniform, wrapAngle,
 } from '@panspermia/shared';
 import * as THREE from 'three';
@@ -1023,11 +1023,9 @@ const WHIP_POINTS = 12;
 const FLAGELLUM_VERTEX = /* glsl */ `
 uniform float uBeat;
 uniform float uWidth;
-uniform float uSolid;
 uniform vec2 uChain[${WHIP_POINTS}];
 varying float vAlong;
 varying float vAcross;
-varying float vCore;
 void main() {
   float s = position.x; // 0 at the cell, 1 at the tip
   float f = s * ${(WHIP_POINTS - 1).toFixed(1)};
@@ -1035,44 +1033,21 @@ void main() {
   vec2 a = uChain[i];
   vec2 b = uChain[i + 1];
   vec2 dir = normalize(b - a + 1e-6);
-  // A whip: thin, tapering, rippling. A plankton's tail (uSolid): a stout muscular shaft tapering into a finned tip,
-  // bending with its chain rather than rippling.
-  float core = mix(mix(0.22, 0.06, s), mix(0.3, 0.08, s * s), uSolid);
-  float fin = uSolid * 0.34 * smoothstep(0.5, 0.85, s) * (1.0 - 0.55 * smoothstep(0.88, 1.0, s));
-  float across = position.y * (core + fin) + mix(0.24, 0.05, uSolid) * s * sin(s * 9.0 - uBeat);
+  // A whip: thin, tapering, rippling (a plankton's tail is the same, stouter and slower: user direction, simpler).
+  float across = position.y * mix(0.22, 0.06, s) + 0.24 * s * sin(s * 9.0 - uBeat);
   vec2 pos = mix(a, b, f - float(i)) + vec2(-dir.y, dir.x) * across * uWidth;
   vAlong = s;
   vAcross = position.y * 2.0;
-  vCore = core / (core + fin);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 0.0, 1.0);
 }
 `;
 const FLAGELLUM_FRAGMENT = /* glsl */ `
 uniform vec3 uColor;
-uniform float uSolid;
 varying float vAlong;
 varying float vAcross;
-varying float vCore;
 void main() {
-  if (uSolid < 0.5) {
-    float a = (1.0 - smoothstep(0.4, 1.0, abs(vAcross))) * (1.0 - 0.6 * vAlong);
-    gl_FragColor = vec4((uColor * 0.9 + 0.05) * a, a); // premultiplied
-    return;
-  }
-  float x = abs(vAcross);
-  float inCore = 1.0 - smoothstep(vCore - 0.06, vCore, x);
-  float u = clamp(x / max(vCore, 0.01), 0.0, 1.0);
-  float lit = sqrt(max(0.0, 1.0 - u * u)); // a cylinder lit from above
-  float rings = 1.0 - 0.22 * smoothstep(0.7, 1.0, sin(vAlong * 46.0)); // muscle annuli
-  vec3 shaft = uColor * (0.32 + 0.6 * lit) * rings + vec3(0.9, 0.95, 1.0) * 0.18 * pow(lit, 10.0) // glossy ridge
-    + uColor * 0.25 * (1.0 - smoothstep(0.0, 0.25, lit)); // a darker outline
-  // The tail fin: a thin membrane stiffened by rays, translucent.
-  float rays = smoothstep(0.55, 1.0, cos((x - vCore) * 60.0 + vAlong * 8.0));
-  float membrane = (1.0 - inCore) * (1.0 - smoothstep(0.9, 1.0, x)) * step(vCore, 0.999);
-  float fa = membrane * (0.3 + 0.35 * rays);
-  vec3 color = shaft * inCore + (uColor * 0.7 + 0.12) * fa;
-  float alpha = max(inCore * 0.97, fa);
-  gl_FragColor = vec4(color, alpha); // premultiplied
+  float a = (1.0 - smoothstep(0.4, 1.0, abs(vAcross))) * (1.0 - 0.6 * vAlong);
+  gl_FragColor = vec4((uColor * 0.9 + 0.05) * a, a); // premultiplied
 }
 `;
 /** Seconds a mouthpart snap and a pinocytosis dimple last. */
@@ -1080,9 +1055,9 @@ const BITE_ANIM = 0.45;
 const GULP_TIME = 0.6;
 const FLAGELLUM_LENGTH = [0, 3.2, 2.2, 1.3, 1.3]; // cell radii, per tier (a eukaryote's whip is shorter; an animal's tail)
 /** How thick a whip is (× part scale) and how fast it beats (× BEAT_RUN), per tier: an animal's tail is stout and slow. */
-const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 3, beat: 0.35 }, { width: 3, beat: 0.35 }];
+const WHIP = [{ width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 1, beat: 1 }, { width: 2.2, beat: 0.5 }, { width: 2.2, beat: 0.5 }];
 const BEAT_RUN = 22; // rad/s of wave phase
-const TAIL_STIFF = 4; // a plankton's tail: a muscular shaft, not a floppy whip (user direction)
+const TAIL_STIFF = 2; // a plankton's tail: a stout whip that holds its line a little
 const BEAT_TUMBLE = 5; // motor reversal during a tumble: the bundle flails slowly
 // Secondary motion (visual only): parts trail a turn and a sideways push, then spring back.
 // Stiffness k (1/s²) and damping c (1/s) per part feel.
@@ -1124,7 +1099,7 @@ const flagellumGeometry = new THREE.PlaneGeometry(1, 1, 48, 1).translate(0.5, 0,
 // The vertex shader lays a whip along its chain: bound the longest one (cell radii) so culling still works.
 flagellumGeometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 8);
 const flagellumMaterial = material(FLAGELLUM_VERTEX, FLAGELLUM_FRAGMENT, {
-  uBeat: { value: 0 }, uWidth: { value: 1 }, uSolid: { value: 0 }, uColor: { value: new THREE.Color() },
+  uBeat: { value: 0 }, uWidth: { value: 1 }, uColor: { value: new THREE.Color() },
   uChain: { value: Array.from({ length: WHIP_POINTS }, (_, i) => new THREE.Vector2(i / (WHIP_POINTS - 1), 0)) },
 });
 
@@ -1174,6 +1149,12 @@ const nearestSegment = (x: number, y: number, segments: Body) => {
   }
   return best;
 };
+/** The spine's direction (rad, body frame) through station `i`: from the station behind it to the one ahead. */
+const spineAngle = (i: number, segments: Body) => {
+  const a = segments[Math.max(0, i - 1)]!;
+  const b = segments[Math.min(segments.length - 1, i + 1)]!;
+  return Math.atan2(a[1] - b[1], a[0] - b[0]);
+};
 
 /**
  * One drawable cell: a body plus its placed parts in a frame that turns with the heading. A soft rig
@@ -1216,16 +1197,24 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const shape = PART_SHAPE[kind];
       if (!whip && !shape) continue; // coats are drawn by the body shader
       // An animal's membrane parts sit on its segmented outline, not the unit circle; a whip leaves from just inside.
-      const onRim = (isAnimal(tier) && slot === 'membrane' ? animalRim(raw.angle, segments) : 1) * (whip ? 0.92 : 1);
+      const animal = isAnimal(tier);
+      const onRim = (animal && slot === 'membrane' ? animalRim(raw.angle, segments) : 1) * (whip ? 0.92 : 1);
       const x = raw.x * onRim;
       const y = raw.y * onRim;
+      // An animal's membrane part faces the outline's normal there; an internal part is kept inside the body's width
+      // (body-wall muscles spilled out of thin worms) and muscles run along the spine.
+      const seg = animal ? nearestSegment(x, y, segments) : -1;
+      const angle = animal && slot === 'membrane' ? animalNormal(raw.angle, segments)
+        : animal && raw.gene === 'muscles' ? spineAngle(seg, segments) : raw.angle;
+      const size = whip ? FLAGELLUM_LENGTH[tier]! * raw.scale
+        : animal && slot === 'internal' ? Math.min(shape!.size * raw.scale, Math.max(0.1, (-2 * animalSdf(x, y, segments)) / 0.95))
+        : shape!.size * raw.scale;
       const mesh: ShaderMesh = new THREE.Mesh(whip ? flagellumGeometry : partGeometry, (whip ? flagellumMaterial : partMaterial).clone());
       const u = mesh.material.uniforms;
       u.uColor!.value = color;
       if (whip) {
         u.uBeat!.value = seed * 100 + i * 1.7;
         u.uWidth!.value = WHIP[tier]!.width * raw.scale;
-        u.uSolid!.value = raw.gene === 'tail' ? 1 : 0;
         mesh.renderOrder = 9;
       } else {
         u.uKind!.value = kind;
@@ -1234,9 +1223,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       }
       frame.add(mesh);
       parts.push({
-        mesh, mouth: MOUTHS.has(raw.gene), internal: slot === 'internal', x, y, angle: raw.angle,
-        size: whip ? FLAGELLUM_LENGTH[tier]! * raw.scale : shape!.size * raw.scale, out: shape?.out ?? 0,
-        seg: isAnimal(tier) ? nearestSegment(x, y, segments) : -1, whip: whip ? chain(WHIP_POINTS) : undefined,
+        mesh, mouth: MOUTHS.has(raw.gene), internal: slot === 'internal', x, y, angle,
+        size, out: shape?.out ?? 0,
+        seg, whip: whip ? chain(WHIP_POINTS) : undefined,
         stiff: raw.gene === 'tail' ? TAIL_STIFF : 1,
         feel: SOFT_PARTS.has(raw.gene) ? SOFT : STIFF_PARTS.has(raw.gene) ? STIFF : FIRM, swing: spring(), sx: spring(), sy: spring(),
       });

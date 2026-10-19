@@ -295,9 +295,9 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
         <div class="ed-row kids">
           <button type="button" class="icon fewer" aria-label="One child fewer">−</button>
           <span class="eggs"></span>
-          <button type="button" class="icon more" aria-label="One child more (${CHILD_PRICE} DNA)">+</button>
+          <button type="button" class="icon more" aria-label="One child more">+</button>
         </div>
-        <p class="kids-note" title="${CHILD_PRICE} DNA per child: each is a life in reserve"></p>
+        <p class="kids-note" title="Each child is a life in reserve"></p>
       </section>
       <section class="panel" aria-label="Next generation">
         <p class="message" role="status"></p>
@@ -386,7 +386,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   /** DNA this design costs: its copies minus the current design's (refunds), plus the children bought. */
   const cost = (gs: Group[]) => priceOf(cat, gs) - [...lineage!.parts].reduce((s, p) => s + cat.GENES[cat.NAMES[p.gene]!]!.price, 0)
-    + children * CHILD_PRICE;
+    + children * CHILD_PRICE[lineage!.tier]!;
   const working = () => (drag?.at ? [...groups, drag.at] : groups);
   const mouths = () => MOUTH_PARTS[lineage!.tier] ?? [];
   /** Copies of a part that may still go on: its own limit, and MAX_MOUTHS mouthparts in all. */
@@ -638,7 +638,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const used = placementsOf(gs).length;
     $('.stats').innerHTML = `<span class="stat${used >= MAX_PARTS ? ' full' : ''}" title="Parts placed, of ${MAX_PARTS}">${PARTS_ICON}<b>${used}</b>/${MAX_PARTS}</span>`
       + `<span class="stat upkeep" title="Upkeep: energy the parts burn each second">${UPKEEP_ICON}<b>−${cat.upkeepOf(genome).toFixed(2)}</b>/s</span>`;
-    $('.kids-note').innerHTML = `Children: <b class="${children ? 'cost' : ''}">−${children * CHILD_PRICE}</b> DNA`;
+    $('.kids-note').innerHTML = `Children: <b class="${children ? 'cost' : ''}">−${children * CHILD_PRICE[lineage!.tier]!}</b> DNA · ${CHILD_PRICE[lineage!.tier]} each`;
     $('.message').textContent = message;
     for (const [i, b] of [...swatches.children].entries()) b.setAttribute('aria-checked', String(i === pigment));
     for (const [i, b] of [...$('.patterns').children].entries()) b.setAttribute('aria-checked', String(i === pattern));
@@ -838,8 +838,8 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   $('.fewer').addEventListener('click', () => { children = Math.max(0, children - 1); render(); });
   $('.more').addEventListener('click', () => {
-    if (lineage!.children + children >= MAX_CHILDREN) message = `At most ${MAX_CHILDREN} children in reserve.`;
-    else if (cost(groups) + CHILD_PRICE > lineage!.dna) message = 'Not enough DNA.';
+    if (lineage!.children + children >= MAX_CHILDREN[lineage!.tier]!) message = `At most ${MAX_CHILDREN[lineage!.tier]} children in reserve at this phase.`;
+    else if (cost(groups) + CHILD_PRICE[lineage!.tier]! > lineage!.dna) message = 'Not enough DNA.';
     else children++;
     render();
   });
