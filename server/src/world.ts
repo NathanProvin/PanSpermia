@@ -156,23 +156,27 @@ function collide(state: PoolState) {
 interface MouthPoint { x: number; y: number; r: number; gene: string }
 /** Mouthpart layouts in cell radii (body frame), by design: reused tick after tick. */
 const mouthLayouts = new Map<string, { x: number; y: number; reach: number; gene: string }[]>();
-/** Where an animal's mouthparts are now: each placed mouthpart on the body's outline, turned with its heading. */
-function mouthPointsOf(state: PoolState, id: string, p: Player): MouthPoint[] {
+/**
+ * Where an animal's mouthparts are now: each placed mouthpart on the body's outline, turned with its heading.
+ * `sucker`: its parasitic mouth instead (a stylet, a proboscis), which drains only what it touches.
+ */
+function mouthPointsOf(state: PoolState, id: string, p: Player, sucker = false): MouthPoint[] {
   const cat = catalogFor(p.tier);
   const genome = ownGenome(p);
   const l = state.lineages.get(id);
   const designed = l && l.tier === p.tier && l.genome === genome;
   const bot = !l ? BOT_SPECIES.find((s) => s.tier === p.tier && s.name === p.name) : undefined;
-  const key = designed
+  const key = (sucker ? 's' : '') + (designed
     ? `${p.tier}|${[...l.parts].map((q) => `${q.gene},${q.angle.toFixed(2)},${q.x.toFixed(2)},${q.y.toFixed(2)},${q.scale}`).join(';')}|${l.plan}|${[...l.radii].join(',')}|${[...l.bends].join(',')}|${l.arms}`
-    : `${p.tier}|${genome}|${bot?.name ?? ''}`;
+    : `${p.tier}|${genome}|${bot?.name ?? ''}`);
   let layout = mouthLayouts.get(key);
   if (!layout) {
     const parts = designed ? [...l.parts].map((q) => ({ gene: cat.NAMES[q.gene]!, x: q.x, y: q.y, angle: q.angle, scale: q.scale })) : cat.defaultParts(genome);
     const segments = designed && l.radii.length ? segmentsOf(l.plan, [...l.radii], [...l.bends], l.arms)
       : bot?.radii ? segmentsOf(bot.plan ?? 0, bot.radii) : DEFAULT_SEGMENTS;
-    layout = parts.filter((q) => MOUTHS[p.tier]?.[q.gene]).map((q) => {
-      const m = MOUTHS[p.tier]![q.gene]!;
+    const isMouth = (gene: string) => (sucker ? gene === PARASITES[p.tier]?.gene : !!MOUTHS[p.tier]?.[gene]);
+    layout = parts.filter((q) => isMouth(q.gene)).map((q) => {
+      const m: Partial<Mouth> = sucker ? {} : MOUTHS[p.tier]![q.gene]!;
       const reach = (m.reach ?? MOUTH_REACH) * q.scale;
       if (cat.GENES[q.gene]!.slot !== 'membrane') return { x: q.x, y: q.y, reach, gene: q.gene };
       // On the outline, then out along its normal there (where the part is drawn).
@@ -948,11 +952,16 @@ export function stepWorld(state: PoolState): Death[] {
     const copies = catalogFor(par.tier).copiesOf(ownGenome(par), kind.gene);
     if (!copies) continue;
     const rp = radiusOf(par.mass, par.tier);
+    // An animal drains through its stylet or proboscis, where it is placed (user: only from the front), not with any
+    // part of its body; smaller cells cling on anywhere.
+    const suckers = isAnimal(par.tier) ? mouthPointsOf(state, pid, par, true) : undefined;
     let sucking = false;
     for (const [hid, host] of state.players) {
       if (hid === pid || isMate(hid) || !kind.host(host, par) || dormant(host) || tick < host.graceUntil) continue;
       const touch = (radiusOf(host.mass, host.tier) + rp) * 1.08; // collisions hold cells at touching distance
       if (!((host.x - par.x) ** 2 + (host.y - par.y) ** 2 < touch * touch)) continue;
+      const rh = radiusOf(host.mass, host.tier) * 1.05;
+      if (suckers && !suckers.some((m) => (host.x - m.x) ** 2 + (host.y - m.y) ** 2 < (m.r + rh) ** 2)) continue;
       const drained = Math.min(kind.rate * stack(copies) * TICK_DT, host.mass - minMassOf(host.tier));
       if (drained <= 0) continue;
       host.mass -= drained;

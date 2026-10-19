@@ -233,18 +233,24 @@
       :root { --t1: #8fd3ff; --t2: #f5e27a; --t3: #ffa45c; --t4: #ff6f6f; }
       #labels .tier-1 { color: var(--t1); } #labels .tier-2 { color: var(--t2); }
       #labels .tier-3 { color: var(--t3); } #labels .tier-4 { color: var(--t4); }
-      #leaders { position: fixed; top: 12px; right: 58px; margin: 0; padding: 8px 12px 8px 28px; min-width: 140px;
+      #leaders { position: fixed; top: 12px; right: 12px; margin: 0; padding: 8px 12px 8px 30px; width: 200px; box-sizing: border-box;
         font: var(--font); font-size: 12px; color: var(--ink-soft); background: var(--glass); border: 1px solid var(--line);
         border-radius: var(--radius); backdrop-filter: var(--blur); pointer-events: none; }
       #leaders li { white-space: nowrap; }
-      #leaders .self { color: #fff; font-weight: 600; }
+      #leaders span { display: inline-block; max-width: 116px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+      /* Our own row: boxed (and its real rank below the top eight), glowing a moment when we climb a place. */
+      #leaders .self { color: #fff; font-weight: 600; margin: 2px -8px 2px -22px; padding: 2px 8px 2px 22px; list-style-position: inside;
+        border: 1px solid var(--accent); border-radius: 6px; background: rgb(255 255 255 / 0.1);
+        transition: box-shadow 0.4s, background 0.4s; }
+      #leaders .self.up { background: rgb(255 255 255 / 0.22); box-shadow: 0 0 12px var(--accent); }
+      #leaders .gap { list-style: none; text-align: center; line-height: 0.9; opacity: 0.6; }
       #leaders i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: var(--ink-soft); }
       #leaders .tier-1 i { background: var(--t1); } #leaders .tier-2 i { background: var(--t2); }
       #leaders .tier-3 i { background: var(--t3); } #leaders .tier-4 i { background: var(--t4); }
       #leaders .gold span, #leaders .silver span, #leaders .bronze span { font-weight: 700; }
       #leaders .gold span { color: #ffd34d; } #leaders .silver span { color: #dfe6ec; } #leaders .bronze span { color: #e0955a; }
-      /* Fullscreen, beside the ranking. */
-      .fullscreen { position: fixed; top: 12px; right: 12px; width: 38px; height: 38px; padding: 0; display: grid; place-items: center;
+      /* Fullscreen, just left of the ranking (#leaders: 200 px wide at right 12 px). */
+      .fullscreen { position: fixed; top: 12px; right: 220px; width: 38px; height: 38px; padding: 0; display: grid; place-items: center;
         border-radius: var(--radius); background: var(--glass); border: 1px solid var(--line); backdrop-filter: var(--blur);
         color: var(--ink); cursor: pointer; pointer-events: auto; }
       .fullscreen:hover { background: var(--glass-strong); }

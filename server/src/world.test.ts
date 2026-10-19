@@ -1338,6 +1338,11 @@ test('a proboscis drains another animal; cerata sting a biter back', () => {
   run(s1, 1);
   expect(h0 - host.mass).toBeGreaterThan(PROBOSCIS_DRAIN * 0.8);
   expect(leech.mass).toBeGreaterThan(l0);
+  const s3 = new PoolState(); // only from the front: a host touching its back is left alone
+  animalAt('l', TIER4.genomeOf(['proboscis']), 0, s3);
+  const behind = animalAt('h', 0, -radiusOf(8000, 4) * 2 - 1, s3);
+  run(s3, 1);
+  expect(behind.mass).toBeGreaterThan(8000 - PROBOSCIS_DRAIN * 0.1);
   const s2 = new PoolState();
   const biter = animalAt('b', TIER4.genomeOf(['claw']), 0, s2);
   animalAt('v', TIER4.genomeOf(['cerata']), radiusOf(8000, 4) * 2, s2);

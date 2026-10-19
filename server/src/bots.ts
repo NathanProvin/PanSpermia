@@ -274,10 +274,10 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
     const ay = n.y - headY;
     const da = animal ? Math.hypot(ax, ay) || 1 : d;
     const score = value / (da + 30);
-    if (score > best) {
+    if (score > best) { // ranked from the head, steered from the centre: aiming from the head swung the aim with every turn
       best = score;
-      fx = ax / da;
-      fy = ay / da;
+      fx = dx / d;
+      fy = dy / d;
     }
   });
   sx += fx;
@@ -382,10 +382,18 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   }
 
   const len = Math.hypot(sx, sy);
+  // An animal holds its course: a gentler wander, and each new steer blended with the last (they zig-zagged left and
+  // right at every think, user report) unless it flees.
+  const mx = animal && !fleeing ? b.dirX + sx / (len || 1) : 0;
+  const my = animal && !fleeing ? b.dirY + sy / (len || 1) : 0;
+  const m = Math.hypot(mx, my);
   if (len < 0.05) {
-    b.wander += (Math.random() - 0.5) * 0.6;
+    b.wander += (Math.random() - 0.5) * (animal ? 0.2 : 0.6);
     b.dirX = Math.cos(b.wander) * 0.6;
     b.dirY = Math.sin(b.wander) * 0.6;
+  } else if (m > 0.3) {
+    b.dirX = mx / m;
+    b.dirY = my / m;
   } else {
     b.dirX = sx / len;
     b.dirY = sy / len;

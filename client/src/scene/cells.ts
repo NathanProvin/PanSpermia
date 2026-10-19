@@ -1203,6 +1203,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
     parts = [];
     beat = WHIP[tier]!.beat;
     for (const [i, raw] of placements.entries()) {
+      // A part of another tier (the lineage evolved under an open editor, a stale design): not drawn. It threw here,
+      // and the body went invisible for good (see update).
+      if (!catalogFor(tier).GENES[raw.gene]) continue;
       const kind = kindOf(tier, raw.gene);
       const slot = catalogFor(tier).GENES[raw.gene]!.slot;
       const whip = raw.gene === 'flagellum' || raw.gene === 'tail';
@@ -1252,8 +1255,9 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       const formKey = typeof form === 'number' ? form : `${form.sx.toFixed(3)},${form.sy.toFixed(3)},${form.bend.toFixed(3)}`;
       const key = `${look.tier}/${formKey}/${armOf(segments)}/${segments.flat().map((v) => v.toFixed(3))}/` + look.parts.map((p) => `${p.gene}${p.x.toFixed(3)}${p.y.toFixed(3)}${p.angle.toFixed(3)}${p.scale}`).join();
       if (key !== partsKey) {
-        partsKey = key;
-        rebuild(look.parts, look.tier, segments);
+        // The body first, the parts after, and the key last: a rebuild that threw used to leave the rig on the old body
+        // (a spine shorter than the segments reads undefined → NaN positions: the whole body invisible — user report, the
+        // editor's phase-3 body) and never retried.
         const seg = body.material.uniforms.uSeg!.value as THREE.Vector3[];
         for (const [i, v] of seg.entries()) v.set(...(segments[i] ?? [0, 0, 0]));
         body.material.uniforms.uSegN!.value = segments.length;
@@ -1263,6 +1267,8 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         body.material.uniforms.uArm!.value = arm;
         body.material.uniforms.uCentre!.value = shapeUniform(form).centre;
         spine = chain(segments.length);
+        rebuild(look.parts, look.tier, segments);
+        partsKey = key;
       }
 
       // What the body did since the last frame. No motion to react to (editor, card, first frame, a jump
@@ -1310,7 +1316,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       if (isAnimal(look.tier)) {
         const rest = restBody.map((b) => toWorld(b.x, b.y));
         // Body-wall muscles: a stronger swimming wave down the body.
-        const wave = look.tier === 3 ? 1 + 1.2 * TIER3.copiesOf(look.genome, 'muscles') : 1;
+        const wave = look.tier === 3 ? 1 + 0.6 * TIER3.copiesOf(look.genome, 'muscles') : 1;
         stepSpine(spine, rest, radial, step, Math.hypot(m.vx, m.vy), feel.speed, wave);
         for (const [i, [, , r]] of segments.entries()) {
           const b = toBody(spine.x[i]!, spine.y[i]!);

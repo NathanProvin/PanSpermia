@@ -5,7 +5,8 @@ import * as THREE from 'three';
 // leaderboard of the biggest cells in the room. Names come from players and are only ever set as
 // textContent. Two colour codes (user direction): every name wears its phase's colour (bacteria blue, eukaryotes
 // yellow, plankton orange, animals red: who to hunt, who to flee), and the ranking's top three are a podium of bold
-// gold, silver and bronze names, a dot of the phase colour before each name.
+// gold, silver and bronze names, a dot of the phase colour before each name. The player's own row is boxed, its rank shown
+// below the top eight when it isn't among them, and it glows a moment on climbing a place (user: a feeling of progression).
 
 const LEADERS = 8;
 const PODIUM = ['gold', 'silver', 'bronze'];
@@ -14,6 +15,8 @@ export function createLabels(layer: HTMLElement, board: HTMLOListElement) {
   const labels = new Map<string, HTMLDivElement>();
   const v = new THREE.Vector3();
   let boardKey = '';
+  let lastRank = -1;
+  let climbedAt = -Infinity;
 
   return {
     /** Place each named cell's label just above it; `at` gives its rendered position and radius. */
@@ -50,18 +53,29 @@ export function createLabels(layer: HTMLElement, board: HTMLOListElement) {
     leaderboard(players: Map<string, Player>, selfId: string, show: boolean) {
       board.hidden = !show;
       // Mates ('~' ids) answer a call; they're not contestants.
-      const top = [...players].filter(([id, p]) => p.name && !id.startsWith('~')).sort(([, a], [, b]) => b.mass - a.mass).slice(0, LEADERS);
-      const key = top.map(([id, p]) => `${id}:${p.tier}:${Math.round(p.mass)}`).join();
+      const ranked = [...players].filter(([id, p]) => p.name && !id.startsWith('~')).sort(([, a], [, b]) => b.mass - a.mass);
+      const me = ranked.findIndex(([id]) => id === selfId);
+      if (me >= 0 && lastRank >= 0 && me < lastRank) climbedAt = performance.now();
+      if (me >= 0) lastRank = me;
+      const climbing = performance.now() - climbedAt < 1500;
+      const rows = ranked.slice(0, LEADERS).map((e, rank) => [e, rank] as const);
+      if (me >= LEADERS) rows.push([ranked[me]!, me]);
+      const key = rows.map(([[id, p]]) => `${id}:${p.tier}:${Math.round(p.mass)}`).join() + (climbing ? '+' : '');
       if (key === boardKey) return;
       boardKey = key;
-      board.replaceChildren(...top.map(([id, p], rank) => {
+      board.replaceChildren(...rows.flatMap(([[id, p], rank]) => {
         const li = document.createElement('li');
-        li.className = [PODIUM[rank] ?? '', `tier-${p.tier}`, id === selfId ? 'self' : ''].filter(Boolean).join(' ');
+        li.value = rank + 1;
+        li.className = [PODIUM[rank] ?? '', `tier-${p.tier}`, id === selfId ? 'self' : '', id === selfId && climbing ? 'up' : ''].filter(Boolean).join(' ');
         const dot = document.createElement('i');
         const name = document.createElement('span');
         name.textContent = p.name;
         li.append(dot, name, ` · ${Math.round(p.mass)}`);
-        return li;
+        if (rank <= LEADERS) return [li];
+        const gap = document.createElement('li'); // ranks between the top eight and ours
+        gap.className = 'gap';
+        gap.textContent = '⋮';
+        return [gap, li];
       }));
     },
   };
