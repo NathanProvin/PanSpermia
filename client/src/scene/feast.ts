@@ -4,7 +4,8 @@ import { createSprites } from './sprites.ts';
 // where it was into the player's body along curved paths — orange droplets of energy, green twists of DNA, the HUD's
 // colour code. Staggered, accelerating as they near the body, swelling and vanishing into it. Drawn as matter
 // (premultiplied) above the cells so they read on sand and water alike.
-// Kind rides in the integer part of aSeed (0 energy, 1 DNA), the mote's progress in the fraction.
+// Bitten seaweed sheds crumbs: leafy flakes scattering from the bite (anyone's), or streaming into the player's body (its own).
+// Kind rides in the integer part of aSeed (0 energy, 1 DNA, 2 a seaweed crumb), the mote's progress in the fraction.
 const FRAGMENT = /* glsl */ `
 varying vec2 vUv;
 varying float vSeed;
@@ -18,6 +19,12 @@ void main() {
   vec3 col;
   if (kind < 0.5) {
     col = mix(vec3(1.0, 0.55, 0.16), vec3(1.0, 0.86, 0.6), core); // energy: a warm droplet
+  } else if (kind > 1.5) { // a crumb of seaweed: a ragged olive-green flake, tumbling
+    float a = atan(p.y, p.x) + t * 9.0 + kind * 3.0;
+    float flake = 1.0 - smoothstep(0.42, 0.5, sqrt(r2) / (0.75 + 0.25 * sin(a * 3.0)));
+    col = mix(vec3(0.25, 0.5, 0.12), vec3(0.6, 0.85, 0.3), core);
+    core = flake;
+    glow *= 0.3;
   } else {
     float a = atan(p.y, p.x);
     float twist = exp(-pow((sqrt(r2) - 0.38 - 0.1 * sin(a * 3.0 + t * 20.0)) / 0.08, 2.0)); // a tiny coiled strand
@@ -31,7 +38,8 @@ void main() {
 `;
 const CAPACITY = 160;
 
-interface Mote { kind: number; x: number; y: number; bend: number; delay: number; life: number; age: number; size: number }
+/** `vx`, `vy`: a scattering mote drifts off on its own (slowing), not into the body. */
+interface Mote { kind: number; x: number; y: number; bend: number; delay: number; life: number; age: number; size: number; vx?: number; vy?: number }
 
 export function createFeast() {
   const sprites = createSprites(CAPACITY, FRAGMENT, 12, true); // above the cells (10)
@@ -39,16 +47,18 @@ export function createFeast() {
   return {
     objects: [sprites.mesh],
     /**
-     * Motes of `kind` (0 energy, 1 DNA) from a disc of radius `r` at (x, y) toward the player, `count` of them,
-     * each `size` world units.
+     * Motes of `kind` (0 energy, 1 DNA, 2 crumbs) from a disc of radius `r` at (x, y) toward the player, `count` of
+     * them, each `size` world units; `scatter` > 0: flung outward at up to that speed (u/s) instead.
      */
-    burst(kind: number, x: number, y: number, r: number, count: number, size: number) {
+    burst(kind: number, x: number, y: number, r: number, count: number, size: number, scatter = 0) {
       for (let k = 0; k < count && motes.length < CAPACITY; k++) {
         const a = Math.random() * Math.PI * 2;
         const d = Math.sqrt(Math.random()) * r;
+        const v = scatter * (0.4 + 0.6 * Math.random());
         motes.push({
           kind, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, bend: (Math.random() - 0.5) * 1.6,
-          delay: Math.random() * 0.35, life: 0.8 + Math.random() * 0.45, age: 0, size: size * (0.7 + 0.6 * Math.random()),
+          delay: Math.random() * (scatter ? 0.1 : 0.35), life: 0.8 + Math.random() * 0.45, age: 0, size: size * (0.7 + 0.6 * Math.random()),
+          ...(scatter ? { vx: Math.cos(a) * v, vy: Math.sin(a) * v } : {}),
         });
       }
     },
@@ -59,10 +69,25 @@ export function createFeast() {
         const m = motes[k]!;
         m.age += dt;
         const t = Math.max(0, m.age - m.delay) / m.life;
-        if (t >= 1 || !target) {
+        if (t >= 1 || (!target && m.vx === undefined)) {
           motes.splice(k, 1);
           continue;
         }
+        if (m.vx !== undefined) { // scattering: drift off, slowing in the water
+          const drag = Math.exp(-dt * 2.5);
+          m.x += m.vx * dt;
+          m.y += m.vy! * dt;
+          m.vx *= drag;
+          m.vy! *= drag;
+          sprites.offsets[i * 3] = m.x;
+          sprites.offsets[i * 3 + 1] = m.y;
+          sprites.offsets[i * 3 + 2] = 0;
+          sprites.sizes[i] = m.size;
+          sprites.seeds[i] = m.kind + Math.min(0.999, t);
+          i++;
+          continue;
+        }
+        if (!target) continue; // (spliced above)
         // A curve from where it came from into the body: eased in (it accelerates), bowed to one side.
         const e = t * t * (3 - 2 * t) * t;
         const dx = target.x - m.x;

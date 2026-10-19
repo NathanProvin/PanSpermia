@@ -362,15 +362,15 @@ export function createNutrients() {
       return p && { x: p.x, y: p.y, kind: p.kind };
     },
     /**
-     * `tick` is the latest server tick; `sinceTick` the seconds elapsed locally since it arrived,
-     * used to glide packets along the current between 20 Hz ticks. Only packets within `view` (centre and
-     * half extents on the gameplay plane) are drawn; packets drift lazily (NEAR_TICKS, LAZY_TICKS).
+     * `clock` is the server's sim time in (fractional) ticks, smoothed (timeline.ts): packets glide along the current
+     * between 20 Hz ticks. Only packets within `view` (centre and half extents on the gameplay plane) are drawn;
+     * packets drift lazily (NEAR_TICKS).
      */
     update(
-      tick: number, sinceTick: number, seeps: Iterable<{ x: number; y: number }>, time: number, focus: number,
+      clock: number, seeps: Iterable<{ x: number; y: number }>, time: number, focus: number,
       view: { x: number; y: number; halfW: number; halfH: number },
     ) {
-      const glide = Math.min(sinceTick, TICK_DT * 1.5);
+      const tick = Math.floor(clock);
       // DNA grows a little with the camera's height so a eukaryote still sees it; from the animal phases' heights it
       // stays small and fades to half (user: less visible there).
       const dnaGrow = Math.min(1.6, Math.max(1, focus / 800));
@@ -395,8 +395,8 @@ export function createNutrients() {
         const plant = FLORA_SIZE[p.kind];
         if (plant) {
           if (g >= FLORA_CAP) continue;
-          const ahead = (tick - p.tick) * TICK_DT + glide;
-          const age = (tick - p.born) * TICK_DT + glide;
+          const ahead = (clock - p.tick) * TICK_DT;
+          const age = (clock - p.born) * TICK_DT;
           const grow = Math.min(1, age / GROW, (NUTRIENT_LIFETIME - age) / GROW);
           flora.offsets[g * 3] = p.x + p.fx * ahead;
           flora.offsets[g * 3 + 1] = p.y + p.fy * ahead;
@@ -409,7 +409,7 @@ export function createNutrients() {
         }
         if (isDna(p.kind)) {
           if (n >= DNA_CAP) continue;
-          const ahead = (tick - p.tick) * TICK_DT + glide;
+          const ahead = (clock - p.tick) * TICK_DT;
           dnaSprites.offsets[n * 3] = p.x + p.fx * ahead;
           dnaSprites.offsets[n * 3 + 1] = p.y + p.fy * ahead;
           dnaSprites.offsets[n * 3 + 2] = 0;
@@ -418,7 +418,7 @@ export function createNutrients() {
           n++;
           continue;
         }
-        const ahead = (tick - p.tick) * TICK_DT + glide; // glide on its flow since its last drift step
+        const ahead = (clock - p.tick) * TICK_DT; // glide on its flow since its last drift step
         sprites.offsets[i * 3] = p.x + p.fx * ahead;
         sprites.offsets[i * 3 + 1] = p.y + p.fy * ahead;
         sprites.offsets[i * 3 + 2] = 0;

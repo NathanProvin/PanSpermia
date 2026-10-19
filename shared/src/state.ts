@@ -46,6 +46,8 @@ export const Player = schema({
   /** Bites made so far (wraps at 256): clients snap the mouthparts when it changes. */
   bites: t.uint8().default(0),
   biteCooldown: t.number().noSync().default(0),
+  /** A parasitic mouth (adhesins, peduncle, stylet, proboscis) is draining a host now: clients animate the suction. */
+  sucking: t.boolean().default(false),
   /** Animals: seconds spent calling for a mate (0 = not calling). */
   call: t.number().default(0),
   /** Seconds of phage lysis left (0 = healthy). */

@@ -65,7 +65,12 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
           : by ? { cause: 'lysed', killer: this.speciesName(by) } : { cause: 'starvation' };
         this.clients.getById(id)?.send('died', { ...why, extinct });
       }
+      this.broadcastPatch();
     }, TICK_RATE);
+    // One patch per step, sent from the step: on its own timer the patch beat against the step's (Windows timers fire
+    // every ~62 ms, so a patch carried 1 or 2 ticks) and remote cells and packets stuttered (user report). After
+    // setFixedTimestep: set before it, Colyseus starts a spare clock timer that steals the step's elapsed time.
+    this.patchRate = 0;
 
     // The editor's design from a dividing cell (validated in submitDesign): final, or a draft kept
     // for when the cyst times out.

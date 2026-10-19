@@ -948,6 +948,7 @@ export function stepWorld(state: PoolState): Death[] {
     const copies = catalogFor(par.tier).copiesOf(ownGenome(par), kind.gene);
     if (!copies) continue;
     const rp = radiusOf(par.mass, par.tier);
+    let sucking = false;
     for (const [hid, host] of state.players) {
       if (hid === pid || isMate(hid) || !kind.host(host, par) || dormant(host) || tick < host.graceUntil) continue;
       const touch = (radiusOf(host.mass, host.tier) + rp) * 1.08; // collisions hold cells at touching distance
@@ -956,7 +957,9 @@ export function stepWorld(state: PoolState): Death[] {
       if (drained <= 0) continue;
       host.mass -= drained;
       par.mass = Math.min(massCapOf(par.tier), par.mass + drained * kind.share);
+      sucking = true;
     }
+    if (par.sucking !== sucking) par.sucking = sucking; // synced: only the changes go out
   }
 
   // Where each spiked eukaryote's spikes point (body frame); spikes only stab in those directions.

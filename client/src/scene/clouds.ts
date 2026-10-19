@@ -81,16 +81,17 @@ export function createClouds() {
       puffs.set(id, { x: c.x0, y: c.y0, tick: c.tick0, tick0: c.tick0, kind: c.kind });
     },
     remove(id: string) { puffs.delete(id); },
-    update(tick: number, sinceTick: number, time: number, focus: number) {
-      const glide = Math.min(sinceTick, TICK_DT * 1.5);
+    /** `clock`: the server's sim time in fractional ticks, smoothed (timeline.ts). */
+    update(clock: number, time: number, focus: number) {
+      const tick = Math.floor(clock);
       let i = 0;
       let j = 0;
       for (const p of puffs.values()) {
         if (i >= CAPACITY || j >= 64) break;
         drift(p, tick);
         currentAt(p.x, p.y, tick * TICK_DT, flow);
-        const age = (tick - p.tick0) * TICK_DT + glide;
-        const ahead = (tick - p.tick) * TICK_DT + glide; // drift steps every DRIFT_TICKS: glide since the last step
+        const age = (clock - p.tick0) * TICK_DT;
+        const ahead = (clock - p.tick) * TICK_DT; // drift steps every DRIFT_TICKS: glide since the last step
         const layer = p.kind === INK ? ink : sprites;
         const k = p.kind === INK ? j++ : i++;
         layer.offsets[k * 3] = p.x + flow.x * ahead;

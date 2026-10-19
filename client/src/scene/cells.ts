@@ -729,13 +729,13 @@ void main() {
       + vec3(0.3) * exp(-dot(p - vec2(0.18, 0.2), p - vec2(0.18, 0.2)) * 30.0);
   } else if (k == ${KIND2 + TIER2.GENES.peduncle.index}) { // a parasite's feeding tube, gulps pulsing down it
     float s = (p.x + 0.9) / 1.8; // 0 at the cell, 1 at the tip
-    float w = mix(0.17, 0.05, s) * (1.0 + 0.12 * sin(s * 18.0 + t * 6.0));
+    float w = mix(0.17, 0.05, s) * (1.0 + (0.12 + 0.25 * uActive) * sin(s * 18.0 + t * (6.0 + 8.0 * uActive))); // uActive: draining a host
     float tube = step(0.0, s) * step(s, 0.92) * (1.0 - smoothstep(w - 0.02, w + 0.02, abs(p.y)));
     float wall = tube * smoothstep(w * 0.4, w, abs(p.y));
     float rings = tube * smoothstep(0.8, 1.0, cos(s * 60.0)) * 0.4;
     float tip = 1.0 - smoothstep(0.0, 0.035, segment(p, vec2(0.75, 0.0), vec2(1.0, 0.0)));
-    float gulp = tube * smoothstep(0.75, 1.0, sin(s * 12.0 + t * 7.0)) * (1.0 - smoothstep(0.0, w * 0.7, abs(p.y)));
-    a = max(tube * (0.4 + 0.45 * wall + rings), tip * 0.85) + gulp * 0.35;
+    float gulp = tube * smoothstep(0.75, 1.0, sin(s * 12.0 + t * (7.0 + 8.0 * uActive))) * (1.0 - smoothstep(0.0, w * 0.7, abs(p.y)));
+    a = max(tube * (0.4 + 0.45 * wall + rings), tip * 0.85) + gulp * (0.35 + 0.45 * uActive);
     col = mix(uColor * 0.45 + 0.3, vec3(0.92, 0.88, 0.8), wall * 0.6) + gulp * vec3(0.55, 0.85, 0.45);
   } else if (k == ${KIND2 + TIER2.GENES.pallium.index}) { // a web-like veil fanned out to wrap and digest prey
     vec2 q = p - vec2(-0.95, 0.0);
@@ -777,14 +777,18 @@ void main() {
     a = max(a, hammer * 0.95);
     col = mix(chitin() + 0.15, vec3(0.92, 0.88, 0.75), hammer * 0.4);
   } else if (k == ${KIND3 + TIER3.GENES.stylet.index}) { // a tardigrade's stylet: a spear thrusting from a buccal tube, a muscular bulb behind
-    float thrust = 0.18 * smoothstep(0.6, 1.0, sin(t * 3.0));
+    // Draining a host (uActive): thrust in and held, the bulb pumping, gulps of its fluid running back down the tube.
+    float thrust = mix(0.18 * smoothstep(0.6, 1.0, sin(t * 3.0)), 0.22, uActive);
     float tube = (1.0 - smoothstep(0.045, 0.07, abs(p.y))) * step(-0.55, p.x) * step(p.x, 0.55);
     float spear = 1.0 - smoothstep(0.0, 0.03, segment(p, vec2(-0.2, 0.0), vec2(0.75 + thrust, 0.0)) - 0.01 * (1.0 - smoothstep(0.4, 0.8 + thrust, p.x)));
     vec2 b = p - vec2(-0.72, 0.0);
-    float bulb = 1.0 - smoothstep(0.2, 0.25, length(b * vec2(1.0, 1.25)));
+    float pump = 1.0 + 0.2 * uActive * max(0.0, sin(t * 9.0));
+    float bulb = 1.0 - smoothstep(0.2 * pump, 0.25 * pump, length(b * vec2(1.0, 1.25)));
     float placoids = bulb * smoothstep(0.7, 0.95, cos(b.x * 40.0));
-    a = max(max(tube * 0.55, spear), bulb * 0.8);
+    float flow = uActive * tube * smoothstep(0.7, 1.0, sin(p.x * 14.0 + t * 10.0)); // crests run toward the body
+    a = max(max(max(tube * 0.55, spear), bulb * 0.8), flow * 0.9);
     col = mix(chitin() + 0.1, vec3(0.95, 0.92, 0.82), max(spear, placoids * 0.6));
+    col = mix(col, vec3(0.95, 0.42, 0.3), max(flow, uActive * bulb * 0.35 * max(0.0, sin(t * 9.0))));
   } else if (k == ${KIND3 + TIER3.GENES.oars.index}) { // a nauplius's setose oar: a jointed limb fringed with bristles, a power stroke then a glide
     float stroke = pow(max(0.0, sin(t * 8.17)), 2.0);
     float sw = 0.6 - 1.0 * stroke;
@@ -864,16 +868,22 @@ void main() {
       col = max(col, (vec3(1.0, 0.68, 0.16) * (0.75 + 0.25 * smoothstep(rad, 0.0, rr)) + glint) * drop);
     }
   } else if (k == ${KIND4 + TIER4.GENES.proboscis.index}) { // an eversible proboscis: an annulated tube shooting out and drawing back, hooks at its tip
-    float reach = 0.55 + 0.4 * smoothstep(-0.3, 1.0, sin(t * 1.6));
+    // Draining a host (uActive): shot out and held fast, hooks clamped wide, swallowing bulges running back up it.
+    float reach = mix(0.55 + 0.4 * smoothstep(-0.3, 1.0, sin(t * 1.6)), 0.95, uActive);
     float s = (p.x + 0.9) / (0.9 + reach);
-    float w = mix(0.16, 0.08, clamp(s, 0.0, 1.0));
-    float tube = step(0.0, s) * step(s, 1.0) * (1.0 - smoothstep(w - 0.02, w + 0.02, abs(p.y + 0.06 * sin(s * 6.0 + t * 2.0))));
+    float bulge = uActive * smoothstep(0.6, 1.0, sin(s * 14.0 + t * 9.0)); // crests run toward the body
+    float w = mix(0.16, 0.08, clamp(s, 0.0, 1.0)) * (1.0 + 0.7 * bulge);
+    float sway = 0.06 * (1.0 - 0.8 * uActive);
+    float tube = step(0.0, s) * step(s, 1.0) * (1.0 - smoothstep(w - 0.02, w + 0.02, abs(p.y + sway * sin(s * 6.0 + t * 2.0))));
     float rings = tube * smoothstep(0.8, 1.0, cos(s * 45.0)) * 0.35;
-    vec2 tip = vec2(reach, 0.06 * sin(6.0 + t * 2.0));
-    float hooks = min(segment(p, tip, tip + vec2(0.1, 0.12)), segment(p, tip, tip + vec2(0.1, -0.12)));
+    vec2 tip = vec2(reach, sway * sin(6.0 + t * 2.0));
+    float spread = 0.12 + 0.07 * uActive;
+    float hooks = min(segment(p, tip, tip + vec2(0.1 - 0.05 * uActive, spread)), segment(p, tip, tip + vec2(0.1 - 0.05 * uActive, -spread)));
     float hook = 1.0 - smoothstep(0.015, 0.035, hooks);
-    a = max(tube * (0.75 - rings), hook);
+    float latch = uActive * exp(-dot(p - tip, p - tip) / 0.012) * (0.6 + 0.4 * sin(t * 9.0)); // the wound it holds open
+    a = max(max(tube * (0.75 - rings), hook), latch * 0.8);
     col = mix(mix(uColor * 0.5, vec3(0.85, 0.55, 0.55), 0.5), vec3(0.95, 0.9, 0.82), hook);
+    col = mix(col, vec3(0.95, 0.4, 0.28), max(bulge * tube, latch));
   } else if (k == ${KIND4 + TIER4.GENES.cerata.index}) { // cerata: translucent fingers swaying, a dark gland branch inside, white stinging tips
     for (int i = 0; i < 4; i++) {
       float fi = float(i) - 1.5;
@@ -1067,6 +1077,8 @@ const STIFF = { k: 160, c: 16 };
 const SOFT_PARTS = new Set(['pili', 'cilia', 'filterComb', 'adhesin', 'paddle', 'tailFan', 'maxillae']);
 const STIFF_PARTS = new Set(['jaw', 'mandible', 'eye', 'spike', 't6ss', 'jet', 'filter', 'claw', 'beak', 'radula', 'siphon']);
 const MOUTHS = new Set(['jaw', 'mandible', 'claw', 'beak']);
+/** Parasitic mouths: animated while the cell drains a host (Player.sucking). */
+const SUCKERS = new Set(['peduncle', 'stylet', 'proboscis']);
 const PART_LAG = 0.08; // rad of trailing per rad/s of turning
 const PART_PUSH = 0.05; // rad per cell radius/s² of sideways acceleration
 const PART_SWING = 0.5; // rad, at most
@@ -1111,7 +1123,7 @@ export function hashId(id: string) {
 }
 
 /** Rendered (predicted or smoothed) pose of a cell. */
-export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number; call?: number; cocoon?: number }
+export interface Pose { x: number; y: number; heading: number; tumble: number; spore: number; cyst: number; dash?: number; call?: number; cocoon?: number; suck?: number }
 /** What a cell looks like: its tier, that tier's expressed genome, where its parts sit, its species hue. */
 export interface Look {
   tier: number; genome: number; parts: readonly Placement<string>[]; hue: number;
@@ -1127,7 +1139,7 @@ type ShaderMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
 /** A placed part as drawn: its canonical spot, plus the soft rig moving it. */
 interface PartView {
-  mesh: ShaderMesh; mouth: boolean; internal: boolean;
+  mesh: ShaderMesh; mouth: boolean; sucker: boolean; internal: boolean;
   /** A whip's stiffness (× the rig's whip bend): a muscular tail holds its line. */
   stiff: number;
   /** Canonical spot and facing (a whip's root sits just inside the membrane). */
@@ -1172,7 +1184,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
   let partsKey = '';
   let parts: PartView[] = [];
   /** Reactions (CPU side, decaying): impacts, hurt, smoothed contact and speed, bites, gulps. */
-  const feel = { jiggle: 0, hurt: 0, depth: 0, angle: 0, speed: 0, bites: -1, biteAt: -10, health: -1 };
+  const feel = { jiggle: 0, hurt: 0, depth: 0, angle: 0, speed: 0, bites: -1, biteAt: -10, health: -1, suck: 0 };
   const gulps: { angle: number; at: number }[] = [];
   let lastPose = { x: 0, y: 0, heading: 0, radius: 1 };
   let beat = 1;
@@ -1223,7 +1235,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       }
       frame.add(mesh);
       parts.push({
-        mesh, mouth: MOUTHS.has(raw.gene), internal: slot === 'internal', x, y, angle,
+        mesh, mouth: MOUTHS.has(raw.gene), sucker: SUCKERS.has(raw.gene), internal: slot === 'internal', x, y, angle,
         size, out: shape?.out ?? 0,
         seg, whip: whip ? chain(WHIP_POINTS) : undefined,
         stiff: raw.gene === 'tail' ? TAIL_STIFF : 1,
@@ -1362,6 +1374,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
       u.uCall!.value = (pose.call ?? 0) > 0 ? 1 : 0;
       lastPose = { x: pose.x, y: pose.y, heading: pose.heading, radius };
       const snap = time - feel.biteAt < BITE_ANIM ? (time - feel.biteAt) / BITE_ANIM : 0;
+      feel.suck += ((pose.suck ?? 0) - feel.suck) * Math.min(1, dt * 5); // eased in and out
       for (const part of parts) {
         const { mesh } = part;
         const un = mesh.material.uniforms;
@@ -1402,7 +1415,7 @@ export function createCellView(parent: THREE.Object3D, seed: number) {
         mesh.rotation.z = a;
         mesh.scale.setScalar(part.size);
         un.uTime!.value = time;
-        un.uActive!.value = part.mouth ? snap : (pose.dash ?? 0) > 0 ? 1 : 0; // the bite; the jet's plume
+        un.uActive!.value = part.mouth ? snap : part.sucker ? feel.suck : (pose.dash ?? 0) > 0 ? 1 : 0; // the bite; the suction; the jet's plume
       }
       u.uJiggle!.value = feel.jiggle;
       u.uHurt!.value = feel.hurt;

@@ -103,9 +103,9 @@ export const PHAGE_BURST = 8; // phages released by a cell dying infected
 export const CAPSULE_PHAGE_BLOCK = 0.6; // chance a capsule masks the receptors a phage binds to
 
 /** Bots top a room up to this many cells (humans + bots); humans displace them as they join. */
-export const BOT_FILL = 80; // 50 until the 14625 pool (2026-10-19): ×2.25 area, more bots keep the encounters (user: more threats); 100 ran the server tick at ~30 ms of its 50
+export const BOT_FILL = 160; // 50 until the 14625 pool (2026-10-19): ×2.25 area, more bots keep the encounters (user: more threats); 80, then ×2 once bigger motes freed the tick (user: the map felt empty)
 /** Shares of BOT_FILL per tier (index = tier), humans counted in their tier: a population pyramid. Tier 4: humans and rare visitors. */
-export const PYRAMID: readonly number[] = [0, 8, 5, 3, 0]; // 40 / 25 / 15 of 80: the bigger phases keep their density (threats), bacteria thin out
+export const PYRAMID: readonly number[] = [0, 9, 5, 2, 0]; // 90 / 50 / 20 of 160: bots no longer spin, so animals hunt for real — 30 of them emptied the eukaryotes
 /** New cells can't be hurt or infected, and bots don't hunt them, for this long (covers the meteor intro). */
 export const SPAWN_GRACE = 5; // s
 

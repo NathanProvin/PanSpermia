@@ -21,6 +21,7 @@ import { createRipples } from './scene/ripples.ts';
 import { createFeast } from './scene/feast.ts';
 import { createPost } from './scene/post.ts';
 import { createPerf, off } from './perf.ts';
+import { createTickClock, createTrails } from './timeline.ts';
 
 const hud = createHud(document.getElementById('hud')!);
 hud.message('Connecting…');
@@ -109,6 +110,20 @@ const feed = (x: number, y: number, r: number, energy: number, dna: number, mass
   if (energy > 0) feast.burst(0, x, y, r, Math.round(Math.min(24, Math.max(4, 4 + (24 * energy) / mass))), size);
   if (dna > 0) feast.burst(1, x, y, r, Math.round(Math.min(16, Math.max(3, dna / 6))), size);
   hud.gain(energy, dna);
+};
+/**
+ * A bite out of a seaweed at (x, y): crumbs scatter from it; when it was our bite (our animal's head at the frond), from
+ * our mouth, some streaming into our body (user direction: a visual feedback for the bitten macroalgae).
+ */
+const crumbs = (x: number, y: number) => {
+  const me = cells.get(selfId)?.at;
+  if (me && Math.hypot(x - me.x, y - me.y) < me.radius + 750) { // a frond reaches ~650 from its centre
+    const hx = me.x + Math.cos(me.heading) * me.radius;
+    const hy = me.y + Math.sin(me.heading) * me.radius;
+    const size = me.radius * 0.1;
+    feast.burst(2, hx, hy, me.radius * 0.3, 10, size, me.radius * 0.9);
+    feast.burst(2, hx, hy, me.radius * 0.2, 6, size);
+  } else feast.burst(2, x, y, 300, 10, 70, 600);
 };
 /** A ripple around our own body; small ones are rate-limited so a busy moment doesn't become a blur. */
 let lastRipple = 0;
@@ -281,9 +296,17 @@ try {
   // Own cell: predicted locally, reconciled against the server. Death replaces the
   // Player instance, so rebind whenever our entry is (re)added.
   const callbacks = Callbacks.get<PoolState>(room);
-  callbacks.onAdd('nutrients', (n, id) => nutrientLayer.add(id, n));
+  callbacks.onAdd('nutrients', (n, id) => {
+    nutrientLayer.add(id, n);
+    if (n.kind !== NutrientKind.macroalga && n.kind !== NutrientKind.wallAlga) return;
+    callbacks.listen(n, 'bites', (bites, before) => {
+      const at = bites > (before ?? 0) && nutrientLayer.packets.get(id);
+      if (at) crumbs(at.x, at.y);
+    });
+  });
   callbacks.onRemove('nutrients', (_, id) => {
     const at = nutrientLayer.remove(id);
+    if (at && (at.kind === NutrientKind.macroalga || at.kind === NutrientKind.wallAlga)) crumbs(at.x, at.y); // the last bite
     if (at) cells.gulp(at.x, at.y, performance.now() / 1000); // the cell that took it up dimples in
     // A DNA packet gone at our body's edge was ours: its DNA streams in. (The server doesn't say who took it.)
     const me = cells.get(room.sessionId)?.at;
@@ -336,6 +359,9 @@ try {
   let last = performance.now();
   let lastTick = -1;
   let tickArrivedAt = 0;
+  let suckedAt = 0;
+  const tickClock = createTickClock();
+  const trails = createTrails(); // remote cells, played back by tick
   renderer.setAnimationLoop((now) => {
     perf.begin();
     // Send the due inputs before reading any predicted value (see Predict.tick).
@@ -360,7 +386,9 @@ try {
     if (tick !== lastTick) {
       lastTick = tick;
       tickArrivedAt = now;
+      trails.record(players.values(), tick);
     }
+    const clock = tickClock(tick, (now - tickArrivedAt) / 1000, dt); // smooth sim time for packets and remote cells
 
     const own = room.state.lineages.get(room.sessionId);
     if (own?.evolved && wonBy !== own) { // our animals walked onto land: the game is won (title, then the species card)
@@ -373,11 +401,13 @@ try {
       setTimeout(() => showCard(cardScreen, cardOf(own, 'evolved'), { label: 'Found a new species', action: newSpecies }), STAGEUP_MS);
     }
     const seenH = camera.position.z * Math.tan((camera.fov * Math.PI) / 360); // last frame's view of the plane
+    const ownCell = players.get(room.sessionId);
     cells.update(players, time, dt, (p) => ({
-      x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading'),
+      ...(p === ownCell ? { x: predict.value(p, 'x'), y: predict.value(p, 'y'), heading: predict.value(p, 'heading') } : trails.pose(p, clock)),
       // Timers read as on/off: the prediction's output smoothing extrapolates them past 0 (a tiny negative spore hid every
       // part for up to a minute after a spore or a tun — user report), so near-zero is off.
       tumble: predict.value(p, 'tumble'), spore: on(predict.value(p, 'spore')), cyst: p.cyst, dash: on(predict.value(p, 'dash')), call: p.call, cocoon: p.cocoon,
+      suck: p.sucking ? 1 : 0,
     }), lookOf, { x: camera.position.x, y: camera.position.y, halfW: seenH * camera.aspect * 1.2, halfH: seenH * 1.2 });
     perf.mark('cells');
     const self = players.get(room.sessionId);
@@ -418,6 +448,21 @@ try {
       else if (fast > 0.75 && w.fast <= 0.75) ripple(0.4);
       else if (stream > STRONG_CURRENT && w.stream <= STRONG_CURRENT) ripple(0.5);
       Object.assign(w, { player: self, dash, fast, stream });
+      // Draining a host: energy droplets well up where we hold on to it and stream into our body.
+      if (self.sucking && time - suckedAt > 0.15) {
+        suckedAt = time;
+        let host: { x: number; y: number; radius: number } | undefined;
+        let gap = Infinity;
+        for (const [id] of players) {
+          const v = id === room.sessionId ? undefined : cells.get(id)?.at;
+          const g = v ? Math.hypot(v.x - at.x, v.y - at.y) - v.radius : Infinity;
+          if (g < gap) [gap, host] = [g, v];
+        }
+        if (host) {
+          const a = Math.atan2(host.y - at.y, host.x - at.x);
+          feast.burst(0, at.x + Math.cos(a) * at.radius * 1.1, at.y + Math.sin(a) * at.radius * 1.1, at.radius * 0.15, 2, Math.max(8, at.radius * 0.12));
+        }
+      }
     }
     // Every frame, cell or not: an intro cut short by death or extinction must still play out, not freeze.
     const impact = selfView?.at ?? camera.position;
@@ -511,10 +556,10 @@ try {
     plankton.update(time, dt, focus);
     perf.mark('plankton');
     const halfH = focus * Math.tan((camera.fov * Math.PI) / 360); // the view on the gameplay plane
-    nutrientLayer.update(tick, (now - tickArrivedAt) / 1000, seeps, time, focus,
+    nutrientLayer.update(clock, seeps, time, focus,
       { x: camera.position.x, y: camera.position.y, halfW: halfH * camera.aspect, halfH });
     perf.mark('nutrients');
-    cloudLayer.update(tick, (now - tickArrivedAt) / 1000, time, focus);
+    cloudLayer.update(clock, time, focus);
     ripples.update(time, focus);
     feast.update(dt, time, focus, cells.get(room.sessionId)?.at);
     perf.mark('clouds');

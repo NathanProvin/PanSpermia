@@ -1,4 +1,4 @@
-import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, MAX_MOUTHS, MOUTH_PARTS, TIER3, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
+import { ACTION_TOXIN, BOT_SPECIES, GENES, MASS_CAP, PoolState, SPAWN_MASS, TICK_RATE, MAX_MOUTHS, MOUTH_PARTS, NutrientKind, TIER3, catalogFor, ownGenome, radiusOf, rimAt } from '@panspermia/shared';
 
 const genomeOf = (s: (typeof BOT_SPECIES)[number]) => catalogFor(s.tier).genomeOf(s.genes);
 import { expect, test } from 'vitest';
@@ -45,9 +45,9 @@ test('bots fill a population pyramid, humans counted in their tier', () => {
   for (const [i, tier] of [1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4].entries()) state.players.set('human' + i, Object.assign(spawnPlayer(), { tier }));
   fillBots(state, bots, 50);
   const count = (t: number) => [...state.players.values()].filter((p) => p.tier === t).length;
-  expect([count(1), count(2), count(3), count(4)]).toEqual([25, 16, 10, 1]); // 10 humans overflow tier 3's quota of 9: none displaced
+  expect([count(1), count(2), count(3), count(4)]).toEqual([28, 16, 10, 1]); // 10 humans overflow tier 3's quota of 6: none displaced
   fillBots(state, bots, 50); // steady: nothing changes
-  expect(bots.size).toBe(25 - 1 + 16 - 2);
+  expect(bots.size).toBe(28 - 1 + 16 - 2);
 });
 
 test('a grazer swims to food', () => {
@@ -153,4 +153,15 @@ test('a plankton hunter goes for a rival of its tier it can bite, not only for w
   state.players.set('rival', rival);
   stepBots(state, bots);
   expect(brain.dirX).toBeGreaterThan(0.9);
+});
+
+test('an animal reckons food from its head: what lies under its body beside the head is left (bots spun on the spot)', () => {
+  const { state, bots, brain, bot } = withBot('Daphnia errans', 3000);
+  bot.heading = 0;
+  const r = radiusOf(bot.mass, bot.tier);
+  spawnNutrient(state, 0, r * 0.6, NutrientKind.diatom); // closest, but under the body beside its head: out of the mouths' reach
+  spawnNutrient(state, r * 1.8, -r * 0.5, NutrientKind.diatom); // ahead (within sight)
+  stepBots(state, bots);
+  expect(brain.dirX).toBeGreaterThan(0.5);
+  expect(brain.dirY).toBeLessThan(0);
 });

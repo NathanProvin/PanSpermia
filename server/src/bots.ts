@@ -45,8 +45,9 @@ const GRAZER_FEAR = 200; // grazers keep this gap from armed cells at least half
 const COWARD_FEAR = 250; // cowards keep this gap from any foreigner (×tier)
 /** Hunters stop hunting when this well fed, as a share of their tier's cap (they graze, divide, get hungry again). */
 const HUNT_UNTIL = 0.7;
-/** Hunters of tiers 2–3 hunt on almost to their cap (user, 2026-10-19: more motivated, the law of the jungle). */
-const HUNT_UNTIL_T23 = 0.95;
+/** Eukaryote hunters hunt on almost to their cap (user, 2026-10-19: more motivated, the law of the jungle). Animals did too
+ * until they stopped spinning on the spot: then they emptied the eukaryotes (5.5 lives a generation). */
+const HUNT_UNTIL_T2 = 0.95;
 /**
  * A hunter of tiers 2–3 also goes for a rival of its own tier too big to swallow but no bigger than itself and unarmed (no
  * jaw, mandibles or weapon): the grazers of its phase, players included, are bitten down. Armed rivals at 1.3× killed off
@@ -56,7 +57,7 @@ const RIVAL_RATIO = 1;
 /** Phagocytosis takes time: a eukaryote hunter rests this long after each swallow (caps its kill rate). */
 const DIGEST_TICKS = 3 * 20; // 6 s until 2026-10-19 (more threats)
 /** An animal hunter rests longer after a meal: a few predators must not empty the pool. */
-const DIGEST_TICKS_T3 = 6 * 20; // 30 → 8 → 6 s (2026-10-19): slow hunter generations, then more threats (4 s emptied the eukaryotes)
+const DIGEST_TICKS_T3 = 20 * 20; // 30 → 8 → 6 s (2026-10-19): slow hunter generations, then more threats; 20 s once bots stopped spinning (they emptied the eukaryotes)
 /** Recently hit this many ticks ago or less: fire back in self-defence. */
 const DEFEND_TICKS = 20;
 /** Round-robin cycle of species indices weighted by archetype: the pool is mostly food, as in agar. Eukaryotes are rarer. */
@@ -239,7 +240,14 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   let sy = 0;
   let actions = 0;
 
-  // Food (best value per distance) and, for bacteria, phages (dodge).
+  // Food (best value per distance) and, for bacteria, phages (dodge). An animal reckons food from its head, where its
+  // mouths are: from its centre it steered at food under its own body, out of the mouths' reach on its tight turning circle,
+  // and spun on the spot (user report, 2026-10-19: a third of the plankton bots).
+  const animal = isAnimal(p.tier);
+  const hx = Math.cos(p.heading);
+  const hy = Math.sin(p.heading);
+  const headX = animal ? p.x + hx * r : p.x;
+  const headY = animal ? p.y + hy * r : p.y;
   let best = 0;
   let fx = 0;
   let fy = 0;
@@ -259,13 +267,17 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
       }
       return;
     }
+    if (animal && d < r * 1.2 && dx * hx + dy * hy < d * 0.5) return; // under the body, beside or behind the head
     const value = n.kind === NutrientKind.fragment || n.kind === NutrientKind.plasmid ? (DNA_VALUE[p.tier] ?? 0)
       : t2 ? mouthYieldOf(n.kind, p) : yieldOf(n.kind, p.genome);
-    const score = value / (d + 30);
+    const ax = n.x - headX;
+    const ay = n.y - headY;
+    const da = animal ? Math.hypot(ax, ay) || 1 : d;
+    const score = value / (da + 30);
     if (score > best) {
       best = score;
-      fx = dx / d;
-      fy = dy / d;
+      fx = ax / da;
+      fy = ay / da;
     }
   });
   sx += fx;
@@ -284,7 +296,7 @@ function think(state: PoolState, bots: Bots, grid: PacketGrid, id: string, p: Pl
   const grazes = p.tier === 4 ? grazes4(p.genome4) : p.tier === 3 ? TIER3.hasGene(p.genome3, 'filterComb') : !t2 || TIER2.hasGene(p.genome2, 'filter');
   const fed = state.tick < b.fedUntil;
   // Animals always digest after a meal; grazing eukaryotes and bacteria hunt until well fed.
-  const until = p.tier === 2 || p.tier === 3 ? HUNT_UNTIL_T23 : HUNT_UNTIL;
+  const until = p.tier === 2 ? HUNT_UNTIL_T2 : HUNT_UNTIL;
   const hungry = isAnimal(p.tier) ? !fed && p.mass < massCapOf(p.tier) * until : grazes ? p.mass < massCapOf(p.tier) * until : !fed;
   const fights = (p.tier === 2 || p.tier === 3) && bitesWith(p);
   let swallowerClose = false;
