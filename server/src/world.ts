@@ -313,6 +313,9 @@ function nextOf(l: Lineage, tick: number, at?: { x: number; y: number; heading: 
 
 
 /** A player founds a new species: starter design, library and reserve, first individual. */
+/** The tick each human species was founded: its time to land for the Hall of Fame (server-only, never synced). */
+export const foundedAt = new WeakMap<Lineage, number>();
+
 export function foundSpecies(state: PoolState, id: string) {
   const name = randomSpeciesName();
   state.lineages.set(id, new Lineage({
@@ -325,6 +328,7 @@ export function foundSpecies(state: PoolState, id: string) {
     lifetimeDna: 0,
     children: STARTER_CHILDREN,
   }));
+  foundedAt.set(state.lineages.get(id)!, state.tick);
   state.players.set(id, nextOf(state.lineages.get(id)!, state.tick));
 }
 

@@ -3,11 +3,13 @@ import {
   ACTION_SPORE, ACTION_TOXIN, Input, NutrientKind, PACKET_DNA, PLASMID_DNA, type Lineage, type Player, PoolState, ROOM_NAME, SERVER_PORT,
   BOT_SPECIES, EYE_SIGHT, ANTENNA_SIGHT, MATE_PREFIX, TICK_DT, TICK_RATE, TIER2, TIER3, TIER4, TOXINS, TUN_COOLDOWN, isAnimal, ENDOSPORE_COOLDOWN, INK_COOLDOWN,
   JET_COOLDOWN, formOf, TIER_NAMES, evolveDnaOf, massCapOf, minMassOf, currentAt, speedOf, isMate, ownGenome, segmentsOf, catalogFor, hasGene, stack, healthMaxOf, radiusOf, sanitizeInput, stepCell,
-  hasBit, withBit,
+  hasBit, withBit, DEFAULT_RADII, Lineage as LineageState,
 } from '@panspermia/shared';
 import * as THREE from 'three';
 import { type CardData, decodeCard, showCard } from './card.ts';
 import { createEditor } from './editor.ts';
+import { type HallLists, createEnding } from './ending.ts';
+import { createHistory } from './history.ts';
 import { type Ability, createHud } from './hud.ts';
 import { createLabels } from './labels.ts';
 import { type Look, createCells, hashId } from './scene/cells.ts';
@@ -25,7 +27,6 @@ import { createTickClock, createTrails } from './timeline.ts';
 
 const hud = createHud(document.getElementById('hud')!);
 hud.message('Connecting…');
-const extinctScreen = document.getElementById('extinct')!;
 const cardScreen = document.getElementById('card')!;
 const stageup = document.getElementById('stageup')!;
 const labels = createLabels(document.getElementById('labels')!, document.getElementById('leaders') as HTMLOListElement);
@@ -144,6 +145,9 @@ const cells = createCells(scene, (id, strength) => {
   }
 });
 const editor = createEditor(renderer, document.getElementById('editor')!);
+const ending = createEnding(document.getElementById('ending')!, (d) => editor.portrait(d));
+/** Every species played this session, generation by generation: the end screen's evolution tree. */
+const session = createHistory();
 const cloudLayer = createClouds();
 const meteor = createMeteor();
 // Dev: ?off=floor,haze,rim,plankton,nutrients hides a layer at load; `layers.rim.visible = false` from the console
@@ -205,6 +209,7 @@ let backdropFor: Player | undefined;
 /** When our species evolved (the slice's ending: zoom out, then the species card), or 0. */
 /** Our species' tier as last seen: a rise is the stage-up moment. */
 let knownTier = 0;
+let knownGeneration = 0;
 const STAGEUP_MS = 4500;
 /** Camera height × per tier: plankton and animals see more of the pool around them. */
 const TIER_ZOOM = [1, 1, 1, 1.45, 1.8];
@@ -226,6 +231,49 @@ if (sharedCard) {
   await new Promise(() => {}); // park: a card viewer never joins a room
 }
 
+/** Dev: a whole session made up from the bot species — two species that died out, then one that climbs every phase. */
+function demoSession(fate: 'evolved' | 'extinct') {
+  const h = createHistory();
+  const design = (bot: string, name: string, generation: number): CardData => {
+    const s = BOT_SPECIES.find((b) => b.name === bot)!;
+    const cat = catalogFor(s.tier);
+    return { name, hue: (generation * 0.13) % 1, tier: s.tier, shape: s.shape, parts: cat.defaultParts(cat.genomeOf(s.genes)), plan: s.plan ?? 0,
+      radii: [...(s.radii ?? DEFAULT_RADII)], generation, dna: 0, kills: 0, fate: 'living' };
+  };
+  const found = (d: CardData, gene: string) => h.unlock({
+    gene: catalogFor(d.tier).GENES[gene]!.label,
+    icon: editor.partIcon(new LineageState({ name: d.name, tier: d.tier, hue: d.hue, shape: d.shape, plan: d.plan, radii: d.radii, genome: 0, library: 0, dna: 0, lifetimeDna: 0, children: 0 }), gene),
+  });
+  h.begin(design('Nudus errans', 'Primus infelix', 1));
+  h.death();
+  h.end('extinct');
+  h.begin(design('Pilus repens', 'Secundus audax', 1));
+  h.track(design('Pilus repens', 'Secundus audax', 2));
+  h.track(design('Ciliata lenta', 'Secundus audax', 3));
+  h.death();
+  h.death();
+  h.end('extinct');
+  const steps: [string, number, number, string?][] = [ // bot design, generations, deaths, part found
+    ['Nudus errans', 2, 1], ['Pilus repens', 2, 0, 'flagellum'], ['Vibrio celer', 3, 1, 'chemoreceptor'], ['Necrophagus', 1, 0],
+    ['Ciliata lenta', 2, 2, 'jaw'], ['Amoebina vorax', 2, 0], ['Didinia ferox', 1, 1, 'spike'],
+    ['Daphnia errans', 2, 1, 'mandibles'], ['Rotifera rapax', 1, 0], ['Cyclops furax', 2, 4],
+    ...(fate === 'evolved' ? [['Gammarus pulex', 2, 0, 'claw'], ['Astacus fluviatilis', 1, 1]] as [string, number, number, string?][] : []),
+  ];
+  let g = 1;
+  let last: CardData | undefined;
+  for (const [bot, gens, deaths, gene] of steps) {
+    for (let k = 0; k < gens; k++) {
+      last = design(bot, 'Demonstrata victrix', g++);
+      if (g === 2) h.begin(last);
+      else h.track(last);
+    }
+    for (let k = 0; k < deaths; k++) h.death();
+    if (gene && last && gene in catalogFor(last.tier).GENES) found(last, gene);
+  }
+  h.end(fate);
+  return { runs: h.runs, final: { ...last!, dna: fate === 'evolved' ? 14820 : 5310, kills: 37, fate } as CardData };
+}
+
 const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogFor(l.tier).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
@@ -244,10 +292,10 @@ try {
   room.onMessage('died', ({ cause, killer, extinct }: { cause: string; killer?: string; extinct: boolean }) => {
     const how = { starvation: 'You starved', phage: 'Phages burst you open', virus: 'A giant virus burst you open' }[cause]
       ?? `Lysed by ${killer}`;
+    session.death();
     if (!extinct) return say(`${how}. Your next child takes over…`);
-    extinctScreen.querySelector('p')!.textContent = `${how}. No children were left: your species is extinct.`;
-    extinctScreen.hidden = false;
-    extinctScreen.querySelector('button')!.focus();
+    say(`${how}. No children were left: your species is extinct.`);
+    setTimeout(() => showEnd('extinct'), 1600);
   });
   /** Spore's stage-up: the title card while the camera zooms out to the bigger body (the follow zoom does it). */
   const stageUp = (l: Lineage) => {
@@ -261,17 +309,23 @@ try {
     stageup.classList.add('on');
     stageupUntil = performance.now() + STAGEUP_MS;
   };
-  const newSpecies = () => {
-    extinctScreen.hidden = true;
-    room.send('newSpecies');
-  };
-  extinctScreen.querySelector('.found')!.addEventListener('click', newSpecies);
-  extinctScreen.querySelector('.show-card')!.addEventListener('click', () => {
+  const newSpecies = () => room.send('newSpecies');
+  /** Dev: the next end screen shows a made-up session (L, Shift+L) instead of this one. */
+  let demo: ReturnType<typeof demoSession> | undefined;
+  /** The end of the game: the session's tree (this species' last design and fate recorded first), the Hall of Fame. */
+  const showEnd = (fate: 'evolved' | 'extinct') => {
     const l = room.state.lineages.get(room.sessionId);
-    if (!l) return;
-    extinctScreen.hidden = true;
-    showCard(cardScreen, cardOf(l, 'extinct'), { label: 'Found a new species', action: newSpecies });
-  });
+    if (!l || ending.isOpen) return;
+    const final = cardOf(l, fate);
+    session.track(final);
+    session.end(fate);
+    const shown = demo ?? { runs: session.runs, final };
+    demo = undefined;
+    ending.show(shown.runs, { ...shown.final, fate }, newSpecies);
+    if (fate === 'extinct') room.send('hallRequest'); // the winner's lists come with its landing
+  };
+  // The Hall of Fame (today, all-time): on landing, with our ranks; on extinction, on request.
+  room.onMessage('hall', (h: HallLists) => ending.hall(h));
   room.onMessage('designRefused', (reason: string) => (editor.isOpen ? editor.refused(reason) : say(`Design refused: ${reason}`)));
 
   /** A player's cell wears its species design (unless dev cheats changed its genes); bots get the default layout. */
@@ -353,6 +407,15 @@ try {
       if (e.key === 'b') room.send('dev:visitors');
       if (e.key === 'k') room.send('dev:die');
       if (e.key === 'n') room.send('dev:dna');
+      // L: walk onto land now (the end screen with a full made-up session); Shift+L: the same, extinct.
+      if (e.key.toLowerCase() === 'l' && !e.shiftKey) {
+        demo = demoSession('evolved');
+        room.send('dev:land');
+      }
+      if (e.key.toLowerCase() === 'l' && e.shiftKey) {
+        demo = demoSession('extinct');
+        showEnd('extinct');
+      }
     });
   }
 
@@ -398,7 +461,7 @@ try {
       stageup.replaceChildren(`${own.name} walked onto land`, subtitle);
       stageup.classList.add('on');
       stageupUntil = performance.now() + STAGEUP_MS;
-      setTimeout(() => showCard(cardScreen, cardOf(own, 'evolved'), { label: 'Found a new species', action: newSpecies }), STAGEUP_MS);
+      setTimeout(() => showEnd('evolved'), STAGEUP_MS);
     }
     const seenH = camera.position.z * Math.tan((camera.fov * Math.PI) / 360); // last frame's view of the plane
     const ownCell = players.get(room.sessionId);
@@ -476,7 +539,11 @@ try {
     bump *= Math.exp(-dt * 9);
     if (self && selfMesh) {
       const lineage = room.state.lineages.get(room.sessionId)!;
-      if (lineage !== knownLineage) [knownLineage, knownLibrary] = [lineage, lineage.library]; // a new species
+      if (lineage !== knownLineage) { // a new species
+        [knownLineage, knownLibrary] = [lineage, lineage.library];
+        session.begin(cardOf(lineage, 'living'));
+      } else if (lineage.generation !== knownGeneration || lineage.tier !== knownTier) session.track(cardOf(lineage, 'living'));
+      knownGeneration = lineage.generation;
       const cat = catalogFor(lineage.tier);
       if (lineage.tier !== knownTier) { // a new species, or a stage-up: the library starts over
         if (knownTier && lineage.tier > knownTier) pendingStageUp = lineage; // its title plays once the editor is done
@@ -486,7 +553,9 @@ try {
       const found = cat.NAMES.filter((name) => hasBit(lineage.library, cat.GENES[name]!.bit) && !hasBit(knownLibrary, cat.GENES[name]!.bit));
       if (found.length) {
         for (const g of found) {
-          hud.unlock(cat.GENES[g]!.label, editor.partIcon(lineage, g));
+          const icon = editor.partIcon(lineage, g);
+          hud.unlock(cat.GENES[g]!.label, icon);
+          session.unlock({ gene: cat.GENES[g]!.label, icon });
         }
       }
       knownLibrary = lineage.library;
@@ -566,7 +635,7 @@ try {
     perf.gpuBegin();
     // The editor stays up for exactly one division: until this individual hatches (or dies).
     if (editor.isOpen && (!self || self !== designedFor || self.cyst === 0)) editor.close();
-    if (editor.isOpen) {
+    if (ending.covering) { /* nothing to draw */ } else if (editor.isOpen) {
       if (backdropFor !== designedFor) { // the editor just opened: its backdrop is this pond, blurred
         backdropFor = designedFor;
         post.render();

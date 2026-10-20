@@ -103,7 +103,8 @@ vec3 lightDir() {
 // Tier 4 (uBody, from its parts): hard, crisply jointed chitin plates with dark sutures and a glossy sheen; or, with a
 // foot or a shell, one soft slick body gliding on a rippling foot skirt, the biggest station under a coiled shell.
 int segParent(int i) { // the station a link reaches back to (shared parentOf): the one before, or an arm's centre
-  return uArm > 0 && (i - 1) % uArm == 0 ? 0 : i - 1;
+  // max(): GLSL may evaluate both sides of &&, and % 0 is undefined — spine plankton (uArm 0) drew nothing (user report).
+  return uArm > 0 && (i - 1) % max(uArm, 1) == 0 ? 0 : i - 1;
 }
 // The metamorphosis cocoon: a silk spindle around the whole body (head to tail), fibres wound round it at two
 // slants, lit as a solid, the shape inside showing faintly through; it breathes slowly.

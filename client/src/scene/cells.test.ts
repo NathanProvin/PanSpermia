@@ -12,3 +12,8 @@ test('a stale part of another tier never leaves an animal body invisible (NaN) â
   expect(Number.isFinite(x) && Number.isFinite(y) && x > 0).toBe(true);
   expect(view.body.visible).toBe(true);
 });
+
+test('the body shader never takes % of a bare uniform (% 0 is undefined: spine plankton, uArm 0, drew nothing)', () => {
+  const view = createCellView(new THREE.Scene(), 0.4);
+  expect(view.body.material.fragmentShader).not.toMatch(/%\s*u[A-Z]\w*/);
+});

@@ -9,6 +9,14 @@ export const PIGMENTS = [
   { name: 'Teal', hex: 0x4fa3a0 },
   { name: 'Carotene', hex: 0xd98a3a },
   { name: 'Umber', hex: 0x8a6545 },
+  { name: 'Phycocyanin', hex: 0x3f86b0 },
+  { name: 'Phycoerythrin', hex: 0xc4566e },
+  { name: 'Xanthophyll', hex: 0xd9c24a },
+  { name: 'Astaxanthin', hex: 0xd2553a },
+  { name: 'Biliverdin', hex: 0x4f8f78 },
+  { name: 'Bacteriorhodopsin', hex: 0x8e4f86 },
+  { name: 'Haemoglobin', hex: 0x9c2f36 },
+  { name: 'Melanin', hex: 0x4a3328 },
 ] as const;
 export const PATTERN_NAMES = ['Plain', 'Speckled', 'Banded'] as const;
 

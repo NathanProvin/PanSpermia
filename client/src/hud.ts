@@ -1,5 +1,5 @@
-// The in-game HUD (polish S3): discreet, minimal, out of the way of the pond. A glass panel top-left (species,
-// energy and DNA gauges, children as icons), ability chips with cooldown rings and one status line bottom-centre,
+// The in-game HUD (polish S3): discreet, minimal, out of the way of the pond. Top-left, free of any box (user
+// direction): the generation in roman numerals, the two molecule gauges (energy, DNA toward evolving) and the lives as dots; ability chips with cooldown rings and one status line bottom-centre,
 // fading toasts top-centre, a red vignette instead of a health bar. Plain DOM, built once; update() only writes
 // what changed. Styles: the shared design tokens in index.html.
 
@@ -79,13 +79,22 @@ export function setMolecule(svg: Element, pct: number) {
   svg.setAttribute('aria-valuenow', String(Math.round(pct)));
 }
 
+/** A generation in roman numerals (the HUD's "Gen IV"). */
+export function roman(n: number) {
+  let out = '';
+  for (const [v, s] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']] as const) {
+    for (; n >= v; n -= v) out += s;
+  }
+  return out;
+}
+
 /** Four corners pointing out (in fullscreen, the button turns them inward through CSS). */
 const FULLSCREEN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
 
 export function createHud(root: HTMLElement) {
   root.innerHTML = `
     <div class="hud-panel" hidden>
-      <div class="hud-name"><span class="species"></span><small class="gen"></small></div>
+      <div class="hud-gen" title="Generation"></div>
       <div class="hud-row" title="Energy: grow to your size cap to reproduce">
         <span class="hud-label">Energy</span>${molecule('energy', 'Energy')}
       </div>
@@ -157,8 +166,7 @@ export function createHud(root: HTMLElement) {
         vignette.style.opacity = '0';
         return;
       }
-      set('name', s.name, () => { $('.species').textContent = s.name; });
-      set('gen', s.generation, () => { $('.gen').textContent = `gen ${s.generation}`; });
+      set('gen', s.generation, () => { $('.hud-gen').textContent = `Gen ${roman(s.generation)}`; });
       const e = Math.round(s.energy * 100);
       set('energy', e, () => {
         setMolecule(energy, e);
@@ -174,9 +182,7 @@ export function createHud(root: HTMLElement) {
       set('children', `${s.children}/${s.tier}`, () => {
         const box = $('.children');
         box.setAttribute('aria-label', `${s.children} children in reserve`);
-        box.innerHTML = Array.from({ length: Math.min(9, s.children) },
-          () => `<svg viewBox="0 0 16 16" aria-hidden="true">${CHILD_ICON[s.tier] ?? CHILD_ICON[1]}</svg>`).join('')
-          || '<small>no children left</small>';
+        box.innerHTML = '<i class="life"></i>'.repeat(Math.min(9, s.children)) || '<small>no children left</small>';
       });
       set('status', s.status, () => { $('.hud-status').textContent = s.status; });
       // Ability chips: one per ability the species has, a conic ring filling up as it recharges.

@@ -91,6 +91,12 @@ export function decodeCard(text: string): CardData | undefined {
 
 export const cardLink = (d: CardData) => `${location.origin}${location.pathname}#card=${encodeCard(d)}`;
 
+/** How a card's design is drawn (the cell view's look): the card, and the end screen's evolution tree. */
+export const lookOfCard = (d: Pick<CardData, 'tier' | 'parts' | 'hue' | 'form' | 'shape' | 'plan' | 'radii' | 'bends' | 'arms'>) => ({
+  tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.form ?? d.shape,
+  segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii, d.bends, d.arms) : undefined, plan: d.plan,
+});
+
 /** Render the cell with the game's own shaders into an image (a throwaway WebGL context). */
 function renderCell(d: CardData, size: number) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -100,9 +106,7 @@ function renderCell(d: CardData, size: number) {
   const scene = new THREE.Scene();
   const half = 2.3; // cell radii shown around the centre: room for flagella
   const camera = new THREE.OrthographicCamera(-half, half, half, -half, -10, 10);
-  createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1,
-    { tier: d.tier, genome: catalogOf(d.tier).genomeOf(d.parts.map((p) => p.gene)), parts: d.parts, hue: d.hue, shape: d.form ?? d.shape,
-      segments: isAnimal(d.tier) ? segmentsOf(d.plan, d.radii, d.bends, d.arms) : undefined, plan: d.plan }, 1.7, 0);
+  createCellView(scene, 0.42).update({ x: 0, y: 0.25, heading: Math.PI / 2, tumble: 0, spore: 0, cyst: 0 }, 1, lookOfCard(d), 1.7, 0);
   renderer.render(scene, camera);
   const image = document.createElement('canvas'); // copy out before dropping the context (which blanks it)
   image.width = image.height = size;

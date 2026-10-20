@@ -133,13 +133,12 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] 23b16ea Stylet/proboscis drain only where placed (the front); fullscreen left of the ranking and the player's own rank boxed (below the top eight when out of it, glowing on a climb); calmer phase-3 steering (turn reversals 3.6 → 0.66/s) and a faint swimming wave; invisible animal bodies fixed (a stale part of another tier threw in the cell view's rebuild and left NaN)
   - Sim at the end of the day (8 min, 160 bots): phases evolve in 6.5 / 7.1 / 6.2 / 6.6 min; lives lost per generation 0.3 / 2.9 / 1.6; 2.9× real time. All tests pass but the flaky polyp one (~1 run in 3)
 - [x] 2026-10-20: branch merged after the playtest; phases −25 % DNA (~5 min each in the sim), tier-4 shard unlocks ÷4 and maxillae ×0.4, Hydrina reworked, two tier-4 residents (Astacus, Gammarus), flaky polyp test fixed
-- [ ] Next (plan for 2026-10-21):
-  1. Invisible bodies: get the user's screenshot and moment, re-add the debug recipe below, reproduce, fix, test (cells.test.ts)
-  2. Playtest the new balance with the user: ~5 min phases, phase 4 by grazing (maxillae ×0.4, shard unlocks ×0.25), the crayfish's pressure on phase 3, the new Hydrina
-  3. Hydrina: a longer sim (15 min+) to see whether it divides steadily; tune if not
-  4. Decide P11 (tier 5 after the win on land, or drop it) and start P12 (Ascension + Hall of Fame)
-  - [ ] Invisible / glitchy phase-3 bodies "at first" (user, 2026-10-20): not reproduced — needs a screenshot and the exact moment
-    - Debug recipe (used 2026-10-20, removed before the commit — re-add for the hunt): in client/src/main.ts right after `joinOrCreate`, `Object.assign(globalThis, { __dbg: { cells, room, scene, camera, lookOf: (id: string, p: Player) => lookOf(id, p) } });`; in PoolRoom's dev handlers `this.onMessage('dev:tp', (client, at: { x: number; y: number }) => { const p = this.state.players.get(client.sessionId); if (p) Object.assign(p, { x: at.x, y: at.y }); });`. Then from the page: follow a bot by re-sending `dev:tp` every 300 ms (one jump into rock lands you elsewhere; the camera eases in), and read `cells.get(id).body.visible`, `uSegN`, `uSeg`, `uQuad` for NaN or a parked view
+- [ ] Next (session plan 2026-10-21):
+  1. [x] Invisible bodies fixed: the body shader's `segParent` took `(i - 1) % uArm` with uArm 0 (GLSL may evaluate both sides of &&; % 0 is undefined) — every spine plankton (uBody 0, uArm 0) drew nothing, editor icons too; guarded with max(uArm, 1), cells.test.ts asserts no `%` of a bare uniform. Browser-checked: phase-3 editor and pool
+  2. [ ] Playtest the new balance with the user: ~5 min phases, phase 4 by grazing (maxillae ×0.4, shard unlocks ×0.25), the crayfish's pressure on phase 3, the new Hydrina; one full win on `npm run play` to see the Hall of Fame persist
+  3. [x] Hydrina, 15 min / 160 bots: 9 generations at ~4 min each — steady, no tuning. Sim: phases 4.7 / 5.3 / 4.2 / 4.9 min to evolve
+  4. [x] P11 dropped (user); P12 Hall of Fame started (below)
+  - Debug recipe (kept for future render hunts, not in the code): in client/src/main.ts right after `joinOrCreate`, `Object.assign(globalThis, { __dbg: { cells, room, scene, camera, editor, renderer, lookOf: (id: string, p: Player) => lookOf(id, p) } });`; in editor.ts after `iconCell`, `Object.assign(globalThis, { __edCell: cell, __edIcon: iconCell });`; in PoolRoom's dev handlers `this.onMessage('dev:tp', (client, at: { x: number; y: number }) => { const p = this.state.players.get(client.sessionId); if (p) Object.assign(p, { x: at.x, y: at.y }); });`. The decisive probe: render the view's scene alone (scene.background null) into a small WebGLRenderTarget and count lit pixels while toggling one uniform at a time
   - [ ] (User: fine as is) Phase 2 is the harshest (2.9 lives/gen): the pure carnivores Didinia and Lacrymaria never complete a generation and die ~70 times per generation — give them a grazing fallback or fewer, and recheck with humans
   - [x] Hydrina reworked (comb, nematocysts, oil): now divides, but the sim swings (1–4 gens in 8 min)
   - [x] Phase lengths: EVOLVE_DNA −25 % → ~5 min each in the sim; confirm with humans
@@ -147,8 +146,11 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] Tier-4 resident bots (Astacus, Gammarus); no tier-4 hazards (user). Visitor frequency (25 min average) left as is
   - [x] Client frame rate with 160 cells: fluid at every phase on the user's machine
   - [ ] Then P6b–d: public alpha on a VPS, load test, first public playtest (user: later)
-- [ ] P11 Tier 5 Chordate + womb. (Open question: the game now ends on land at tier 4 — keep P11 as a post-win stage or drop it.)
-- [ ] P12 Ascension + global Hall of Fame (SQLite).
+- [-] P11 Tier 5 Chordate + womb: dropped (2026-10-21, user). Walking onto land at tier 4 is the ending and the Ascension.
+- [ ] P12 Ascension + global Hall of Fame (SQLite), sliced:
+  - [x] P12a (2026-10-21) Hall of Fame: a win (walking onto land) is entered into `node:sqlite` (server/hall.ts; `server/data/hall.db` under `npm run play`/production, `HALL_DB` overrides, `:memory:` in dev and tests), ranked by time to land (sim time from founding the species), then fewest generations, ties to the earlier win; the win card shows the top ten and our rank (our row boxed, after a ⋮ when lower). Not yet browser-checked end to end
+  - [x] P12b (2026-10-21, user direction) End-of-game screen: the session's evolution tree (client/history.ts records every species played, generation by generation: design, lives lost, parts found; ending.ts draws it as an SVG tree — phase columns, thumbnails from the game's shaders via editor.portrait, ✝ twigs, part badges, ×n, earlier species as grey branches, a gold land node), the 3 stats, the Hall split into Today (UTC day) and All-time, Share (Web Share with the species card, else copy link) and Play again; Fredoka, glowing soft-bevel game panels; a ~4 s entrance (burst, rays, panel, title, the tree growing root to land, stats counting, Halls, buttons), skippable; extinction uses it muted. The pool stops drawing under it (GPU 10.7 → 0 ms). Dev keys L (land, demo session) / Shift+L (extinct demo); the dev Hall is seeded. Browser-checked (desktop)
+  - [ ] Later (with P6b): a public Hall page/endpoint, entries linking to their species cards, the tree in the shared image, landed species returning as bots (Sporepedia effect)
 
 ### Milestone C — Live game
 - [ ] P13 Accounts (optional) + cosmetics shop.

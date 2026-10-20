@@ -6,7 +6,8 @@ import {
   hasBit, withBit,
 } from '@panspermia/shared';
 import * as THREE from 'three';
-import { CHILD_ICON, molecule, setMolecule } from './hud.ts';
+import { CHILD_ICON } from './hud.ts';
+import { type CardData, lookOfCard } from './card.ts';
 import { createCellView } from './scene/cells.ts';
 
 // Spore-like species editor, open while your cell sits in its division cyst. One editor for every tier: the tier's
@@ -42,6 +43,7 @@ const PICK = 0.3; // radii: grab distance for placed parts
 const INTERIOR = 0.6; // internal parts stay this far inside
 const FORWARD = Math.PI / 2; // the editor shows the cell swimming up the screen
 const ICON_PX = 96;
+const PORTRAIT_PX = 128;
 /** Where the sculpting handles sit, in body radii beyond the outline. */
 const HANDLE_OUT = 1.1;
 /** How far (body radii) the tail handle travels per station added or removed. */
@@ -261,9 +263,35 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
   const iconCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -10, 10);
   const iconCell = createCellView(iconScene, 0.3);
   const iconTarget = new THREE.WebGLRenderTarget(ICON_PX, ICON_PX);
-  const iconPixels = new Uint8Array(ICON_PX * ICON_PX * 4);
-  const iconCanvas = Object.assign(document.createElement('canvas'), { width: ICON_PX, height: ICON_PX });
-  const iconContext = iconCanvas.getContext('2d')!;
+  const portraitTarget = new THREE.WebGLRenderTarget(PORTRAIT_PX, PORTRAIT_PX);
+  /** Renders the icon scene into a target and reads it back as an image (un-premultiplied sRGB, rows flipped). */
+  const snapshot = (camera: THREE.Camera, target: THREE.WebGLRenderTarget) => {
+    const px = target.width;
+    const clear = renderer.getClearColor(new THREE.Color());
+    const clearAlpha = renderer.getClearAlpha();
+    renderer.setClearColor(0x000000, 0);
+    renderer.setRenderTarget(target);
+    renderer.clear();
+    renderer.render(iconScene, camera);
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(clear, clearAlpha);
+    const pixels = new Uint8Array(px * px * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, px, px, pixels);
+    const canvas = Object.assign(document.createElement('canvas'), { width: px, height: px });
+    const context = canvas.getContext('2d')!;
+    const image = context.createImageData(px, px);
+    for (let y = 0; y < px; y++) {
+      for (let x = 0; x < px; x++) {
+        const from = ((px - 1 - y) * px + x) * 4; // GL rows run bottom-up
+        const to = (y * px + x) * 4;
+        const a = pixels[from + 3]! / 255;
+        for (let c = 0; c < 3; c++) image.data[to + c] = a > 0 ? toSrgb(pixels[from + c]! / 255 / a) : 0; // un-premultiply
+        image.data[to + 3] = pixels[from + 3]!;
+      }
+    }
+    context.putImageData(image, 0, 0);
+    return canvas.toDataURL();
+  };
 
   root.innerHTML = `
     <div class="ed-clock" role="timer">
@@ -303,7 +331,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       <section class="panel" aria-label="Next generation">
         <p class="message" role="status"></p>
         <button type="button" class="primary hatch">Divide</button>
-        <div class="evolution">${molecule('dna', 'Evolution')}<button type="button" class="evolve">Evolve</button></div>
+        <div class="evolution"><button type="button" class="evolve">Evolve</button></div>
       </section>
     </div>
     <div class="handle h-length" data-h="nose" title="Length: drag up or down · bend: drag sideways"></div>
@@ -488,27 +516,22 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     const f = deform(shownForm(), focus.x, focus.y);
     [iconCamera.left, iconCamera.right, iconCamera.top, iconCamera.bottom] = [-f.y - half, -f.y + half, f.x + half, f.x - half];
     iconCamera.updateProjectionMatrix();
-    const clear = renderer.getClearColor(new THREE.Color());
-    const clearAlpha = renderer.getClearAlpha();
-    renderer.setClearColor(0x000000, 0);
-    renderer.setRenderTarget(iconTarget);
-    renderer.clear();
-    renderer.render(iconScene, iconCamera);
-    renderer.setRenderTarget(null);
-    renderer.setClearColor(clear, clearAlpha);
-    renderer.readRenderTargetPixels(iconTarget, 0, 0, ICON_PX, ICON_PX, iconPixels);
-    const image = iconContext.createImageData(ICON_PX, ICON_PX);
-    for (let y = 0; y < ICON_PX; y++) {
-      for (let x = 0; x < ICON_PX; x++) {
-        const from = ((ICON_PX - 1 - y) * ICON_PX + x) * 4; // GL rows run bottom-up
-        const to = (y * ICON_PX + x) * 4;
-        const a = iconPixels[from + 3]! / 255;
-        for (let c = 0; c < 3; c++) image.data[to + c] = a > 0 ? toSrgb(iconPixels[from + c]! / 255 / a) : 0; // un-premultiply
-        image.data[to + 3] = iconPixels[from + 3]!;
-      }
+    return snapshot(iconCamera, iconTarget);
+  };
+  /** A whole design, swimming right, framed to its body: the end screen's evolution tree. */
+  const portrait = (d: CardData) => {
+    const look = lookOfCard(d);
+    iconCell.update({ x: 0, y: 0, heading: 0, tumble: 0, spore: 0, cyst: 0 }, 1, look, 0, 0);
+    let [cx, cy, half] = [0, 0, 1.7]; // a cell and its flagella
+    if (look.segments) {
+      const xs = look.segments.flatMap(([x, , r]) => [x - r, x + r]);
+      const ys = look.segments.flatMap(([, y, r]) => [y - r, y + r]);
+      [cx, cy] = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+      half = 0.6 + Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2; // legs and antennae
     }
-    iconContext.putImageData(image, 0, 0);
-    return iconCanvas.toDataURL();
+    [iconCamera.left, iconCamera.right, iconCamera.top, iconCamera.bottom] = [cx - half, cx + half, cy + half, cy - half];
+    iconCamera.updateProjectionMatrix();
+    return snapshot(iconCamera, portraitTarget);
   };
 
   /** Part tiles, rebuilt on opening and when the body changes (icons are drawn on it). */
@@ -655,14 +678,11 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
     $('.hatch').textContent = evolving ? 'Hatch' : lineage!.tier === 3 ? 'Lay eggs' : animal() ? 'Spin a cocoon' : 'Divide';
     const need = evolveDnaOf(lineage!.tier);
     const ready = lineage!.lifetimeDna >= need;
-    const gauge = root.querySelector('.evolution .molecule')!;
-    setMolecule(gauge, Number.isFinite(need) ? (100 * lineage!.lifetimeDna) / need : 0);
-    gauge.classList.toggle('ready', ready);
-    gauge.setAttribute('aria-label', `Lifetime DNA ${Math.floor(lineage!.lifetimeDna)} / ${need}`);
     evolveButton.disabled = submitted || left < 0 || !named || !ready;
-    const next = lineage!.tier >= MAX_TIER ? 'land' : TIER_NAMES[lineage!.tier + 1]?.toLowerCase(); // the last step: the game won
+    evolveButton.classList.toggle('ready', !evolveButton.disabled); // blinks once within reach
+    evolveButton.title = `Lifetime DNA ${Math.floor(lineage!.lifetimeDna)} / ${need}`;
     $<HTMLElement>('.evolution').hidden = lineage!.evolved || evolving;
-    evolveButton.textContent = evolveArmed ? `Evolve to ${next}? Click again` : ready ? `Evolve to ${next}` : 'Evolve';
+    evolveButton.textContent = evolveArmed ? 'Confirm' : 'Evolve';
     // Keep the server's draft current (debounced), so the timer running out keeps these edits.
     clearTimeout(draftTimer);
     if (!submitted && left >= 0 && !drag && !sculpt && !resize && bending === undefined && named) {
@@ -875,6 +895,10 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
 
   return {
     get isOpen() { return !root.hidden; },
+    /** A design drawn whole (the end screen's tree); undefined while the editor is open (its views are in use). */
+    portrait(d: CardData) {
+      return root.hidden ? portrait(d) : undefined;
+    },
     /** A part's icon for a lineage, drawn as in the palette (the unlock card); undefined while the editor is open. */
     partIcon(l: Lineage, gene: string) {
       if (!root.hidden) return undefined;
@@ -1004,7 +1028,7 @@ export function createEditor(renderer: THREE.WebGLRenderer, root: HTMLElement) {
       $<SVGCircleElement>('.ed-clock .left').style.strokeDashoffset = String(100 - (100 * Math.max(0, secondsLeft)) / CYST_TIME);
       $('.ed-clock .secs').textContent = `${secs}`;
       $('.ed-clock').classList.toggle('late', secs <= 10);
-      $('.ed-clock .what').textContent = evolving ? `Evolved: your first ${TIER_NAMES[lineage!.tier]!.toLowerCase()}`
+      $('.ed-clock .what').textContent = evolving ? `${TIER_NAMES[lineage!.tier]} phase`
         : animal() ? 'Next generation' : 'Dividing';
       return { scene, camera };
     },

@@ -1,12 +1,13 @@
 import { Room, type Client } from '@colyseus/core';
 import {
-  ACTION_TOXIN, BOT_FILL, GENOME_FIELD, massCapOf, BOT_SPECIES, catalogFor, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
+  ACTION_TOXIN, BOT_FILL, type Lineage, GENOME_FIELD, massCapOf, BOT_SPECIES, catalogFor, NutrientKind, type Gene, IDLE_GRACE_TICKS, Input, MAX_PLAYERS, PoolState, TICK_DT, TICK_RATE, sanitizeInput,
   stepCell,
   hasBit, withBit,
 } from '@panspermia/shared';
+import { type Hall, openHall, seedHall } from '../hall.ts';
 import { type Bots, callVisitors, divideBots, fillBots, rebirth, stepBots, stepVisitors } from '../bots.ts';
 import {
-  PHAGE_KILLER, VIRUS_KILLER, foundSpecies, initPool, secrete, squirtInk, spawnNutrient, spawnPlasmid, spawnShard, stepWorld, submitDesign,
+  PHAGE_KILLER, VIRUS_KILLER, foundSpecies, foundedAt, initPool, secrete, squirtInk, spawnNutrient, spawnPlasmid, spawnShard, stepWorld, submitDesign,
 } from '../world.ts';
 
 export interface PoolOptions {
@@ -14,6 +15,8 @@ export interface PoolOptions {
   dev?: boolean;
   /** Bots top the room up to this many cells (default BOT_FILL). */
   bots?: number;
+  /** The Hall of Fame's SQLite file (`:memory:` by default: dev cheats and tests never reach the real one). */
+  hall?: string;
 }
 
 export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
@@ -25,9 +28,12 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   /** Consecutive ticks without input per session (server-only bookkeeping). */
   private idleTicks = new Map<string, number>();
   private bots: Bots = new Map();
+  private hall!: Hall;
 
   override onCreate(options: PoolOptions = {}) {
     initPool(this.state);
+    this.hall = openHall(options.hall ?? ':memory:');
+    if (options.dev) seedHall(this.hall); // the end screen's lists look full without playing a dozen games
     const botFill = options.bots ?? BOT_FILL;
     this.setFixedTimestep((ctx) => {
       fillBots(this.state, this.bots, botFill); // humans count in their tier's quota
@@ -75,9 +81,14 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
     // The editor's design from a dividing cell (validated in submitDesign): final, or a draft kept
     // for when the cyst times out.
     this.onMessage('design', (client, design: unknown) => {
+      const l = this.state.lineages.get(client.sessionId);
+      const landed = l?.evolved;
       const refused = submitDesign(this.state, client.sessionId, design);
       if (refused) client.send('designRefused', refused);
+      if (l && !landed && l.evolved) this.land(client, l);
     });
+    // The end screen of an extinct species still shows the Hall (nothing entered).
+    this.onMessage('hallRequest', (client) => client.send('hall', this.hall.lists()));
     this.onMessage('draft', (client, design: unknown) => {
       submitDesign(this.state, client.sessionId, design, false);
     });
@@ -126,11 +137,26 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
         const l = this.state.lineages.get(client.sessionId);
         if (l) l.library = catalogFor(l.tier).NAMES.reduce((lib, g) => withBit(lib, catalogFor(l.tier).GENES[g]!.bit), l.library);
       });
+      // Walk onto land on the spot (the end screen without playing the whole game).
+      this.onMessage('dev:land', (client) => {
+        const l = this.state.lineages.get(client.sessionId);
+        if (l && !l.evolved) {
+          l.evolved = true;
+          this.land(client, l);
+        }
+      });
       this.onMessage('dev:die', (client) => {
         const p = this.state.players.get(client.sessionId);
         if (p) p.health = -1; // below 0: one tick of regen must not save it
       });
     }
+  }
+
+  /** Walked onto land: into the Hall of Fame; the winner gets both lists and its ranks. */
+  private land(client: Client, l: Lineage) {
+    const seconds = (this.state.tick - (foundedAt.get(l) ?? this.state.tick)) * TICK_DT;
+    const win = { name: l.name, seconds, generations: l.generation, kills: l.kills };
+    client.send('hall', { ...this.hall.record(win), win });
   }
 
   /** Who did it, for the death screen: the killer's species name (its cell may already be a successor). */
