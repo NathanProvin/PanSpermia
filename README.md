@@ -26,21 +26,19 @@ Override either with `VITE_SERVER_URL`. Health check: `GET /health`.
 The address changes every time the tunnel restarts, and the game is only up while your PC and both terminals are.
 Stop with Ctrl+C in each terminal. Anyone with the link can join while it runs; dev cheats stay off.
 
-## Public alpha (always on: a Hetzner VPS)
+## Playtests from a home PC (Docker + Cloudflare Tunnel)
 
-Players open `https://<server-ip-with-dashes>.sslip.io` (a free hostname with a real Let's Encrypt certificate).
-Caddy terminates HTTPS and proxies to the game server on `127.0.0.1:2567`; systemd keeps it running; the firewall
-lets only ssh, http and https in. Files: `deploy/` (provision, deploy, systemd unit, Caddyfile) and `.github/workflows/ci.yml`.
+The game ships as one Docker image, `ghcr.io/nathanprovin/panspermia`, which CI publishes on every green push to
+`master` (`.github/workflows/ci.yml`: tests on every push and pull request). On the PC that hosts it,
+`compose.yaml` runs the game, a Cloudflare tunnel (HTTPS, no router port opened, the home IP hidden) and an updater
+that pulls each new image within 5 minutes. Open tabs show "Server updating…" and reload into the new build.
 
-- **Deploys are automatic**: every push runs the tests; a push to `master` that passes them is deployed
-  (`deploy/deploy.sh`: fetch, check out the commit, `npm ci`, build, restart, wait for `/health`, roll back if it
-  doesn't answer). Open tabs show "Server updating…" and reload into the new build. A deploy restarts the pond.
-- **Setup, once**: create the server (Ubuntu 24.04, your ssh key), then from this repo
-  `ssh root@IP "bash -s -- <ip-with-dashes>.sslip.io master '$(cat ~/.ssh/panspermia_deploy.pub)'" < deploy/provision.sh`
-  (step by step: `deploy/SETUP.md`).
-  GitHub repository secrets: `DEPLOY_HOST` (the IP), `DEPLOY_SSH_KEY` (the private key `~/.ssh/panspermia_deploy`),
-  `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan -t ed25519 IP`), `DEPLOY_SITE` (the sslip.io name). The deploy key can only run
-  `deploy.sh` with a commit of master.
-- **On the server**: logs `journalctl -u panspermia -f`; tuning in `/etc/panspermia.env` (`MAX_ROOMS`: rooms at once,
-  each a whole sim with its bots), then `systemctl restart panspermia`; the Hall of Fame is `/var/lib/panspermia/hall.db`.
-  Deploy a given commit by hand: `sudo -u panspermia bash /opt/panspermia/deploy/deploy.sh <full sha>`.
+```sh
+docker compose --profile quick up -d   # free trycloudflare.com address, new at each start: docker compose logs quick
+docker compose --profile named up -d   # your own domain: TUNNEL_TOKEN in .env
+docker compose logs -f game            # the server's log
+docker compose --profile quick down    # stop (same profile as up; the Hall of Fame stays in the "hall" volume)
+```
+
+Step by step, from installing Docker: `deploy/SETUP.md`. Tuning: `MAX_ROOMS` in `.env` (rooms at once, each a whole
+sim with its bots, about one CPU core; default 1).

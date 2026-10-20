@@ -1,0 +1,47 @@
+# The game at home (deploy/SETUP.md): the game, a Cloudflare tunnel in front of it (HTTPS, no router port opened, the
+# home IP hidden) and an updater that follows the image CI publishes.
+#   docker compose --profile quick up -d   # a free trycloudflare.com address, new at each start (docker compose logs quick)
+#   docker compose --profile named up -d   # your own domain: TUNNEL_TOKEN in .env
+name: panspermia
+
+services:
+  game:
+    image: ghcr.io/nathanprovin/panspermia:latest
+    restart: unless-stopped
+    environment:
+      MAX_ROOMS: ${MAX_ROOMS:-1} # rooms at once: each is a whole sim with its bots, about one CPU core
+    volumes:
+      - hall:/data # the Hall of Fame
+    ports:
+      - 127.0.0.1:2567:2567 # this PC only, to check http://localhost:2567; players come through the tunnel
+
+  # A quick tunnel: no account needed; the address is printed in its log.
+  quick:
+    profiles: [quick]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://game:2567
+    depends_on: [game]
+
+  # A named tunnel on your own domain (Cloudflare dashboard → Zero Trust → Networks → Tunnels): a fixed address.
+  named:
+    profiles: [named]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-} # in .env (deploy/SETUP.md); compose reads the whole file, so no :? here
+    depends_on: [game]
+
+  # Every 5 minutes: pull the game's image; a new one (a green push to master) restarts the game with it.
+  updater:
+    image: docker:cli
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/work:ro
+    working_dir: /work
+    entrypoint: ["sh", "-c", "while true; do docker compose pull --quiet game && docker compose up -d --no-deps game; sleep 300; done"]
+
+volumes:
+  hall:

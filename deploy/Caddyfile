@@ -1,6 +1,0 @@
-# HTTPS in front of the game server: Caddy gets and renews the certificate itself and proxies WebSockets as is.
-# provision.sh writes /etc/caddy/Caddyfile from this, {$SITE} replaced by the address (e.g. 203-0-113-7.sslip.io).
-{$SITE} {
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:2567
-}
