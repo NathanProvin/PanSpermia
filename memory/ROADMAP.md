@@ -135,7 +135,7 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
 - [x] 2026-10-20: branch merged after the playtest; phases −25 % DNA (~5 min each in the sim), tier-4 shard unlocks ÷4 and maxillae ×0.4, Hydrina reworked, two tier-4 residents (Astacus, Gammarus), flaky polyp test fixed
 - [ ] Next (session plan 2026-10-21):
   1. [x] Invisible bodies fixed: the body shader's `segParent` took `(i - 1) % uArm` with uArm 0 (GLSL may evaluate both sides of &&; % 0 is undefined) — every spine plankton (uBody 0, uArm 0) drew nothing, editor icons too; guarded with max(uArm, 1), cells.test.ts asserts no `%` of a bare uniform. Browser-checked: phase-3 editor and pool
-  2. [ ] Playtest the new balance with the user: ~5 min phases, phase 4 by grazing (maxillae ×0.4, shard unlocks ×0.25), the crayfish's pressure on phase 3, the new Hydrina; one full win on `npm run play` to see the Hall of Fame persist
+  2. [x] (user: checked) Playtest the new balance with the user: ~5 min phases, phase 4 by grazing (maxillae ×0.4, shard unlocks ×0.25), the crayfish's pressure on phase 3, the new Hydrina; one full win on `npm run play` to see the Hall of Fame persist
   3. [x] Hydrina, 15 min / 160 bots: 9 generations at ~4 min each — steady, no tuning. Sim: phases 4.7 / 5.3 / 4.2 / 4.9 min to evolve
   4. [x] P11 dropped (user); P12 Hall of Fame started (below)
   - Debug recipe (kept for future render hunts, not in the code): in client/src/main.ts right after `joinOrCreate`, `Object.assign(globalThis, { __dbg: { cells, room, scene, camera, editor, renderer, lookOf: (id: string, p: Player) => lookOf(id, p) } });`; in editor.ts after `iconCell`, `Object.assign(globalThis, { __edCell: cell, __edIcon: iconCell });`; in PoolRoom's dev handlers `this.onMessage('dev:tp', (client, at: { x: number; y: number }) => { const p = this.state.players.get(client.sessionId); if (p) Object.assign(p, { x: at.x, y: at.y }); });`. The decisive probe: render the view's scene alone (scene.background null) into a small WebGLRenderTarget and count lit pixels while toggling one uniform at a time
@@ -145,7 +145,12 @@ Then tune with a headless bot sim at 100x (time-to-cap, kills/min, children used
   - [x] Flaky polyp test (shore dwellers spawn clear of the faults)
   - [x] Tier-4 resident bots (Astacus, Gammarus); no tier-4 hazards (user). Visitor frequency (25 min average) left as is
   - [x] Client frame rate with 160 cells: fluid at every phase on the user's machine
-  - [ ] Then P6b–d: public alpha on a VPS, load test, first public playtest (user: later)
+  - [x] P6b replaced by home hosting (see P6b above and DECISIONS 2026-10-21)
+- [ ] Next (plan for the next session, 2026-10-22):
+  1. On the gaming PC, deploy/SETUP.md steps 1–5: Docker Desktop, make the GHCR package public after the first image job, C:Panspermiacompose.yaml, first local start, the quick tunnel (or a domain + named tunnel if the user buys one)
+  2. Watch the first CI runs on GitHub: the room tests' timings on 2-core runners (raise the 20 s timeouts if they flake), the Docker build, the image push; check the updater (docker:cli must include `docker compose`, else swap it)
+  3. When the user is on the home network: SETUP "Remote access" (Windows OpenSSH on the gaming PC, key login), so Claude can run docker compose there from the dev PC
+  4. A playtest through the tunnel; then P6c: load test with bot clients (CPU per room with humans, bandwidth per player, join snapshot size) → MAX_ROOMS and whether home upload holds
 - [-] P11 Tier 5 Chordate + womb: dropped (2026-10-21, user). Walking onto land at tier 4 is the ending and the Ascension.
 - [ ] P12 Ascension + global Hall of Fame (SQLite), sliced:
   - [x] P12a (2026-10-21) Hall of Fame: a win (walking onto land) is entered into `node:sqlite` (server/hall.ts; `server/data/hall.db` under `npm run play`/production, `HALL_DB` overrides, `:memory:` in dev and tests), ranked by time to land (sim time from founding the species), then fewest generations, ties to the earlier win; the win card shows the top ten and our rank (our row boxed, after a ⋮ when lower). Not yet browser-checked end to end

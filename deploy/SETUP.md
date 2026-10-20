@@ -181,6 +181,64 @@ again to get the new one.
 
 ---
 
+## Remote access from the dev PC (same home network)
+
+To run the commands above without sitting at the gaming PC, from your dev PC or from Claude's terminal there with your
+OK, use Windows' own SSH server. You land in a Windows shell; Docker Desktop's `docker` commands work there as they do
+locally. You don't need to SSH into WSL itself.
+
+1. **On the gaming PC, PowerShell as administrator, once:**
+
+   ```powershell
+   Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+   Start-Service sshd
+   Set-Service sshd -StartupType Automatic
+   Set-NetFirewallRule -Name OpenSSH-Server-In-TCP -Profile Private   # the home network only
+   hostname; ipconfig                                                  # note the PC's name and its IPv4
+   ```
+
+   The firewall rule only applies on a network set to **Private**: Settings → Network & internet → your
+   connection → *Network profile type* → *Private network*.
+
+2. **On the dev PC, Git Bash, a key (once per PC):**
+
+   ```sh
+   ssh-keygen -t ed25519      # Enter for the default file; a passphrase is recommended
+   cat ~/.ssh/id_ed25519.pub  # copy this one line
+   ```
+
+3. **Back on the gaming PC, install that key.** If your Windows account is an administrator (it usually is),
+   Windows ignores `~\.ssh\authorized_keys`; the key goes here instead. PowerShell as administrator:
+
+   ```powershell
+   Add-Content C:\ProgramData\ssh\administrators_authorized_keys "ssh-ed25519 AAAA...the line you copied..."
+   icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
+   ```
+
+   For a standard (non-admin) account, put the line in `C:\Users\<you>\.ssh\authorized_keys` instead.
+
+4. **Connect from the dev PC:**
+
+   ```sh
+   ssh <windows-user>@<GAMING-PC-NAME>          # or @192.168.x.y if the name doesn't resolve
+   cd C:\Panspermia
+   docker compose ps
+   ```
+
+   One command without staying logged in:
+   `ssh <windows-user>@<GAMING-PC-NAME> "cd C:\Panspermia; docker compose logs --tail 50 game"`.
+
+5. **Keep the address stable:** reserve the gaming PC's IP in your router's DHCP settings, usually under *DHCP* or
+   *Address reservation*.
+
+6. **Optional, once key login works:** turn off password logins. In `C:\ProgramData\ssh\sshd_config`, set
+   `PasswordAuthentication no`, then `Restart-Service sshd`.
+
+This only works on the home network: the firewall rule keeps SSH off other networks, and nothing is forwarded on
+the router. Reaching the PC from outside would need Cloudflare Access or a VPN; that's a later step.
+
+---
+
 ## If something goes wrong
 
 | What you see | What to do |
