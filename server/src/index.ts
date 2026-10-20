@@ -12,6 +12,8 @@ const client = !dev && existsSync(built) ? built : undefined;
 // The Hall of Fame persists only without dev cheats.
 const hall = dev ? ':memory:' : process.env.HALL_DB ?? fileURLToPath(new URL('../data/hall.db', import.meta.url));
 if (!dev) mkdirSync(dirname(hall), { recursive: true });
-await createServer({ dev, client, hall }).listen(port);
+// MAX_ROOMS: each room is a whole sim with its bots — the cap keeps a small VPS inside its tick budget (unset: no cap).
+const rooms = Number(process.env.MAX_ROOMS) || undefined;
+await createServer({ dev, client, hall, rooms }).listen(port, process.env.HOST); // HOST: 127.0.0.1 behind a proxy
 console.log(`Panspermia server listening on :${port}${dev ? ' (dev cheats enabled)' : ''}`
   + (client ? ` — open http://localhost:${port}` : ''));

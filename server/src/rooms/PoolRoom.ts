@@ -17,7 +17,13 @@ export interface PoolOptions {
   bots?: number;
   /** The Hall of Fame's SQLite file (`:memory:` by default: dev cheats and tests never reach the real one). */
   hall?: string;
+  /** At most this many rooms at once (a CPU guard); a join that would open one more is refused with POND_FULL. */
+  rooms?: number;
 }
+
+/** Shown to a player who can't get in because every room is open and full. */
+export const POND_FULL = 'pond full';
+let open = 0;
 
 export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   override maxClients = MAX_PLAYERS;
@@ -31,6 +37,8 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
   private hall!: Hall;
 
   override onCreate(options: PoolOptions = {}) {
+    if (open >= (options.rooms ?? Infinity)) throw new Error(POND_FULL);
+    open++;
     initPool(this.state);
     this.hall = openHall(options.hall ?? ':memory:');
     if (options.dev) seedHall(this.hall); // the end screen's lists look full without playing a dozen games
@@ -173,5 +181,9 @@ export class PoolRoom extends Room<{ state: PoolState; input: Input }> {
     this.state.players.delete(client.sessionId);
     this.state.lineages.delete(client.sessionId);
     this.idleTicks.delete(client.sessionId);
+  }
+
+  override onDispose() {
+    open--;
   }
 }

@@ -274,6 +274,18 @@ function demoSession(fate: 'evolved' | 'extinct') {
   return { runs: h.runs, final: { ...last!, dna: fate === 'evolved' ? 14820 : 5310, kills: 37, fate } as CardData };
 }
 
+/**
+ * Waits for the server (a deploy restarts it: the socket drops) and reloads the page, which brings the new client too.
+ * The server's own origin may differ from the page's in dev, hence no-cors: any answer means it is back.
+ */
+function reloadWhenUp(message: string) {
+  hud.message(message);
+  const until = Date.now() + 120_000;
+  const poll = () => fetch(`${endpoint}/health`, { mode: 'no-cors', cache: 'no-store' }).then(() => location.reload(),
+    () => (Date.now() < until ? setTimeout(poll, 2000) : hud.message('Disconnected: reload the page to play again')));
+  setTimeout(poll, 1500); // not the old process, still shutting down
+}
+
 const partsOf = (l: Lineage) => [...l.parts].map((part) => ({ ...part.toJSON(), gene: catalogFor(l.tier).NAMES[part.gene]! }));
 const cardOf = (l: Lineage, fate: CardData['fate']): CardData => ({
   name: l.name, hue: l.hue, parts: partsOf(l), generation: l.generation, dna: Math.round(l.lifetimeDna), kills: l.kills, fate,
@@ -285,7 +297,7 @@ try {
   const room = await new Client(endpoint).joinOrCreate(ROOM_NAME, {}, PoolState);
   selfId = room.sessionId;
   hud.message('');
-  room.onLeave(() => hud.message('Disconnected'));
+  room.onLeave(() => reloadWhenUp('Server updating…'));
   // We killed or swallowed something: its energy and DNA stream into us.
   room.onMessage('feast', (f: { x: number; y: number; r: number; energy: number; dna: number }) =>
     feed(f.x, f.y, f.r * 0.6, f.energy, f.dna, room.state.players.get(room.sessionId)?.mass ?? 1));
@@ -648,6 +660,9 @@ try {
     perf.mark('render');
   });
 } catch (err) {
-  hud.message(`Cannot reach server at ${endpoint}`);
   console.error(err);
+  if (String((err as Error).message).includes('pond full')) {
+    hud.message('The pond is full, try again in a minute');
+    setTimeout(() => location.reload(), 60_000);
+  } else reloadWhenUp(`Cannot reach server at ${endpoint}`);
 }

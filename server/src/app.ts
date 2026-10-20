@@ -16,7 +16,7 @@ export const createServer = (options: ServerOptions = {}) => defineServer({
   greet: false,
   // Every option must be set explicitly: Colyseus merges client create-options UNDER these,
   // so an unset key would let a client pass e.g. { dev: true } and unlock cheats.
-  rooms: { [ROOM_NAME]: defineRoom(PoolRoom, { dev: options.dev === true, bots: options.bots ?? BOT_FILL, hall: options.hall ?? ':memory:' }) },
+  rooms: { [ROOM_NAME]: defineRoom(PoolRoom, { dev: options.dev === true, bots: options.bots ?? BOT_FILL, hall: options.hall ?? ':memory:', rooms: options.rooms ?? Infinity }) },
   express: (app) => {
     app.get('/health', (_req, res) => { res.json({ ok: true, uptime: Math.round(process.uptime()) }); });
     if (options.client) app.use(express.static(options.client, { index: 'index.html', dotfiles: 'deny' }));
